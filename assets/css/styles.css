@@ -111,6 +111,15 @@ a { color: inherit; text-decoration: none; }
   color: var(--text-faint);
 }
 
+/* TJA logo lockup — replaces the text wordmark.
+   <img> = the real logo PNG (shows once added); inline <svg> = always-on
+   fallback layered underneath so the mark never appears broken. */
+.brand-logo { position: relative; display: inline-block; line-height: 0; }
+.brand-logo svg { position: relative; z-index: 1; display: block; width: 100%; height: auto; }
+.brand-logo img { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; object-fit: contain; }
+.login-card .brand-logo { width: 140px; }
+.sidebar .brand-logo { width: 88px; margin: 0 8px 18px; }
+
 .login-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 4px; }
 .login-hint  { font-size: .8rem; color: var(--text-dim); margin-bottom: 22px; }
 
