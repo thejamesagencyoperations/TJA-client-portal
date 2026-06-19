@@ -9,6 +9,6 @@
    for auth + shared data automatically.
    ============================================================ */
 window.SUPABASE_CONFIG = {
-  url: "",      // e.g. "https://abcdefgh.supabase.co"
-  anonKey: "",  // the "anon public" key (safe to expose in the browser)
+  url: "https://sliutkbdpuimxxmvsbek.supabase.co",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE",
 };
