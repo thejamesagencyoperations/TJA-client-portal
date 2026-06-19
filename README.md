@@ -56,6 +56,7 @@ CSS tokens at the top of that file.
 
 | Version | Notes                                                                    |
 | ------- | ------------------------------------------------------------------------ |
+| v1.24   | **Real TJA logo wired in.** Replaced the drawn SVG placeholder with the official vector logo (`assets/img/tja-logo.svg`, brand `#f68e21` + white) in the sidebar and login card. The `<img>` now points at the SVG; the inline-SVG stays as the underneath fallback. |
 | v1.23   | **Brand logo in the chrome.** Replaced the "THE JAMES AGENCY." text wordmark in the sidebar and on the login card with the TJA `tja` logo. Uses the real logo PNG (`assets/img/tja-logo.png`) layered over an always-on inline-SVG fallback, so the mark renders correctly even before/without the file. |
 | v1.0    | Initial sandbox: login + 6 pages (Burn, SAP, Status, Key Dates, Docs, Files) with Celtic Elevator placeholder data and the burn dial gauge. |
 | v1.1    | Present Docs rebuilt as an interactive creative-review tool: upload image creatives, click to enlarge, draw markup on the image (color pen, undo, clear), pick a status (Approve / Approve w/ changes / Revisions needed), and leave comments. Images downscaled + stored in localStorage. Removed placeholder doc cards. |
