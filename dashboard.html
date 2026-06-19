@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TJA Client Portal</title>
+<script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand-mark">THE JAMES AGENCY<span class="dot">.</span></div>
+    <nav class="nav" id="nav">
+      <div class="nav-item active" data-page="exec">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        Executive Summary
+      </div>
+      <div class="nav-item" data-page="projectplan">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        Project Plan
+      </div>
+      <div class="nav-item" data-page="status">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
+        Status
+      </div>
+      <div class="nav-item" data-page="docs">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        Present Docs
+      </div>
+      <div class="nav-item" data-page="files">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>
+        Files
+      </div>
+      <div class="nav-item" data-page="backlog" id="navBacklog">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        Backlog
+      </div>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="version-pill">Sandbox · v1.22</div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <header class="topbar">
+      <div class="client-id">
+        <div class="client-avatar" id="clientAvatar">CE</div>
+        <div>
+          <div class="client-name" id="clientName">Celtic Elevator</div>
+          <div class="client-meta" id="clientMeta">Client Portal</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
+        <div class="eng-toggle" id="engToggle">
+          <button class="eng-seg active" data-eng="retainer">Retainer</button>
+          <button class="eng-seg" data-eng="project">Project</button>
+        </div>
+        <div id="roleControls"></div>
+        <button class="btn btn-ghost" onclick="logout()">Sign Out</button>
+      </div>
+    </header>
+
+    <div class="preview-banner" id="previewBanner" style="display:none">
+      <span>👁 Previewing as <span id="previewClientName">client</span> — read-only client view</span>
+      <button id="exitPreview">Exit preview</button>
+    </div>
+
+    <main class="content" id="content">
+      <section class="page active" data-page="exec"></section>
+      <section class="page" data-page="projectplan"></section>
+      <section class="page" data-page="status"></section>
+      <section class="page" data-page="docs"></section>
+      <section class="page" data-page="files"></section>
+      <section class="page" data-page="backlog"></section>
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/js/supabase-config.js"></script>
+<script src="assets/js/supabase-sync.js"></script>
+<script src="assets/js/auth.js"></script>
+<script>requireAuth();</script>
+<script src="assets/data/celtic-elevator.js"></script>
+<script src="assets/js/present-docs.js"></script>
+<script src="assets/js/exec-summary.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

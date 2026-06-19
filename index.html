@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TJA Client Portal — Sign In</title>
+<script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="brand-lockup">
+      <div class="brand-mark">THE JAMES AGENCY<span class="dot">.</span></div>
+      <div class="brand-sub">Client Portal</div>
+    </div>
+
+    <div class="login-title">Sign in</div>
+    <div class="login-hint">Enter the credentials provided by your account team.</div>
+
+    <div class="login-error" id="loginError">Incorrect email or password. Please try again.</div>
+
+    <form id="loginForm" autocomplete="off">
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="you@company.com" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="••••••••••••" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Sign In</button>
+    </form>
+
+    <div class="login-foot">
+      © 2026 The James Agency · v1.22
+      <br>
+      <span class="sandbox-tag">Sandbox · Demo Login</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/js/supabase-config.js"></script>
+<script src="assets/js/supabase-sync.js"></script>
+<script src="assets/js/auth.js"></script>
+<script>
+  // If already signed in, skip straight to the dashboard.
+  if (getSession()) window.location.replace("dashboard.html");
+
+  document.getElementById("loginForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    const okLogin = await login(email, password);     // Supabase when configured, mock otherwise
+    btn.disabled = false;
+    if (okLogin) window.location.replace("dashboard.html");
+    else document.getElementById("loginError").classList.add("show");
+  });
+</script>
+</body>
+</html>
