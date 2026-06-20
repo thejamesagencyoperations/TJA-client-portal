@@ -198,15 +198,29 @@ window.ExecSummary = (function () {
     </div>`;
   }
 
+  function hexToRgba(hex, a) {
+    const h = String(hex || "").replace("#", "");
+    if (h.length !== 6) return `rgba(106,166,255,${a})`;
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
   function todosModule(e) {
+    const cc = e.todoClientColor || "#6aa6ff";   // TJA tasks are always orange; Client task colour is configurable
+    const tag = (t, i) => {
+      const style = t.owner === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
+      return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>`;
+    };
     const rows = (e.todos || []).map((t, i) => `
       <div class="tile-item">
-        <span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}" ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>
+        ${tag(t, i)}
         <span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text")}</span>
         ${listDel("todos", i)}
       </div>`).join("");
+    const colorPick = canAdmin()
+      ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>`
+      : "";
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.todo}To-Do's</span></div>
+      <div class="module-head"><span class="module-title">${IC.todo}To-Do's</span>${colorPick}</div>
       <div class="tile-list">${rows || `<div class="pr-date">Nothing outstanding.</div>`}</div>
       ${listAdd("todos", "Add to-do")}
     </div>`;
@@ -472,7 +486,11 @@ window.ExecSummary = (function () {
       sl.style.setProperty("--val", v + "%");
       const lbl = s.querySelector(`[data-svcpct="${i}"]`); if (lbl) lbl.textContent = v + "%";
     });
-    s.addEventListener("change", e => { if (e.target.closest("[data-svcalloc]")) window.DASH.saveState(); });
+    s.addEventListener("change", e => {
+      if (e.target.closest("[data-svcalloc]")) { window.DASH.saveState(); return; }
+      const tc = e.target.closest("[data-todocolor]");
+      if (tc) { window.DASH.getEng().todoClientColor = tc.value; window.DASH.saveState(); rerender(); return; }
+    });
 
     // text edits persist on focusout
     s.addEventListener("focusout", e => {

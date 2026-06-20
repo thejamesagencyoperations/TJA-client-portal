@@ -860,8 +860,13 @@ body[data-role="client"] .admin-only { display: none !important; }
 .tile-list { display: flex; flex-direction: column; gap: 9px; }
 .tile-item { display: flex; align-items: flex-start; gap: 9px; font-size: .84rem; }
 .tile-item .owner-tag { font-size: .58rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; flex: none; margin-top: 1px; }
-.owner-tag.client { background: rgba(246,142,33,.16); color: var(--accent-text); }
-.owner-tag.tja { background: rgba(86,156,255,.14); color: #6aa6ff; }
+.owner-tag.tja { background: rgba(246,142,33,.16); color: var(--accent-text); }   /* TJA = always TJA orange */
+.owner-tag.client { background: rgba(106,166,255,.16); color: #6aa6ff; }          /* Client = configurable (admin overrides inline) */
+.todo-colorpick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: .58rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--text-faint); }
+.todo-colorpick input[type="color"] { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }
+.todo-colorpick input[type="color"]::-webkit-color-swatch-wrapper { padding: 1px; }
+.todo-colorpick input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
 .tile-item .dep-mark { color: var(--warn); flex: none; }
 .kpi-row { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .kpi-row:last-child { border-bottom: none; }
@@ -883,8 +888,12 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pr-metric.pr-val { color: var(--good); font-size: .8rem; }
 
 /* ---- Executive Summary kanban (2 columns + movable tiles) ---- */
-.exec-cols { display: grid; grid-template-columns: 1fr 16px 1fr 16px 1fr; gap: 0; align-items: start; }
-.exec-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.exec-cols { display: grid; grid-template-columns: 1fr 16px 1fr 16px 1fr; gap: 0; align-items: stretch; }
+.exec-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 120px; }
+/* keep empty / short columns droppable so tiles can always move back across all 3 columns */
+body[data-role="admin"] .exec-col:empty { border: 1.5px dashed var(--line); border-radius: var(--radius); }
+body[data-role="admin"] .exec-col:empty::before { content: "Drop a tile here"; display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-faint); font-size: .72rem; letter-spacing: .04em; }
+body[data-role="admin"] .exec-col.drag-over:empty { border-color: var(--orange); }
 .exec-gutter { align-self: stretch; min-height: 40px; cursor: default; position: relative; touch-action: none; }
 .exec-gutter::before { content: ""; position: absolute; left: 50%; top: 4px; bottom: 4px; width: 2px; transform: translateX(-50%); background: var(--line); border-radius: 2px; opacity: .55; transition: opacity .15s ease, background .15s ease, width .15s ease; }
 body[data-role="admin"] .exec-gutter { cursor: col-resize; }
