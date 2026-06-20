@@ -649,8 +649,21 @@ body[data-role="client"] .admin-only { display: none !important; }
   border-style: dashed; color: var(--accent-text); font-weight: 700; min-height: 130px; }
 .pta-plus { font-size: 1.15rem; line-height: 1; }
 .pp-back { background: none; border: none; color: var(--accent-text); font-weight: 700;
-  font-size: .82rem; cursor: pointer; padding: 4px 0; margin-bottom: 4px; }
+  font-size: .82rem; cursor: pointer; padding: 4px 0; margin-bottom: 10px; }
 .pp-back:hover { text-decoration: underline; }
+.proj-del { margin-left: auto; background: none; border: none; color: var(--text-faint);
+  font-size: .9rem; line-height: 1; cursor: pointer; padding: 2px 5px; border-radius: 6px; }
+.proj-del:hover { color: var(--bad); background: rgba(239,83,80,.12); }
+.proj-tile-confirm { justify-content: center; gap: 4px; border-color: var(--bad); cursor: default; }
+.proj-tile-confirm .ptc-q { font-weight: 800; font-size: .95rem; }
+.proj-tile-confirm .ptc-sub { font-size: .74rem; color: var(--text-dim); }
+.ptc-actions { display: flex; gap: 8px; margin-top: 10px; }
+.ptc-del { background: var(--bad); color: #fff; border: none; border-radius: 8px;
+  padding: 8px 12px; font-weight: 700; font-size: .8rem; cursor: pointer; }
+.ptc-del:hover { filter: brightness(1.06); }
+.ptc-cancel { background: transparent; border: 1px solid var(--line); color: var(--text);
+  border-radius: 8px; padding: 8px 12px; font-weight: 600; font-size: .8rem; cursor: pointer; }
+.ptc-cancel:hover { border-color: var(--text-faint); }
 
 /* Doc library */
 .doc-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }

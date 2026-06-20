@@ -152,7 +152,7 @@ window.ExecSummary = (function () {
         ${canAdmin() ? `<button class="ms-del" data-listdel="milestones" data-idx="${i}" title="Remove milestone">✕</button>` : ""}
       </div>`).join("");
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.flag}Milestones</span><span class="module-link" data-go="projectplan">Project plan →</span></div>
+      <div class="module-head"><span class="module-title">${IC.flag}Milestones</span></div>
       <div class="ms-list">${items}</div>
       ${listAdd("milestones", "Add milestone")}
     </div>`;
@@ -260,6 +260,7 @@ window.ExecSummary = (function () {
       ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
       : "";
     return `
+    ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${canAdmin() ? `<div class="admin-hint">✎ Admin — fields are editable · drag a tile by its header to rearrange · ✕ to remove a tile</div>` : ""}
     <div class="exec-header">
       <div>

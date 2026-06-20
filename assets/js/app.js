@@ -115,7 +115,9 @@ function setPath(obj, path, val) {
 }
 
 // shared with exec-summary.js
-window.DASH = { get D() { return D; }, get state() { return STATE; }, getEng, saveState, getPath, setPath, esc, badge, STATUS, STATUS_CLASS };
+window.DASH = { get D() { return D; }, get state() { return STATE; }, getEng, saveState, getPath, setPath, esc, badge, STATUS, STATUS_CLASS,
+  // "← All projects" link, shown on a project's homepage when several projects exist (handled in exec-summary render so it survives rerender)
+  projectBack: () => (!isRetainer() && getProjects().length > 1 && selectedProject()) ? `<button class="pp-back" data-allprojects>← All projects</button>` : "" };
 
 /* ---------- Project Plan (multi-project folders + editable) ---------- */
 const rygDot = (lvl) => `<span class="ryg-dot ${lvl}"></span>`;
@@ -146,6 +148,39 @@ function projectPct(p) {
   const ph = (p.pizza && p.pizza.phases) || [];
   if (ph.length) return Math.round(ph.filter(x => x.done).length / ph.length * 100);
   return 0;
+}
+let pendingDeleteId = null;   // project id awaiting delete-confirm (two-step, prevents accidental delete)
+// Projects landing — a folder of project tiles (Projects is a top-mode, not a left-nav tab).
+function renderProjectFolder() {
+  const admin = ppAdmin();
+  const projects = getProjects();
+  const tiles = projects.map(p => {
+    if (pendingDeleteId === p.id) {
+      return `<div class="proj-tile proj-tile-confirm">
+          <div class="ptc-q">Delete “${esc(p.label || p.name)}”?</div>
+          <div class="ptc-sub">This removes the project and its data.</div>
+          <div class="ptc-actions">
+            <button class="ptc-del" data-ppdelconfirm="${esc(p.id)}">Delete project</button>
+            <button class="ptc-cancel" data-ppdelcancel>Cancel</button>
+          </div>
+        </div>`;
+    }
+    const lvl = (p.projectPlan && p.projectPlan.status && p.projectPlan.status.level) || (p.condition && p.condition.level) || "green";
+    const pct = projectPct(p);
+    return `<div class="proj-tile" data-ppopen="${esc(p.id)}">
+        <div class="proj-tile-top"><span class="ryg-dot ${lvl}"></span><span class="proj-tile-name">${esc(p.label || p.name)}</span>${admin ? `<button class="proj-del" data-ppdel="${esc(p.id)}" title="Delete project">✕</button>` : ""}</div>
+        <div class="proj-tile-sub">${esc(p.name)}</div>
+        <div class="bar"><span style="width:${pct}%"></span></div>
+        <div class="proj-tile-foot">${pct}% complete</div>
+      </div>`;
+  }).join("");
+  return `
+  ${admin ? `<div class="admin-hint">✎ Admin — click a project to open it · ＋ adds a project · ✕ then confirm to delete</div>` : ""}
+  <div class="page-head">
+    <div class="page-title">Projects</div>
+    <div class="page-desc">${projects.length ? `${projects.length} active project${projects.length === 1 ? "" : "s"} — choose one to open.` : "No projects yet — add your first one."}</div>
+  </div>
+  <div class="proj-grid">${tiles}${admin ? `<button class="proj-tile proj-tile-add" data-ppaddproject><span class="pta-plus">＋</span> New Project</button>` : ""}</div>`;
 }
 function renderProjectPicker(projects, admin) {
   const tiles = projects.map(p => {
@@ -258,47 +293,24 @@ let ppWired = false;
 function initProjectPlan() {
   if (ppWired) return; ppWired = true;
   const page = document.querySelector('.page[data-page="projectplan"]');
-  page.addEventListener("focusout", e => {
-    const f = e.target.closest("[data-pp]"); if (!f) return;
-    let v = f.textContent.trim();
-    if (f.dataset.num) { const n = parseFloat(v.replace(/[^0-9.]/g, "")); v = isNaN(n) ? 0 : n; }
-    setPath(getEng(), f.dataset.pp, v); saveState();
-    if (f.dataset.rerender) repaint("projectplan");
-  });
   page.addEventListener("click", e => {
-    const eng = getEng(); const pp = eng.projectPlan;
-    const open = e.target.closest("[data-ppopen]");
-    if (open) { selectProject(open.dataset.ppopen); applyEngagement(); repaintAll(); return; }
-    const back = e.target.closest("[data-ppback]");
-    if (back) { selectProject(""); applyEngagement(); repaintAll(); return; }
-    const np = e.target.closest("[data-ppnewproject]");
-    if (np) { const id = "p_" + Date.now().toString(36); getProjects().push(newProjectTemplate(id)); selectProject(id); saveState(); applyEngagement(); repaintAll(); return; }
-    const dpj = e.target.closest("[data-ppdelproject]");
-    if (dpj) { const pid = dpj.dataset.ppdelproject; STATE.engagements.projects = getProjects().filter(x => x.id !== pid); selectProject(""); saveState(); applyEngagement(); repaintAll(); return; }
-    const ryg = e.target.closest("[data-ppryg]");
-    if (ryg) { const order = ["green", "yellow", "red"]; const cur = getPath(eng, ryg.dataset.ppryg); setPath(eng, ryg.dataset.ppryg, order[(order.indexOf(cur) + 1) % 3]); saveState(); repaint("projectplan"); return; }
-    const ts = e.target.closest("[data-ppstatus]");
-    if (ts) { const order = ["pending", "in-progress", "complete", "blocked"]; const cur = getPath(eng, ts.dataset.ppstatus); setPath(eng, ts.dataset.ppstatus, order[(order.indexOf(cur) + 1) % 4]); saveState(); repaint("projectplan"); return; }
-    const at = e.target.closest("[data-ppaddtask]");
-    if (at) { pp.phases[+at.dataset.ppaddtask].tasks.push({ id: "", task: "New task", who: "TJA", dependency: "", start: "", end: "", pct: 0, status: "pending", notes: "" }); saveState(); repaint("projectplan"); return; }
-    const add = e.target.closest("[data-ppadd]");
-    if (add) {
-      const k = add.dataset.ppadd;
-      if (k === "cp") pp.criticalPath.push({ ryg: "green", item: "New milestone", owner: "TJA", window: "", why: "", action: "" });
-      else if (k === "risk") pp.risks.push({ id: "R" + (pp.risks.length + 1), risk: "New risk", ryg: "yellow", impact: "Medium", owner: "TJA", mitigation: "" });
-      else if (k === "phase") pp.phases.push({ name: (pp.phases.length + 1) + " New phase", tasks: [] });
-      saveState(); repaint("projectplan"); return;
-    }
+    // two-step delete: ✕ arms it, then an explicit confirm actually removes the project
+    const delc = e.target.closest("[data-ppdelconfirm]");
+    if (delc) { const id = delc.dataset.ppdelconfirm; STATE.engagements.projects = getProjects().filter(x => x.id !== id); if (selectedProjectId === id) selectProject(""); pendingDeleteId = null; saveState(); applyEngagement(); repaint("projectplan"); return; }
+    const delx = e.target.closest("[data-ppdelcancel]");
+    if (delx) { pendingDeleteId = null; repaint("projectplan"); return; }
     const del = e.target.closest("[data-ppdel]");
-    if (del) {
-      const p = del.dataset.ppdel.split(".");
-      if (p[0] === "cp") pp.criticalPath.splice(+p[1], 1);
-      else if (p[0] === "risk") pp.risks.splice(+p[1], 1);
-      else if (p[0] === "phase") pp.phases.splice(+p[1], 1);
-      else if (p[0] === "task") pp.phases[+p[1]].tasks.splice(+p[2], 1);
-      saveState(); repaint("projectplan"); return;
-    }
+    if (del) { pendingDeleteId = del.dataset.ppdel; repaint("projectplan"); return; }
+    const add = e.target.closest("[data-ppaddproject]");
+    if (add) { const id = "p_" + Date.now().toString(36); getProjects().push(newProjectTemplate(id)); selectProject(id); saveState(); applyEngagement(); openFresh("exec"); return; }
+    const open = e.target.closest("[data-ppopen]");
+    if (open) { selectProject(open.dataset.ppopen); applyEngagement(); openFresh("exec"); return; }
   });
+}
+// activate a page with a guaranteed fresh repaint (engagement context just changed)
+function openFresh(page) {
+  document.querySelectorAll(".page").forEach(p => { p.dataset.painted = ""; p.innerHTML = ""; });
+  activate(page);
 }
 
 /* ---------- Status (service-line detail) ---------- */
@@ -458,7 +470,7 @@ function initFiles() {
 /* ---------- routing ---------- */
 const RENDERERS = {
   exec: () => window.ExecSummary.render(getEng()),
-  projectplan: renderProjectPlan, status: renderStatus,
+  projectplan: renderProjectFolder, status: renderStatus,
   docs: () => (window.PresentDocs ? window.PresentDocs.render() : ""),
   files: renderFiles, backlog: renderBacklog,
 };
@@ -529,15 +541,14 @@ function applyRole() {
   if (show) el("#previewClientName").textContent = D.client.name;
 }
 
-/* ---------- engagement toggle (Retainer ⇄ Project) ---------- */
+/* ---------- engagement toggle (Monthly Services ⇄ Projects) ---------- */
 function applyEngagement() {
   const tog = el("#engToggle");
   tog.innerHTML =
-    `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-engmode="retainer">Retainer</button>` +
-    `<button class="eng-seg ${!isRetainer() ? "active" : ""}" data-engmode="project">Project</button>`;
-  el("#clientMeta").textContent = getEng().name;
-  const npj = el("#navProjects"); if (npj) npj.style.display = isRetainer() ? "none" : "";   // Projects tab = project-only
-  el("#navBacklog").style.display = isRetainer() ? "" : "none";                              // Backlog = retainer-only
+    `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-engmode="retainer">Monthly Services</button>` +
+    `<button class="eng-seg ${!isRetainer() ? "active" : ""}" data-engmode="project">Projects</button>`;
+  el("#clientMeta").textContent = (!isRetainer() && !selectedProject()) ? "Projects" : getEng().name;
+  el("#navBacklog").style.display = isRetainer() ? "" : "none";   // Backlog = Monthly-Services-only
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");
 }
@@ -557,13 +568,20 @@ function applyEngagement() {
     const seg = e.target.closest(".eng-seg"); if (!seg || !seg.dataset.engmode) return;
     const mode = seg.dataset.engmode;
     setEngMode(mode);
+    let target = "exec";
     if (mode === "project") {
       const ps = getProjects();
-      selectProject(ps.length === 1 ? ps[0].id : "");   // one → open it; several/none → tile picker
+      if (ps.length === 1) { selectProject(ps[0].id); target = "exec"; }   // one project → open its homepage
+      else { selectProject(""); target = "projectplan"; }                  // none/several → projects folder
     }
     applyEngagement();
     document.querySelectorAll(".page").forEach(p => { p.dataset.painted = ""; p.innerHTML = ""; });
-    activate(mode === "project" ? "projectplan" : "exec");   // Project lands on the Projects tab; Retainer on the homepage
+    activate(target);
+  });
+
+  // "← All projects" (shown on a project's homepage) returns to the folder
+  document.addEventListener("click", e => {
+    if (e.target.closest("[data-allprojects]")) { selectProject(""); applyEngagement(); openFresh("projectplan"); }
   });
 
   // Live data: pull from Supabase when configured (otherwise stay on localStorage)
@@ -601,5 +619,11 @@ function applyEngagement() {
   });
 
   applyEngagement();
-  activate("exec");
+  let bootPage = "exec";
+  if (!isRetainer()) {
+    const ps = getProjects();
+    if (ps.length === 1) selectProject(ps[0].id);          // single project → straight to its homepage
+    else if (!selectedProject()) bootPage = "projectplan"; // none chosen → projects folder
+  }
+  activate(bootPage);
 })();
