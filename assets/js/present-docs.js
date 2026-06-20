@@ -96,6 +96,10 @@ window.PresentDocs = (function () {
               <img id="pdImg" alt="creative">
               <canvas id="pdCanvas"></canvas>
               <div class="pd-pins" id="pdPins"></div>
+              <div class="pd-pin-popup" id="pdPopup" style="display:none">
+                <button class="pd-popup-close" id="pdPopupClose" title="Close">✕</button>
+                <textarea data-popuptext placeholder="Add a note for this pin…"></textarea>
+              </div>
             </div>
             <div class="pd-draw-tools">
               <div class="pd-seg">
@@ -294,13 +298,14 @@ window.PresentDocs = (function () {
     if (index < 0) return;
     const [pin] = v.pins.splice(index, 1);
     history.push({ type: "pinDel", pin, index });
+    const pop = $("pdPopup"); if (pop && pop.dataset.pin === id) hidePopup();
     save(); renderPins(); renderPinList();
   }
   function clearComments() {
     const v = active(deliv(curId)); if (!v.pins.length) return;
     history.push({ type: "pinClear", pins: v.pins.slice() });
     v.pins = [];
-    save(); renderPins(); renderPinList();
+    hidePopup(); save(); renderPins(); renderPinList();
   }
   function toggleResolve(id) {
     const v = active(deliv(curId)); const p = v.pins.find(x => x.id === id); if (!p) return;
@@ -311,7 +316,31 @@ window.PresentDocs = (function () {
     document.querySelectorAll(".pd-comment").forEach(c => c.classList.toggle("sel", c.dataset.row === id));
     const m = document.querySelector(`.pd-pin[data-pin="${id}"]`);
     if (m) { m.classList.add("pulse"); setTimeout(() => m.classList.remove("pulse"), 700); }
+    const v = active(deliv(curId)); const p = v && v.pins.find(x => x.id === id);
+    if (p) showPopup(p);   // bring the note up on the image, anchored to the pin
   }
+
+  /* ---------- in-image comment popup (anchored to the pin) ---------- */
+  function showPopup(p) {
+    const wrap = $("pdWrap"), pins = $("pdPins"), pop = $("pdPopup");
+    if (!wrap || !pins || !pop) return;
+    const ox = parseFloat(pins.style.left) || 0, oy = parseFloat(pins.style.top) || 0;
+    const pw = parseFloat(pins.style.width) || 0, ph = parseFloat(pins.style.height) || 0;
+    const px = ox + p.x * pw, py = oy + p.y * ph;
+    pop.dataset.pin = p.id;
+    const ta = pop.querySelector("[data-popuptext]");
+    ta.value = p.text || "";
+    pop.style.display = "block";
+    const popW = pop.offsetWidth || 230, popH = pop.offsetHeight || 110;
+    let left = px + 18, top = py - 12;
+    if (left + popW > wrap.clientWidth - 4) left = px - popW - 18;
+    if (left < 4) left = 4;
+    top = Math.max(4, Math.min(top, wrap.clientHeight - popH - 4));
+    pop.style.left = left + "px"; pop.style.top = top + "px";
+    ta.focus();
+  }
+  function hidePopup() { const pop = $("pdPopup"); if (pop) { pop.style.display = "none"; pop.dataset.pin = ""; } }
+  function syncPopup(p) { const pop = $("pdPopup"); if (pop && pop.dataset.pin === p.id) { const ta = pop.querySelector("[data-popuptext]"); if (ta && ta.value !== p.text) ta.value = p.text; } }
 
   /* ---------- unified undo ---------- */
   function undo() {
@@ -350,7 +379,7 @@ window.PresentDocs = (function () {
   /* ---------- modal ---------- */
   function loadVersionIntoModal() {
     const d = deliv(curId); const v = active(d);
-    history = [];
+    history = []; hidePopup();
     $("pdTitle").textContent = d.name;
     $("pdComments").value = v.comments || "";
     $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"} · ${d.versions.length} version(s)`;
@@ -379,7 +408,7 @@ window.PresentDocs = (function () {
     $("pdSaved").classList.remove("show");
     loadVersionIntoModal();
   }
-  function closeModal() { persistCanvas(); save(); renderGallery(); $("pdModal").classList.remove("open"); curId = null; }
+  function closeModal() { persistCanvas(); save(); renderGallery(); hidePopup(); $("pdModal").classList.remove("open"); curId = null; }
 
   function setTool(t) {
     tool = t;
@@ -420,12 +449,27 @@ window.PresentDocs = (function () {
   function snapshot() { if (!ctx) return; try { history.push({ type: "draw", img: ctx.getImageData(0, 0, cv.width, cv.height) }); if (history.length > 60) history.shift(); } catch {} }
 
   /* ---------- wiring ---------- */
-  let wired = false;
+  // The Present Docs page DOM is rebuilt every time its tab repaints, so the
+  // element listeners must re-attach each time; document/window listeners attach once.
+  let wiredGlobal = false;
   function init() {
     load(); renderGallery();
-    if (wired) return;
-    wired = true;
+    wireElements();
+    if (wiredGlobal) return;
+    wiredGlobal = true;
+    document.addEventListener("keydown", e => {
+      const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
+      if (e.key === "Escape") closeModal();
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+    });
+    window.addEventListener("resize", () => {
+      const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
+      const v = active(deliv(curId));
+      persistCanvas(); sizeOverlay(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); drawSaved(v && v.annotation); renderPins(); hidePopup();
+    });
+  }
 
+  function wireElements() {
     $("pdUploadBtn").addEventListener("click", () => $("pdFile").click());
     $("pdFile").addEventListener("change", e => { handleNewDeliverables(e.target.files); e.target.value = ""; });
     $("pdResubmit").addEventListener("click", () => $("pdVerFile").click());
@@ -440,14 +484,7 @@ window.PresentDocs = (function () {
 
     $("pdClose").addEventListener("click", closeModal);
     $("pdBackdrop").addEventListener("click", closeModal);
-    document.addEventListener("keydown", e => {
-      if (!$("pdModal").classList.contains("open")) return;
-      if (e.key === "Escape") closeModal();
-      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
-    });
-
     $("pdRename").addEventListener("click", () => { const d = deliv(curId); if (d) renameInline($("pdTitle"), d); });
-
     $("pdToolDraw").addEventListener("click", () => setTool("draw"));
     $("pdToolComment").addEventListener("click", () => setTool("comment"));
 
@@ -458,7 +495,6 @@ window.PresentDocs = (function () {
 
     $("pdUndo").addEventListener("click", undo);
     $("pdClear").addEventListener("click", () => { snapshot(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); });
-
     $("pdVers").addEventListener("click", e => { const c = e.target.closest("[data-ver]"); if (c) switchVersion(+c.dataset.ver); });
 
     $("pdStatus").addEventListener("click", e => {
@@ -472,33 +508,38 @@ window.PresentDocs = (function () {
     $("pdPinList").addEventListener("input", e => {
       const ta = e.target.closest("[data-pintext]"); if (!ta) return;
       const v = active(deliv(curId)); const p = v.pins.find(x => x.id === ta.dataset.pintext);
-      if (p) { p.text = ta.value; save(); }
+      if (p) { p.text = ta.value; save(); syncPopup(p); }
     });
     $("pdPinList").addEventListener("click", e => {
       const res = e.target.closest("[data-resolve]"); if (res) { toggleResolve(res.dataset.resolve); return; }
       const del = e.target.closest("[data-pindel]"); if (del) { deletePin(del.dataset.pindel); return; }
       const card = e.target.closest(".pd-comment");
-      if (card && e.target.tagName !== "TEXTAREA") selectPin(card.dataset.row);  // highlight matching pin
+      if (card && e.target.tagName !== "TEXTAREA") selectPin(card.dataset.row);  // highlight pin + open its in-image note
     });
     $("pdClearComments").addEventListener("click", clearComments);
 
     $("pdPins").addEventListener("click", e => {
       if (tool !== "comment") return;
       const marker = e.target.closest(".pd-pin");
-      if (marker) {
-        selectPin(marker.dataset.pin);
-        const row = document.querySelector(`[data-pintext="${marker.dataset.pin}"]`);
-        if (row) { row.focus(); row.scrollIntoView({ block: "nearest" }); }
-        return;
-      }
+      if (marker) { selectPin(marker.dataset.pin); return; }
       const layer = $("pdPins"); const r = layer.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
       if (x < 0 || x > 1 || y < 0 || y > 1) return;
       addPin(x, y);
     });
 
+    const pop = $("pdPopup");
+    if (pop) {
+      pop.querySelector("[data-popuptext]").addEventListener("input", e => {
+        const id = pop.dataset.pin; if (!id) return;
+        const v = active(deliv(curId)); const p = v && v.pins.find(x => x.id === id);
+        if (p) { p.text = e.target.value; save(); const ta = document.querySelector(`[data-pintext="${id}"]`); if (ta) ta.value = p.text; }
+      });
+      $("pdPopupClose").addEventListener("click", hidePopup);
+    }
+
     cv = $("pdCanvas");
-    cv.addEventListener("pointerdown", e => { if (tool !== "draw" || !ctx) return; snapshot(); drawing = true; lastPt = pos(e); cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointerdown", e => { if (tool !== "draw" || !ctx) return; hidePopup(); snapshot(); drawing = true; lastPt = pos(e); cv.setPointerCapture(e.pointerId); });
     cv.addEventListener("pointermove", e => {
       if (!drawing || !ctx) return;
       const p = pos(e);
@@ -510,12 +551,6 @@ window.PresentDocs = (function () {
     cv.addEventListener("pointerleave", () => { drawing = false; });
 
     $("pdSubmit").addEventListener("click", submitReview);
-
-    window.addEventListener("resize", () => {
-      if (!$("pdModal").classList.contains("open")) return;
-      const v = active(deliv(curId));
-      persistCanvas(); sizeOverlay(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); drawSaved(v && v.annotation); renderPins();
-    });
   }
 
   return { render, init };

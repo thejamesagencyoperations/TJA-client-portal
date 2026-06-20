@@ -516,6 +516,17 @@ body[data-role="client"] .admin-only { display: none !important; }
   display: grid; place-items: center; padding: 0;
 }
 .pd-pin.sel { background: #fff; }
+/* in-image comment popup (anchored to a pin) */
+.pd-pin-popup { position: absolute; z-index: 8; width: 230px; box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--orange); border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.45); padding: 10px; }
+.pd-pin-popup textarea { width: 100%; min-height: 72px; box-sizing: border-box; resize: vertical;
+  background: var(--input); border: 1px solid var(--line); border-radius: 7px; color: var(--text);
+  font: inherit; font-size: .82rem; line-height: 1.4; padding: 8px 9px; outline: none; }
+.pd-pin-popup textarea:focus { border-color: var(--orange); }
+.pd-popup-close { position: absolute; top: -9px; right: -9px; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text-faint); cursor: pointer; font-size: .68rem; line-height: 1; }
+.pd-popup-close:hover { color: var(--bad); border-color: var(--bad); }
 
 .pd-draw-tools {
   display: flex; align-items: center; gap: 10px; padding: 11px 18px;
