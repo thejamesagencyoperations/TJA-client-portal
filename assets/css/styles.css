@@ -885,9 +885,25 @@ body[data-role="admin"] .exec-gutter:hover::before, .exec-gutter.resizing::befor
   .exec-cols { grid-template-columns: 1fr !important; gap: 14px; }
   .exec-gutter { display: none; }
 }
-.exec-tile { position: relative; transition: opacity .12s ease; }
+.exec-tile { position: relative; transition: opacity .12s ease; min-width: 0; }
 .exec-tile.dragging { opacity: .4; }
 .exec-tile.drag-over { outline: 2px dashed var(--orange); outline-offset: 3px; border-radius: var(--radius); }
+/* admins can resize each tile in both directions (drag the bottom-right corner) */
+body[data-role="admin"] .exec-tile { resize: both; overflow: hidden; min-width: 170px; min-height: 88px; }
+body[data-role="admin"] .exec-tile > .module { height: 100%; overflow: auto; }
+body[data-role="admin"] .exec-tile::after { content: ""; position: absolute; right: 2px; bottom: 2px; width: 9px; height: 9px; pointer-events: none;
+  background: linear-gradient(135deg, transparent 45%, var(--text-faint) 45%, var(--text-faint) 55%, transparent 55%, transparent 70%, var(--text-faint) 70%, var(--text-faint) 80%, transparent 80%); opacity: .6; }
+@media (max-width: 900px) { body[data-role="admin"] .exec-tile { resize: none; } }
+
+/* North Star banner — slim full-width strip above the columns */
+.ns-banner { display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+  background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--card-shadow); padding: 11px 16px; margin-bottom: 14px; }
+.ns-banner-bolt { display: inline-flex; flex: none; }
+.ns-banner-bolt svg { width: 16px; height: 16px; color: var(--orange); }
+.ns-banner-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .14em; color: var(--text-dim); font-weight: 800; flex: none; }
+.ns-banner-text { font-size: .92rem; color: var(--text); font-weight: 500; flex: 1 1 240px; min-width: 0; }
+.ns-banner-due { font-size: .78rem; color: var(--text-dim); flex: none; margin-left: auto; }
 .exec-col.drag-over { outline: 2px dashed var(--line); outline-offset: 3px; border-radius: var(--radius); }
 /* the module header is the drag handle in admin */
 body[data-role="admin"] .tile-drag-handle { cursor: grab; }

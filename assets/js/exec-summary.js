@@ -268,13 +268,14 @@ window.ExecSummary = (function () {
   function defaultLayout(e) {
     const c3 = ["dependencies", "kpis"];
     if (e.type !== "project") c3.push("pr");
-    return { v: LAYOUT_V, c1: ["burn", "service"], c2: ["milestones", "todos"], c3, hidden: e.type === "project" ? ["pr"] : [], widths: [1.2, 1, 1] };
+    return { v: LAYOUT_V, c1: ["burn", "service"], c2: ["milestones", "todos"], c3, hidden: e.type === "project" ? ["pr"] : [], widths: [1.2, 1, 1], sizes: {} };
   }
   function getLayout(e) {
     if (!e.layout || e.layout.v !== LAYOUT_V) e.layout = defaultLayout(e);
     const L = e.layout;
     if (!Array.isArray(L.hidden)) L.hidden = [];
     if (!Array.isArray(L.widths) || L.widths.length !== 3) L.widths = [1.2, 1, 1];
+    if (!L.sizes || typeof L.sizes !== "object") L.sizes = {};   // per-tile width/height overrides
     // drop unknown/duplicate keys; keep only real modules, de-duped (e.g. legacy "condition" is now folded into burn)
     const valid = Object.keys(MODULES); const used = new Set();
     [...COLS, "hidden"].forEach(c => { if (!Array.isArray(L[c])) L[c] = []; L[c] = L[c].filter(k => valid.includes(k) && !used.has(k) && used.add(k)); });
@@ -288,8 +289,23 @@ window.ExecSummary = (function () {
   }
   const TILEBAR = (key) => !canAdmin() ? "" : `<button class="tile-remove" data-tileremove="${key}" title="Remove tile">✕</button>`;
   function colHtml(e, col) {
-    const keys = getLayout(e)[col];
-    return keys.map((k) => `<div class="exec-tile" data-key="${k}">${TILEBAR(k)}${MODULES[k].fn(e)}</div>`).join("");
+    const lay = getLayout(e);
+    return lay[col].map((k) => {
+      const sz = lay.sizes && lay.sizes[k];
+      const style = sz ? ` style="${sz.w ? `width:${sz.w};` : ""}${sz.h ? `height:${sz.h};` : ""}"` : "";
+      return `<div class="exec-tile" data-key="${k}"${style}>${TILEBAR(k)}${MODULES[k].fn(e)}</div>`;
+    }).join("");
+  }
+
+  /* ---- North Star banner (full-width strip across all 3 columns) ---- */
+  function northStarBanner(e) {
+    const due = e.type === "project" ? `<span class="ns-banner-due">Due ${ed(e.dueDate, "dueDate")}</span>` : "";
+    return `<div class="ns-banner">
+      <span class="ns-banner-bolt">${IC.bolt}</span>
+      <span class="ns-banner-label">North Star</span>
+      <span class="ns-banner-text">${ed(e.northStar, "northStar")}</span>
+      ${due}
+    </div>`;
   }
 
   /* ---- assemble ---- */
@@ -300,6 +316,7 @@ window.ExecSummary = (function () {
       : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
+    ${northStarBanner(e)}
     <div class="exec-cols" style="grid-template-columns:${colTemplate(e)}">
       <div class="exec-col" data-col="c1">${colHtml(e, "c1")}</div>
       <div class="exec-gutter" data-gutter="0" title="Drag to resize columns"></div>
@@ -428,6 +445,21 @@ window.ExecSummary = (function () {
     rerender();
     if (wired) return; wired = true;
     const s = section();
+
+    // per-tile resize (CSS resize: both) — persist each tile's width/height on release
+    document.addEventListener("mouseup", () => {
+      if (!canAdmin()) return;
+      const sec = section(); if (!sec) return;
+      const lay = getLayout(window.DASH.getEng()); lay.sizes = lay.sizes || {};
+      let changed = false;
+      sec.querySelectorAll(".exec-tile[data-key]").forEach(t => {
+        const w = t.style.width, h = t.style.height;
+        if (!w && !h) return;
+        const cur = lay.sizes[t.dataset.key] || {};
+        if (cur.w !== w || cur.h !== h) { lay.sizes[t.dataset.key] = { w, h }; changed = true; }
+      });
+      if (changed) window.DASH.saveState();
+    });
 
     // text edits persist on focusout
     s.addEventListener("focusout", e => {

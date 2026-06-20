@@ -553,22 +553,13 @@ function applyEngagement() {
   tog.innerHTML =
     `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-engmode="retainer">Monthly Services</button>` +
     `<button class="eng-seg ${!isRetainer() ? "active" : ""}" data-engmode="project">Projects</button>`;
-  // topbar identity: client name (set once) + engagement label + North Star (moved out of the page header)
+  // topbar identity: client name (set once) + engagement label. North Star now lives in its own
+  // full-width banner at the top of the Executive Summary (see exec-summary.js northStarBanner).
   const eng = getEng();
   const onFolder = !isRetainer() && !selectedProject();
   el("#clientMeta").textContent = "· " + (isRetainer() ? "Monthly Services" : (onFolder ? "Projects" : (eng.label || eng.name)));
   const ns = el("#clientNorthstar");
-  if (ns) {
-    const admin = (typeof canEdit === "function") && canEdit();
-    if (onFolder) { ns.innerHTML = ""; }
-    else {
-      const star = `<svg class="ns-bolt-mini" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>`;
-      const nsTxt = admin ? `<span class="tb-ed" contenteditable="true" data-tbpath="northStar">${esc(eng.northStar || "")}</span>` : esc(eng.northStar || "");
-      const due = (eng.type === "project" && (eng.dueDate || admin))
-        ? `<span class="tb-due"> · Due ${admin ? `<span class="tb-ed" contenteditable="true" data-tbpath="dueDate">${esc(eng.dueDate || "")}</span>` : esc(eng.dueDate || "")}</span>` : "";
-      ns.innerHTML = `${star}<span class="ns-line">${nsTxt}${due}</span>`;
-    }
-  }
+  if (ns) ns.innerHTML = "";
   el("#navBacklog").style.display = isRetainer() ? "" : "none";   // Backlog = Monthly-Services-only
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");
