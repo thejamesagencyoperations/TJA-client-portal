@@ -67,16 +67,22 @@ function updateUndoBtn() {
   b.textContent = undoStack.length ? `↶ Undo (${undoStack.length})` : "↶ Undo";
 }
 
-let currentEng = sessionStorage.getItem("tja_eng") || "retainer";
+// Engagement context = a MODE (retainer | project) + which project is open.
+let engMode = sessionStorage.getItem("tja_eng_mode");
+let selectedProjectId = sessionStorage.getItem("tja_proj") || "";
+if (!engMode) {                                   // migrate older "tja_eng" key (retainer | project:<id>)
+  const old = sessionStorage.getItem("tja_eng") || "retainer";
+  if (old.indexOf("project:") === 0) { engMode = "project"; selectedProjectId = old.slice(8); }
+  else engMode = "retainer";
+}
 function getProjects() { return STATE.engagements.projects || []; }
-function isRetainer() { return currentEng === "retainer"; }
+function isRetainer() { return engMode === "retainer"; }
+function selectedProject() { return getProjects().find(p => p.id === selectedProjectId) || null; }
+function setEngMode(m) { engMode = m; sessionStorage.setItem("tja_eng_mode", m); }
+function selectProject(id) { selectedProjectId = id || ""; sessionStorage.setItem("tja_proj", selectedProjectId); }
 function getEng() {
-  if (currentEng === "retainer" && STATE.engagements.retainer) return STATE.engagements.retainer;
-  if (currentEng && currentEng.indexOf("project:") === 0) {
-    const p = getProjects().find(x => x.id === currentEng.slice(8));
-    if (p) return p;
-  }
-  return STATE.engagements.retainer || getProjects()[0];
+  if (isRetainer() && STATE.engagements.retainer) return STATE.engagements.retainer;
+  return selectedProject() || getProjects()[0] || STATE.engagements.retainer;
 }
 function newProjectTemplate(id) {
   return {
@@ -132,18 +138,51 @@ function taskStatusCell(status, path) {
 }
 const ppDel = (key) => `<button class="row-del" data-ppdel="${key}" title="Remove">✕</button>`;
 
+function projectPct(p) {
+  const pp = p.projectPlan || {};
+  if (pp.status && pp.status.pct !== "" && pp.status.pct != null) return +pp.status.pct || 0;
+  const tasks = (pp.phases || []).flatMap(ph => ph.tasks || []);
+  if (tasks.length) return Math.round(tasks.reduce((s, t) => s + (+t.pct || 0), 0) / tasks.length);
+  const ph = (p.pizza && p.pizza.phases) || [];
+  if (ph.length) return Math.round(ph.filter(x => x.done).length / ph.length * 100);
+  return 0;
+}
+function renderProjectPicker(projects, admin) {
+  const tiles = projects.map(p => {
+    const lvl = (p.projectPlan && p.projectPlan.status && p.projectPlan.status.level) || (p.condition && p.condition.level) || "green";
+    const pct = projectPct(p);
+    return `<button class="proj-tile" data-ppopen="${esc(p.id)}">
+        <div class="proj-tile-top"><span class="ryg-dot ${lvl}"></span><span class="proj-tile-name">${esc(p.label || p.name)}</span></div>
+        <div class="proj-tile-sub">${esc(p.name)}</div>
+        <div class="bar"><span style="width:${pct}%"></span></div>
+        <div class="proj-tile-foot">${pct}% complete</div>
+      </button>`;
+  }).join("");
+  return `
+  ${admin ? `<div class="admin-hint">✎ Admin — click a project to open it · ＋ adds a new project</div>` : ""}
+  <div class="page-head">
+    <div class="page-title">Projects</div>
+    <div class="page-desc">${projects.length} active project${projects.length === 1 ? "" : "s"} — choose one to open.</div>
+  </div>
+  <div class="proj-grid">${tiles}${admin ? `<button class="proj-tile proj-tile-add" data-ppnewproject><span class="pta-plus">＋</span> New Project</button>` : ""}</div>`;
+}
+function renderProjectsEmpty(admin) {
+  return `
+  <div class="page-head"><div class="page-title">Projects</div><div class="page-desc">No projects yet.</div></div>
+  <div class="proj-grid">${admin ? `<button class="proj-tile proj-tile-add" data-ppnewproject><span class="pta-plus">＋</span> New Project</button>` : `<div class="placeholder-note">No projects to show.</div>`}</div>`;
+}
 function renderProjectPlan() {
-  const e = getEng(); const pp = e.projectPlan || {};
   const admin = ppAdmin();
+  // The Projects tab only applies in Project mode.
+  if (isRetainer()) return `<div class="page-head"><div class="page-title">Projects</div><div class="page-desc">Switch the top toggle to <b>Project</b> to view and manage projects.</div></div>`;
+  const projects = getProjects();
+  if (projects.length === 0) return renderProjectsEmpty(admin);
+  if (projects.length === 1 && !selectedProject()) selectProject(projects[0].id);            // one project → open it directly
+  if (projects.length > 1 && !selectedProject()) return renderProjectPicker(projects, admin); // several → show tiles
+  const e = selectedProject(); const pp = e.projectPlan || {};
   const st = pp.status || { level: "green", pct: 0, note: "" };
   const stLabel = { green: "On Track", yellow: "Needs Attention", red: "Off Track" }[st.level] || "—";
-  const projects = getProjects();
-
-  const folder = `<div class="pp-folder">
-      <span class="pp-folder-label">Projects</span>
-      ${projects.map(p => `<button class="pp-folder-chip ${currentEng === "project:" + p.id ? "active" : ""}" data-ppselect="project:${p.id}">${esc(p.label || p.name)}</button>`).join("")}
-      ${admin ? `<button class="pp-folder-add" data-ppnewproject>＋ New Project</button>` : ""}
-    </div>`;
+  const back = projects.length > 1 ? `<button class="pp-back" data-ppback>← All projects</button>` : "";
 
   const allTasks = (pp.phases || []).flatMap(ph => ph.tasks);
   const avg = allTasks.length ? Math.round(allTasks.reduce((s, t) => s + (+t.pct || 0), 0) / allTasks.length) : null;
@@ -188,10 +227,10 @@ function renderProjectPlan() {
 
   return `
   ${admin ? `<div class="admin-hint">✎ Admin — click R/Y/G dots &amp; status badges to cycle; every field is editable; ＋ adds rows.</div>` : ""}
-  ${folder}
+  ${back}
   <div class="page-head">
     <div class="page-title">${ppEd(e.name, "name")}</div>
-    <div class="page-desc">${pp.startDate || admin ? `${ppEd(pp.startDate || "", "projectPlan.startDate")} → ${ppEd(pp.endDate || "", "projectPlan.endDate")}` : ""}${(admin && !isRetainer()) ? ` · <button class="pp-del-project" data-ppdelproject="${currentEng}">Delete project</button>` : ""}</div>
+    <div class="page-desc">${pp.startDate || admin ? `${ppEd(pp.startDate || "", "projectPlan.startDate")} → ${ppEd(pp.endDate || "", "projectPlan.endDate")}` : ""}${admin ? ` · <button class="pp-del-project" data-ppdelproject="${esc(e.id)}">Delete project</button>` : ""}</div>
   </div>
   <div class="exec-grid" style="margin-bottom:18px">
     <div class="module"><div class="module-title">Outcome</div><div style="font-size:.95rem;margin-top:8px;line-height:1.5">${ppEd(pp.outcome || "", "projectPlan.outcome")}</div></div>
@@ -228,12 +267,14 @@ function initProjectPlan() {
   });
   page.addEventListener("click", e => {
     const eng = getEng(); const pp = eng.projectPlan;
-    const sel = e.target.closest("[data-ppselect]");
-    if (sel) { currentEng = sel.dataset.ppselect; sessionStorage.setItem("tja_eng", currentEng); applyEngagement(); repaintAll(); return; }
+    const open = e.target.closest("[data-ppopen]");
+    if (open) { selectProject(open.dataset.ppopen); applyEngagement(); repaintAll(); return; }
+    const back = e.target.closest("[data-ppback]");
+    if (back) { selectProject(""); applyEngagement(); repaintAll(); return; }
     const np = e.target.closest("[data-ppnewproject]");
-    if (np) { const id = "p_" + Date.now().toString(36); getProjects().push(newProjectTemplate(id)); currentEng = "project:" + id; sessionStorage.setItem("tja_eng", currentEng); saveState(); applyEngagement(); repaintAll(); return; }
+    if (np) { const id = "p_" + Date.now().toString(36); getProjects().push(newProjectTemplate(id)); selectProject(id); saveState(); applyEngagement(); repaintAll(); return; }
     const dpj = e.target.closest("[data-ppdelproject]");
-    if (dpj) { const pid = dpj.dataset.ppdelproject.slice(8); STATE.engagements.projects = getProjects().filter(x => x.id !== pid); currentEng = "retainer"; sessionStorage.setItem("tja_eng", currentEng); saveState(); applyEngagement(); repaintAll(); return; }
+    if (dpj) { const pid = dpj.dataset.ppdelproject; STATE.engagements.projects = getProjects().filter(x => x.id !== pid); selectProject(""); saveState(); applyEngagement(); repaintAll(); return; }
     const ryg = e.target.closest("[data-ppryg]");
     if (ryg) { const order = ["green", "yellow", "red"]; const cur = getPath(eng, ryg.dataset.ppryg); setPath(eng, ryg.dataset.ppryg, order[(order.indexOf(cur) + 1) % 3]); saveState(); repaint("projectplan"); return; }
     const ts = e.target.closest("[data-ppstatus]");
@@ -488,17 +529,16 @@ function applyRole() {
   if (show) el("#previewClientName").textContent = D.client.name;
 }
 
-/* ---------- engagement toggle (Retainer + one chip per project) ---------- */
+/* ---------- engagement toggle (Retainer ⇄ Project) ---------- */
 function applyEngagement() {
   const tog = el("#engToggle");
-  let html = `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-eng="retainer">Retainer</button>`;
-  getProjects().forEach(p => {
-    const id = "project:" + p.id;
-    html += `<button class="eng-seg ${currentEng === id ? "active" : ""}" data-eng="${id}">${esc(p.label || p.name)}</button>`;
-  });
-  tog.innerHTML = html;
+  tog.innerHTML =
+    `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-engmode="retainer">Retainer</button>` +
+    `<button class="eng-seg ${!isRetainer() ? "active" : ""}" data-engmode="project">Project</button>`;
   el("#clientMeta").textContent = getEng().name;
-  el("#navBacklog").style.display = isRetainer() ? "" : "none";
+  const npj = el("#navProjects"); if (npj) npj.style.display = isRetainer() ? "none" : "";   // Projects tab = project-only
+  el("#navBacklog").style.display = isRetainer() ? "" : "none";                              // Backlog = retainer-only
+  if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");
 }
 
@@ -514,9 +554,16 @@ function applyEngagement() {
     const item = e.target.closest(".nav-item"); if (item) activate(item.dataset.page);
   });
   document.getElementById("engToggle").addEventListener("click", e => {
-    const seg = e.target.closest(".eng-seg"); if (!seg) return;
-    currentEng = seg.dataset.eng; sessionStorage.setItem("tja_eng", currentEng);
-    applyEngagement(); repaintAll();
+    const seg = e.target.closest(".eng-seg"); if (!seg || !seg.dataset.engmode) return;
+    const mode = seg.dataset.engmode;
+    setEngMode(mode);
+    if (mode === "project") {
+      const ps = getProjects();
+      selectProject(ps.length === 1 ? ps[0].id : "");   // one → open it; several/none → tile picker
+    }
+    applyEngagement();
+    document.querySelectorAll(".page").forEach(p => { p.dataset.painted = ""; p.innerHTML = ""; });
+    activate(mode === "project" ? "projectplan" : "exec");   // Project lands on the Projects tab; Retainer on the homepage
   });
 
   // Live data: pull from Supabase when configured (otherwise stay on localStorage)
@@ -532,10 +579,9 @@ function applyEngagement() {
     } catch (e) { console.warn("Supabase boot sync failed; using local data.", e); }
   }
 
-  // normalize a stale/invalid engagement key from older sessions
-  if (currentEng !== "retainer" && !(currentEng.indexOf("project:") === 0 && getProjects().some(p => "project:" + p.id === currentEng))) {
-    currentEng = "retainer"; sessionStorage.setItem("tja_eng", currentEng);
-  }
+  // normalize a stale/invalid selection from older sessions
+  if (engMode !== "retainer" && engMode !== "project") setEngMode("retainer");
+  if (selectedProjectId && !getProjects().some(p => p.id === selectedProjectId)) selectProject("");
 
   applyTheme(currentTheme());
   const tt = el("#themeToggle");

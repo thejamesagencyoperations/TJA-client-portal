@@ -15,6 +15,8 @@
   --dv-cgray:      #D3DDDE;
   --teal:          #085056;
   --gradient:      linear-gradient(120deg, #F68E21 0%, #f9a94e 100%);  /* sparing orange accent */
+  --tja-grad:      linear-gradient(180deg, #EFAE41 0%, #EC9C39 50%, #DA662A 100%);  /* official TJA gradient (vertical) */
+  --tja-grad-h:    linear-gradient(90deg, #EFAE41 0%, #EC9C39 50%, #DA662A 100%);   /* TJA gradient (horizontal, for bars) */
   --on-accent:     #111;                                     /* dark text on orange (best contrast) */
   --good:          #36c275;
   --warn:          #f5b342;
@@ -630,7 +632,25 @@ body[data-role="client"] .admin-only { display: none !important; }
 /* progress bar */
 .bar { height: 7px; border-radius: 20px; background: var(--input); overflow: hidden; }
 .bar > span { display: block; height: 100%; border-radius: 20px;
-  background: linear-gradient(90deg, var(--orange), var(--orange-soft)); }
+  background: var(--tja-grad-h); }
+
+/* Projects tab — tile / folder picker */
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-top: 4px; }
+.proj-tile { font: inherit; color: inherit; text-align: left; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 8px; transition: border-color .15s ease, transform .15s ease; }
+.proj-tile:hover { border-color: var(--orange); transform: translateY(-2px); }
+.proj-tile-top { display: flex; align-items: center; gap: 9px; }
+.proj-tile-name { font-weight: 800; font-size: 1rem; letter-spacing: -.01em; }
+.proj-tile-sub { font-size: .78rem; color: var(--text-dim); }
+.proj-tile .bar { margin-top: 4px; }
+.proj-tile-foot { font-size: .72rem; color: var(--text-dim); }
+.proj-tile-add { align-items: center; justify-content: center; flex-direction: row; gap: 8px;
+  border-style: dashed; color: var(--accent-text); font-weight: 700; min-height: 130px; }
+.pta-plus { font-size: 1.15rem; line-height: 1; }
+.pp-back { background: none; border: none; color: var(--accent-text); font-weight: 700;
+  font-size: .82rem; cursor: pointer; padding: 4px 0; margin-bottom: 4px; }
+.pp-back:hover { text-decoration: underline; }
 
 /* Doc library */
 .doc-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
@@ -732,13 +752,13 @@ body[data-role="client"] .admin-only { display: none !important; }
   background: var(--input); display: grid; place-items: center; color: var(--text-faint);
   font-size: .8rem; font-weight: 800; z-index: 1;
 }
-.pizza-step.done .pizza-dot { background: var(--orange); border-color: var(--orange); color: #111; }
+.pizza-step.done .pizza-dot { background: var(--tja-grad); border-color: #DA662A; color: #fff; }
 .pizza-step.current .pizza-dot { border-color: var(--orange); color: var(--orange); box-shadow: 0 0 0 4px rgba(246,142,33,.15); }
 .pizza-step::before {
   content: ""; position: absolute; top: 15px; left: -50%; width: 100%; height: 3px; background: var(--line); z-index: 0;
 }
 .pizza-step:first-child::before { display: none; }
-.pizza-step.done::before, .pizza-step.current::before { background: var(--orange); }
+.pizza-step.done::before, .pizza-step.current::before { background: var(--tja-grad-h); }
 .pizza-label { margin-top: 8px; font-size: .68rem; color: var(--text-dim); text-align: center; }
 .pizza-step.done .pizza-label, .pizza-step.current .pizza-label { color: var(--text); font-weight: 600; }
 
