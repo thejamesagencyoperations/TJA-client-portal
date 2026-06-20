@@ -162,10 +162,13 @@ window.ExecSummary = (function () {
       const opt = (val, label) => `<button class="svc-seg-btn is-${val} ${status === val ? "active" : ""}" data-svcset="${i}:${val}" title="${label}">${label}</button>`;
       return `<div class="svc-seg">${opt("not-started", "Not started")}${opt("in-progress", "In progress")}${opt("complete", "Complete")}</div>`;
     };
+    const alloc = (s, i) => canAdmin()
+      ? `<div class="svc-alloc"><input type="range" min="0" max="100" step="1" value="${s.allocationPct}" class="svc-slider" data-svcalloc="${i}" style="--val:${s.allocationPct}%" title="Drag to set allocation"><span class="pct" data-svcpct="${i}">${s.allocationPct}%</span></div>`
+      : `<div class="svc-alloc"><div class="bar" style="flex:1"><span style="width:${s.allocationPct}%"></span></div><span class="pct">${s.allocationPct}%</span></div>`;
     const rows = (e.serviceLines || []).map((s, i) => `
       <div class="svc-row" data-svcrow="${i}">
         <div class="svc-name ed-host">${ed(s.name, "serviceLines." + i + ".name")}</div>
-        <div class="svc-alloc"><div class="bar" style="flex:1"><span style="width:${s.allocationPct}%"></span></div><span class="pct">${s.allocationPct}%</span></div>
+        ${alloc(s, i)}
         <div class="svc-statuswrap">
           ${canAdmin() ? seg(i, s.status) : window.DASH.badge(s.status)}
           ${listDel("serviceLines", i)}
@@ -461,6 +464,16 @@ window.ExecSummary = (function () {
       if (changed) window.DASH.saveState();
     });
 
+    // service-line allocation sliders (admin): live-update while dragging, persist on release
+    s.addEventListener("input", e => {
+      const sl = e.target.closest("[data-svcalloc]"); if (!sl) return;
+      const i = +sl.dataset.svcalloc, v = Math.max(0, Math.min(100, parseInt(sl.value, 10) || 0));
+      window.DASH.getEng().serviceLines[i].allocationPct = v;
+      sl.style.setProperty("--val", v + "%");
+      const lbl = s.querySelector(`[data-svcpct="${i}"]`); if (lbl) lbl.textContent = v + "%";
+    });
+    s.addEventListener("change", e => { if (e.target.closest("[data-svcalloc]")) window.DASH.saveState(); });
+
     // text edits persist on focusout
     s.addEventListener("focusout", e => {
       // burn % edit → derive used hours from % of the contract total
@@ -564,7 +577,7 @@ window.ExecSummary = (function () {
 
       // click a service row (not an editable / control) → status tab
       const row = e.target.closest(".svc-row");
-      if (row && !e.target.closest(".ed,[data-svcset],[data-listdel]")) window.DASH.activate("status");
+      if (row && !e.target.closest(".ed,[data-svcset],[data-listdel],.svc-alloc")) window.DASH.activate("status");
     });
   }
 

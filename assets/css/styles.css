@@ -819,6 +819,14 @@ body[data-role="client"] .admin-only { display: none !important; }
 .svc-name { font-weight: 600; font-size: .86rem; flex: 1 1 110px; min-width: 88px; }
 .svc-alloc { display: flex; align-items: center; gap: 8px; flex: 1 1 120px; min-width: 108px; }
 .svc-alloc .pct { font-size: .72rem; color: var(--text-dim); width: 34px; text-align: right; }
+/* admin: allocation slider (gradient fill up to the thumb) */
+.svc-slider { -webkit-appearance: none; appearance: none; flex: 1; height: 7px; border-radius: 20px; cursor: pointer; outline: none;
+  background: linear-gradient(90deg, #EFAE41, #EC9C39, #DA662A) left center / var(--val, 50%) 100% no-repeat, var(--input); }
+.svc-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--orange); box-shadow: 0 1px 3px rgba(0,0,0,.25); cursor: grab; margin-top: 0; }
+.svc-slider:active::-webkit-slider-thumb { cursor: grabbing; }
+.svc-slider::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: #fff; border: 2px solid var(--orange); box-shadow: 0 1px 3px rgba(0,0,0,.25); cursor: grab; }
+.svc-slider::-moz-range-track { height: 7px; border-radius: 20px; background: transparent; }
 .svc-statuswrap { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 /* 3-state service-line control: Not started / In progress / Complete */
 .svc-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--input); }
@@ -896,14 +904,14 @@ body[data-role="admin"] .exec-tile::after { content: ""; position: absolute; rig
 @media (max-width: 900px) { body[data-role="admin"] .exec-tile { resize: none; } }
 
 /* North Star banner — slim full-width strip above the columns */
-.ns-banner { display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+.ns-banner { display: flex; align-items: center; justify-content: center; text-align: center; gap: 11px; flex-wrap: wrap;
   background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--line);
-  border-radius: var(--radius); box-shadow: var(--card-shadow); padding: 11px 16px; margin-bottom: 14px; }
+  border-radius: var(--radius); box-shadow: var(--card-shadow); padding: 11px 18px; margin-bottom: 14px; }
 .ns-banner-bolt { display: inline-flex; flex: none; }
 .ns-banner-bolt svg { width: 16px; height: 16px; color: var(--orange); }
 .ns-banner-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .14em; color: var(--text-dim); font-weight: 800; flex: none; }
-.ns-banner-text { font-size: .92rem; color: var(--text); font-weight: 500; flex: 1 1 240px; min-width: 0; }
-.ns-banner-due { font-size: .78rem; color: var(--text-dim); flex: none; margin-left: auto; }
+.ns-banner-text { font-size: .92rem; color: var(--text); font-weight: 500; flex: 0 1 auto; min-width: 0; }
+.ns-banner-due { font-size: .78rem; color: var(--text-dim); flex: none; }
 .exec-col.drag-over { outline: 2px dashed var(--line); outline-offset: 3px; border-radius: var(--radius); }
 /* the module header is the drag handle in admin */
 body[data-role="admin"] .tile-drag-handle { cursor: grab; }
