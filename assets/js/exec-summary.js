@@ -280,39 +280,26 @@ window.ExecSummary = (function () {
     kpis:         { label: "KPIs",          fn: kpiModule },
     pr:           { label: "PR Coverage",   fn: prModule },
   };
-  const LAYOUT_V = 3;   // bump to force every saved layout onto the 3-column default once
-  const COLS = ["c1", "c2", "c3"];
+  const LAYOUT_V = 4;        // free-canvas layout: tiles are absolutely positioned and drag anywhere
+  const SNAP = 9, GRID_GAP = 16, DEF_W = 360;   // snap distance (px), default gap + tile width
   function defaultLayout(e) {
-    const c3 = ["dependencies", "kpis"];
-    if (e.type !== "project") c3.push("pr");
-    return { v: LAYOUT_V, c1: ["burn", "service"], c2: ["milestones", "todos"], c3, hidden: e.type === "project" ? ["pr"] : [], widths: [1.2, 1, 1], sizes: {} };
+    return { v: LAYOUT_V, free: {}, hidden: e.type === "project" ? ["pr"] : [] };
   }
   function getLayout(e) {
-    if (!e.layout || e.layout.v !== LAYOUT_V) e.layout = defaultLayout(e);
+    if (!e.layout || e.layout.v !== LAYOUT_V) {
+      const prevHidden = (e.layout && Array.isArray(e.layout.hidden)) ? e.layout.hidden.slice() : null;
+      e.layout = defaultLayout(e);
+      if (prevHidden) e.layout.hidden = prevHidden;
+    }
     const L = e.layout;
+    if (!L.free || typeof L.free !== "object") L.free = {};
     if (!Array.isArray(L.hidden)) L.hidden = [];
-    if (!Array.isArray(L.widths) || L.widths.length !== 3) L.widths = [1.2, 1, 1];
-    if (!L.sizes || typeof L.sizes !== "object") L.sizes = {};   // per-tile width/height overrides
-    // drop unknown/duplicate keys; keep only real modules, de-duped (e.g. legacy "condition" is now folded into burn)
-    const valid = Object.keys(MODULES); const used = new Set();
-    [...COLS, "hidden"].forEach(c => { if (!Array.isArray(L[c])) L[c] = []; L[c] = L[c].filter(k => valid.includes(k) && !used.has(k) && used.add(k)); });
-    valid.forEach(k => { if (!used.has(k)) L.hidden.push(k); });
-    if (L.c1.length + L.c2.length + L.c3.length === 0) { const d = defaultLayout(e); L.c1 = d.c1; L.c2 = d.c2; L.c3 = d.c3; }
+    const valid = Object.keys(MODULES);
+    L.hidden = [...new Set(L.hidden.filter(k => valid.includes(k)))];
+    Object.keys(L.free).forEach(k => { if (!valid.includes(k) || L.hidden.includes(k)) delete L.free[k]; });
     return L;
   }
-  function colTemplate(e) {
-    const w = getLayout(e).widths;
-    return `minmax(0,${w[0]}fr) 16px minmax(0,${w[1]}fr) 16px minmax(0,${w[2]}fr)`;
-  }
   const TILEBAR = (key) => !canAdmin() ? "" : `<button class="tile-remove" data-tileremove="${key}" title="Remove tile">✕</button>`;
-  function colHtml(e, col) {
-    const lay = getLayout(e);
-    return lay[col].map((k) => {
-      const sz = lay.sizes && lay.sizes[k];
-      const style = sz ? ` style="${sz.w ? `width:${sz.w};` : ""}${sz.h ? `height:${sz.h};` : ""}"` : "";
-      return `<div class="exec-tile" data-key="${k}"${style}>${TILEBAR(k)}${MODULES[k].fn(e)}</div>`;
-    }).join("");
-  }
 
   /* ---- North Star banner (full-width strip across all 3 columns) ---- */
   function northStarBanner(e) {
@@ -325,127 +312,133 @@ window.ExecSummary = (function () {
     </div>`;
   }
 
-  /* ---- assemble ---- */
+  /* ---- assemble (free canvas: tiles absolutely positioned, drag anywhere) ---- */
   function render(e) {
     const lay = getLayout(e);
+    const visible = Object.keys(MODULES).filter(k => !lay.hidden.includes(k));
+    const tiles = visible.map(k => {
+      const p = lay.free[k];
+      const style = p
+        ? `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`
+        : `width:${DEF_W}px;`;   // unplaced → positioned by ensurePositions after first layout
+      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${TILEBAR(k)}${MODULES[k].fn(e)}</div>`;
+    }).join("");
     const hiddenRow = (canAdmin() && lay.hidden.length)
       ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
       : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${northStarBanner(e)}
-    <div class="exec-cols" style="grid-template-columns:${colTemplate(e)}">
-      <div class="exec-col" data-col="c1">${colHtml(e, "c1")}</div>
-      <div class="exec-gutter" data-gutter="0" title="Drag to resize columns"></div>
-      <div class="exec-col" data-col="c2">${colHtml(e, "c2")}</div>
-      <div class="exec-gutter" data-gutter="1" title="Drag to resize columns"></div>
-      <div class="exec-col" data-col="c3">${colHtml(e, "c3")}</div>
-    </div>
+    <div class="exec-canvas">${tiles}</div>
     ${hiddenRow}`;
   }
-  function rerender() { const s = section(); if (s) { s.innerHTML = render(window.DASH.getEng()); setupDrag(); setupResize(); } }
+  function rerender() {
+    const s = section(); if (!s) return;
+    s.innerHTML = render(window.DASH.getEng());
+    ensurePositions(); setupFreeDrag(); updateCanvasHeight();
+  }
 
   /* ---- tile remove / restore ---- */
   function tileAction(action, key) {
     const e = window.DASH.getEng(); const lay = getLayout(e);
     if (action === "remove") {
-      COLS.forEach(c => { const i = lay[c].indexOf(key); if (i > -1) lay[c].splice(i, 1); });
+      delete lay.free[key];
       if (!lay.hidden.includes(key)) lay.hidden.push(key);
     } else if (action === "restore") {
-      lay.hidden = lay.hidden.filter(k => k !== key); lay.c3.push(key);
+      lay.hidden = lay.hidden.filter(k => k !== key);   // re-placed by ensurePositions on next render
     }
     window.DASH.saveState(); rerender();
   }
 
-  /* ---- drag a column gutter to resize the three columns ---- */
-  function setupResize() {
+  /* ---- default placement: pack any unplaced tile into the shortest column ---- */
+  function nearestCol(x, colX) { let b = 0, bd = Infinity; colX.forEach((cx, i) => { const d = Math.abs(x - cx); if (d < bd) { bd = d; b = i; } }); return b; }
+  function applyPos(t, p) { t.style.left = p.x + "px"; t.style.top = p.y + "px"; t.style.width = p.w + "px"; if (p.h) t.style.height = p.h + "px"; }
+  function ensurePositions() {
+    const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
+    const lay = getLayout(window.DASH.getEng());
+    const cw = canvas.clientWidth || 1100;
+    const ncols = Math.max(1, Math.min(3, Math.floor((cw + GRID_GAP) / (DEF_W + GRID_GAP))));
+    const colW = ncols === 1 ? cw : DEF_W;
+    const colX = []; for (let i = 0; i < ncols; i++) colX.push(Math.round(i * (colW + GRID_GAP)));
+    const colH = new Array(ncols).fill(0);
+    canvas.querySelectorAll(".exec-tile:not(.unplaced)").forEach(t => {
+      const ci = nearestCol(t.offsetLeft, colX);
+      colH[ci] = Math.max(colH[ci], t.offsetTop + t.offsetHeight + GRID_GAP);
+    });
+    let changed = false;
+    canvas.querySelectorAll(".exec-tile.unplaced").forEach(t => {
+      t.style.width = colW + "px";
+      const h = t.offsetHeight;
+      const ci = colH.indexOf(Math.min(...colH));
+      const pos = { x: colX[ci], y: Math.round(colH[ci]), w: colW };
+      colH[ci] += h + GRID_GAP;
+      applyPos(t, pos); t.classList.remove("unplaced");
+      lay.free[t.dataset.key] = pos; changed = true;
+    });
+    if (changed && canAdmin()) window.DASH.saveState();
+  }
+  function updateCanvasHeight() {
+    const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
+    let maxB = 120;
+    canvas.querySelectorAll(".exec-tile").forEach(t => { maxB = Math.max(maxB, t.offsetTop + t.offsetHeight); });
+    canvas.style.height = (maxB + 8) + "px";
+  }
+
+  /* ---- free drag (pointer) with snap-to-align against the other tiles ---- */
+  function snapPos(tile, x, y, others) {
+    const w = tile.offsetWidth, h = tile.offsetHeight;
+    let bx = { d: SNAP + 1, v: x, g: null }, by = { d: SNAP + 1, v: y, g: null };
+    const tX = (dv, t) => { const d = Math.abs(dv - t); if (d <= SNAP && d < bx.d) bx = { d, v: x + (t - dv), g: t }; };
+    const tY = (dv, t) => { const d = Math.abs(dv - t); if (d <= SNAP && d < by.d) by = { d, v: y + (t - dv), g: t }; };
+    tX(x, 0);   // canvas left edge
+    others.forEach(o => {
+      const ol = o.offsetLeft, ot = o.offsetTop, ow = o.offsetWidth, oh = o.offsetHeight;
+      tX(x, ol); tX(x + w, ol + ow); tX(x + w / 2, ol + ow / 2);      // align left / right / centre
+      tX(x, ol + ow + GRID_GAP); tX(x + w, ol - GRID_GAP);           // sit beside (gap)
+      tY(y, ot); tY(y + h, ot + oh); tY(y + h / 2, ot + oh / 2);
+      tY(y, ot + oh + GRID_GAP); tY(y + h, ot - GRID_GAP);
+    });
+    return { x: bx.v, y: by.v, gx: bx.g, gy: by.g };
+  }
+  function clearGuides(canvas) { canvas.querySelectorAll(".snap-guide").forEach(g => g.remove()); }
+  function drawGuides(canvas, gx, gy) {
+    clearGuides(canvas);
+    if (gx != null) { const d = document.createElement("div"); d.className = "snap-guide v"; d.style.left = gx + "px"; canvas.appendChild(d); }
+    if (gy != null) { const d = document.createElement("div"); d.className = "snap-guide h"; d.style.top = gy + "px"; canvas.appendChild(d); }
+  }
+  function setupFreeDrag() {
     if (!canAdmin()) return;
-    const s = section(); if (!s) return;
-    const cols = s.querySelector(".exec-cols"); if (!cols) return;
-    s.querySelectorAll(".exec-gutter").forEach(g => {
-      g.addEventListener("pointerdown", ev => {
+    const s = section(); const canvas = s.querySelector(".exec-canvas"); if (!canvas) return;
+    canvas.querySelectorAll(".exec-tile").forEach(tile => {
+      const head = tile.querySelector(".module-head"); if (!head) return;
+      head.classList.add("tile-drag-handle");
+      head.addEventListener("pointerdown", ev => {
+        if (ev.button !== 0 || ev.target.closest(".module-link, .tile-remove, .ed, input, button")) return;
         ev.preventDefault();
-        const gi = +g.dataset.gutter;
-        const e = window.DASH.getEng(), lay = getLayout(e);
-        const rect = cols.getBoundingClientRect();
-        const pxPerFr = rect.width / lay.widths.reduce((a, b) => a + b, 0);
-        const startX = ev.clientX, w0 = lay.widths[gi], w1 = lay.widths[gi + 1];
-        g.classList.add("resizing");
+        const lay = getLayout(window.DASH.getEng());
+        const pos = lay.free[tile.dataset.key]; if (!pos) return;
+        const sx = ev.clientX, sy = ev.clientY, ox = pos.x, oy = pos.y;
+        const others = [...canvas.querySelectorAll(".exec-tile")].filter(t => t !== tile);
+        tile.classList.add("dragging"); let moved = false;
         const move = (mv) => {
-          const dFr = (mv.clientX - startX) / pxPerFr; const min = 0.45;
-          let a = w0 + dFr, b = w1 - dFr;
-          if (a < min) { b -= (min - a); a = min; }
-          if (b < min) { a -= (min - b); b = min; }
-          lay.widths[gi] = a; lay.widths[gi + 1] = b;
-          cols.style.gridTemplateColumns = colTemplate(e);
+          moved = true;
+          const nx = Math.max(0, ox + (mv.clientX - sx)), ny = Math.max(0, oy + (mv.clientY - sy));
+          const sn = snapPos(tile, nx, ny, others);
+          tile.style.left = sn.x + "px"; tile.style.top = sn.y + "px";
+          pos.x = Math.round(sn.x); pos.y = Math.round(sn.y);
+          drawGuides(canvas, sn.gx, sn.gy); updateCanvasHeight();
         };
         const up = () => {
           document.removeEventListener("pointermove", move);
           document.removeEventListener("pointerup", up);
-          g.classList.remove("resizing");
-          window.DASH.saveState();
+          tile.classList.remove("dragging"); clearGuides(canvas);
+          if (moved && canAdmin()) window.DASH.saveState();
+          updateCanvasHeight();
         };
         document.addEventListener("pointermove", move);
         document.addEventListener("pointerup", up);
       });
     });
-  }
-
-  /* ---- drag-and-drop: grab a tile by its header to move it ---- */
-  let dragKey = null;
-  function setupDrag() {
-    if (!canAdmin()) return;
-    const s = section(); if (!s) return;
-    s.querySelectorAll(".exec-tile").forEach(tile => {
-      const head = tile.querySelector(".module-head");
-      if (head) {
-        head.setAttribute("draggable", "true");
-        head.classList.add("tile-drag-handle");
-        head.addEventListener("dragstart", ev => {
-          dragKey = tile.dataset.key;
-          ev.dataTransfer.effectAllowed = "move";
-          ev.dataTransfer.setData("text/plain", dragKey);
-          try { ev.dataTransfer.setDragImage(tile, 24, 18); } catch {}
-          requestAnimationFrame(() => tile.classList.add("dragging"));
-        });
-        head.addEventListener("dragend", () => {
-          tile.classList.remove("dragging");
-          s.querySelectorAll(".drag-over").forEach(z => z.classList.remove("drag-over"));
-        });
-      }
-    });
-    s.querySelectorAll(".exec-tile, .exec-col").forEach(zone => {
-      zone.addEventListener("dragover", ev => { ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; zone.classList.add("drag-over"); });
-      zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
-      zone.addEventListener("drop", ev => {
-        ev.preventDefault();
-        ev.stopPropagation();                 // prevent the tile + its column both handling the same drop
-        s.querySelectorAll(".drag-over").forEach(z => z.classList.remove("drag-over"));
-        const key = ev.dataTransfer.getData("text/plain") || dragKey;
-        if (key) dropTile(key, zone, ev);
-        dragKey = null;
-      });
-    });
-  }
-  function dropTile(key, zone, ev) {
-    const e = window.DASH.getEng(); const lay = getLayout(e);
-    const tileZone = zone.classList.contains("exec-tile") ? zone : null;
-    if (tileZone && tileZone.dataset.key === key) return;          // dropped on itself → no-op
-    // remove from wherever it currently lives
-    COLS.forEach(c => { const i = lay[c].indexOf(key); if (i > -1) lay[c].splice(i, 1); });
-    let col, idx;
-    if (tileZone) {
-      const tkey = tileZone.dataset.key;
-      col = COLS.find(c => lay[c].includes(tkey)) || "c1";
-      const r = tileZone.getBoundingClientRect();
-      idx = lay[col].indexOf(tkey) + (ev.clientY > r.top + r.height / 2 ? 1 : 0);
-    } else {
-      col = (zone.dataset && zone.dataset.col) || ((zone.closest(".exec-col") || {}).dataset || {}).col || "c1";
-      idx = lay[col].length;
-    }
-    if (!Array.isArray(lay[col])) col = "c1";                      // safety
-    lay[col].splice(idx, 0, key);
-    window.DASH.saveState(); rerender();
   }
 
   /* ---- wiring (delegated, attached once) ---- */
@@ -467,15 +460,14 @@ window.ExecSummary = (function () {
     document.addEventListener("mouseup", () => {
       if (!canAdmin()) return;
       const sec = section(); if (!sec) return;
-      const lay = getLayout(window.DASH.getEng()); lay.sizes = lay.sizes || {};
+      const lay = getLayout(window.DASH.getEng()); if (!lay.free) return;
       let changed = false;
       sec.querySelectorAll(".exec-tile[data-key]").forEach(t => {
-        const w = t.style.width, h = t.style.height;
-        if (!w && !h) return;
-        const cur = lay.sizes[t.dataset.key] || {};
-        if (cur.w !== w || cur.h !== h) { lay.sizes[t.dataset.key] = { w, h }; changed = true; }
+        const pos = lay.free[t.dataset.key]; if (!pos) return;
+        const w = Math.round(t.offsetWidth), h = Math.round(t.offsetHeight);
+        if (pos.w !== w || (t.style.height && pos.h !== h)) { pos.w = w; if (t.style.height) pos.h = h; changed = true; }
       });
-      if (changed) window.DASH.saveState();
+      if (changed) { window.DASH.saveState(); updateCanvasHeight(); }
     });
 
     // service-line allocation sliders (admin): live-update while dragging, persist on release

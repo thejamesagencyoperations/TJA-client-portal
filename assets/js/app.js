@@ -528,6 +528,7 @@ function toggleTheme() {
 function applyRole() {
   const effRole = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
   document.body.dataset.role = effRole;
+  const cb = el("#clientsBack"); if (cb) cb.style.display = (typeof isAdmin === "function" && isAdmin()) ? "" : "none";
   const rc = el("#roleControls");
   if (typeof isAdmin === "function" && isAdmin()) {
     const prev = isPreviewing();

@@ -658,6 +658,15 @@ body[data-role="client"] .admin-only { display: none !important; }
 .proj-tile-add { align-items: center; justify-content: center; flex-direction: row; gap: 8px;
   border-style: dashed; color: var(--accent-text); font-weight: 700; min-height: 130px; }
 .pta-plus { font-size: 1.15rem; line-height: 1; }
+/* Clients landing page (admin) */
+.clients-page .content { max-width: 1120px; }
+.brand-logo--sm { width: 60px; }
+.client-tile-head { display: flex; align-items: center; gap: 11px; }
+.client-tile-logo { width: 40px; height: 40px; border-radius: 9px; overflow: hidden; flex: none;
+  background: var(--input); display: grid; place-items: center; font-weight: 800; font-size: .82rem; color: var(--accent-text); }
+.client-tile-logo img { width: 100%; height: 100%; object-fit: contain; }
+.client-tile .proj-tile-name { font-size: 1.05rem; }
+.client-tile { min-height: 132px; }
 .pp-back { background: none; border: none; color: var(--accent-text); font-weight: 700;
   font-size: .82rem; cursor: pointer; padding: 4px 0; margin-bottom: 10px; }
 .pp-back:hover { text-decoration: underline; }
@@ -888,29 +897,26 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pr-metric.pr-val { color: var(--good); font-size: .8rem; }
 
 /* ---- Executive Summary kanban (2 columns + movable tiles) ---- */
-.exec-cols { display: grid; grid-template-columns: 1fr 16px 1fr 16px 1fr; gap: 0; align-items: stretch; }
-.exec-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 120px; }
-/* keep empty / short columns droppable so tiles can always move back across all 3 columns */
-body[data-role="admin"] .exec-col:empty { border: 1.5px dashed var(--line); border-radius: var(--radius); }
-body[data-role="admin"] .exec-col:empty::before { content: "Drop a tile here"; display: flex; align-items: center; justify-content: center; flex: 1; color: var(--text-faint); font-size: .72rem; letter-spacing: .04em; }
-body[data-role="admin"] .exec-col.drag-over:empty { border-color: var(--orange); }
-.exec-gutter { align-self: stretch; min-height: 40px; cursor: default; position: relative; touch-action: none; }
-.exec-gutter::before { content: ""; position: absolute; left: 50%; top: 4px; bottom: 4px; width: 2px; transform: translateX(-50%); background: var(--line); border-radius: 2px; opacity: .55; transition: opacity .15s ease, background .15s ease, width .15s ease; }
-body[data-role="admin"] .exec-gutter { cursor: col-resize; }
-body[data-role="admin"] .exec-gutter:hover::before, .exec-gutter.resizing::before { opacity: 1; background: var(--orange); width: 3px; }
-@media (max-width: 900px) {
-  .exec-cols { grid-template-columns: 1fr !important; gap: 14px; }
-  .exec-gutter { display: none; }
-}
-.exec-tile { position: relative; transition: opacity .12s ease; min-width: 0; }
-.exec-tile.dragging { opacity: .4; }
-.exec-tile.drag-over { outline: 2px dashed var(--orange); outline-offset: 3px; border-radius: var(--radius); }
-/* admins can resize each tile in both directions (drag the bottom-right corner) */
-body[data-role="admin"] .exec-tile { resize: both; overflow: hidden; min-width: 170px; min-height: 88px; }
-body[data-role="admin"] .exec-tile > .module { height: 100%; overflow: auto; }
+/* Executive Summary — free canvas: tiles are absolutely positioned and drag anywhere */
+.exec-canvas { position: relative; width: 100%; min-height: 200px; }
+.exec-tile { position: absolute; box-sizing: border-box; transition: box-shadow .12s ease; }
+.exec-tile.unplaced { left: 0; top: 0; }
+body[data-role="admin"] .exec-tile { resize: both; overflow: hidden; min-width: 220px; min-height: 92px; }
+body[data-role="admin"] .exec-tile > .module { height: 100%; overflow: auto; box-sizing: border-box; }
+.exec-tile.dragging { z-index: 50; box-shadow: 0 12px 34px rgba(0,0,0,.22); }
+/* resize-grip hint (admin) */
 body[data-role="admin"] .exec-tile::after { content: ""; position: absolute; right: 2px; bottom: 2px; width: 9px; height: 9px; pointer-events: none;
   background: linear-gradient(135deg, transparent 45%, var(--text-faint) 45%, var(--text-faint) 55%, transparent 55%, transparent 70%, var(--text-faint) 70%, var(--text-faint) 80%, transparent 80%); opacity: .6; }
-@media (max-width: 900px) { body[data-role="admin"] .exec-tile { resize: none; } }
+/* snap-to-align guides shown while dragging */
+.snap-guide { position: absolute; background: var(--orange); z-index: 60; pointer-events: none; opacity: .9; }
+.snap-guide.v { width: 1px; top: -10px; bottom: -10px; }
+.snap-guide.h { height: 1px; left: -10px; right: -10px; }
+/* small screens: fall back to a simple vertical stack */
+@media (max-width: 760px) {
+  .exec-canvas { height: auto !important; }
+  .exec-canvas .exec-tile { position: static !important; width: auto !important; height: auto !important; resize: none; margin-bottom: 14px; }
+  body[data-role="admin"] .exec-tile::after { display: none; }
+}
 
 /* North Star banner — slim full-width strip above the columns */
 .ns-banner { display: flex; align-items: center; justify-content: center; text-align: center; gap: 11px; flex-wrap: wrap;
@@ -921,7 +927,6 @@ body[data-role="admin"] .exec-tile::after { content: ""; position: absolute; rig
 .ns-banner-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .14em; color: var(--text-dim); font-weight: 800; flex: none; }
 .ns-banner-text { font-size: .92rem; color: var(--text); font-weight: 500; flex: 0 1 auto; min-width: 0; }
 .ns-banner-due { font-size: .78rem; color: var(--text-dim); flex: none; }
-.exec-col.drag-over { outline: 2px dashed var(--line); outline-offset: 3px; border-radius: var(--radius); }
 /* the module header is the drag handle in admin */
 body[data-role="admin"] .tile-drag-handle { cursor: grab; }
 body[data-role="admin"] .tile-drag-handle:active { cursor: grabbing; }

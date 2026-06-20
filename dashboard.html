@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=131">
+<link rel="stylesheet" href="assets/css/styles.css?v=132">
 </head>
 <body>
 <div class="app">
@@ -40,7 +40,7 @@
       </div>
     </nav>
     <div class="sidebar-foot">
-      <div class="version-pill">Sandbox · v1.31</div>
+      <div class="version-pill">Sandbox · v1.32</div>
     </div>
   </aside>
 
@@ -55,6 +55,7 @@
         </div>
       </div>
       <div class="topbar-right">
+        <button class="btn btn-ghost" id="clientsBack" style="display:none" onclick="window.location.href='clients.html'" title="Back to all clients">← Clients</button>
         <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
         <div class="eng-toggle" id="engToggle">
           <button class="eng-seg active" data-engmode="retainer">Monthly Services</button>
@@ -82,13 +83,13 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=131"></script>
-<script src="assets/js/supabase-sync.js?v=131"></script>
-<script src="assets/js/auth.js?v=131"></script>
+<script src="assets/js/supabase-config.js?v=132"></script>
+<script src="assets/js/supabase-sync.js?v=132"></script>
+<script src="assets/js/auth.js?v=132"></script>
 <script>requireAuth();</script>
 <script src="assets/data/celtic-elevator.js"></script>
-<script src="assets/js/present-docs.js?v=131"></script>
-<script src="assets/js/exec-summary.js?v=131"></script>
-<script src="assets/js/app.js?v=131"></script>
+<script src="assets/js/present-docs.js?v=132"></script>
+<script src="assets/js/exec-summary.js?v=132"></script>
+<script src="assets/js/app.js?v=132"></script>
 </body>
 </html>
