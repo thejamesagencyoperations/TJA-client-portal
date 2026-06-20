@@ -79,9 +79,9 @@ window.CLIENT_DATA = {
       ],
 
       backlog: [
-        { title: "Website SEO overhaul",     note: "3+ months of retainer size — candidate for a separate SOW." },
-        { title: "Video case-study series",  note: "Strong brand builder; needs added budget to fit." },
-        { title: "Email automation rebuild", note: "Nice efficiency win when bandwidth allows." },
+        { title: "Website SEO overhaul",     note: "3+ months of retainer size — candidate for a separate SOW.", estHours: 60 },
+        { title: "Video case-study series",  note: "Strong brand builder; needs added budget to fit.",            estHours: 45 },
+        { title: "Email automation rebuild", note: "Nice efficiency win when bandwidth allows.",                  estHours: 24 },
       ],
 
       // Service-line status detail (where homepage service-line clicks land)

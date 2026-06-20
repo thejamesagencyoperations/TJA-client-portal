@@ -377,10 +377,14 @@ function renderBacklog() {
   const items = e.backlog || [];
   const admin = (typeof canEdit === "function") && canEdit();
   const rows = items.map((b, i) => `
-    <div class="card" style="margin-bottom:12px;display:flex;gap:12px;align-items:flex-start">
+    <div class="card" style="margin-bottom:12px;display:flex;gap:14px;align-items:flex-start">
       <div style="flex:1">
         <div class="doc-title ed" ${admin ? `contenteditable="true" data-bl="backlog.${i}.title"` : ""}>${esc(b.title)}</div>
         <div class="doc-meta ed" style="margin-top:6px" ${admin ? `contenteditable="true" data-bl="backlog.${i}.note"` : ""}>${esc(b.note)}</div>
+      </div>
+      <div class="bl-est" title="Estimated hours to complete">
+        <span class="bl-est-val ed" ${admin ? `contenteditable="true" data-bl="backlog.${i}.estHours" data-blnum="1"` : ""}>${b.estHours === "" || b.estHours == null ? (admin ? "" : "—") : esc(b.estHours)}</span>
+        <span class="bl-est-lbl">est. hrs</span>
       </div>
       ${admin ? `<button class="row-del" data-bldel="${i}" title="Remove">✕</button>` : ""}
     </div>`).join("");
@@ -399,10 +403,12 @@ function initBacklog() {
   const page = document.querySelector('.page[data-page="backlog"]');
   page.addEventListener("focusout", e => {
     const ed = e.target.closest("[data-bl]"); if (!ed) return;
-    setPath(getEng(), ed.dataset.bl, ed.textContent.trim()); saveState();
+    let v = ed.textContent.trim();
+    if (ed.dataset.blnum) { const n = parseFloat(v.replace(/[^0-9.]/g, "")); v = isNaN(n) ? "" : n; }
+    setPath(getEng(), ed.dataset.bl, v); saveState();
   });
   page.addEventListener("click", e => {
-    if (e.target.id === "backlogAdd") { getEng().backlog.push({ title: "New idea", note: "" }); saveState(); repaint("backlog"); return; }
+    if (e.target.id === "backlogAdd") { getEng().backlog.push({ title: "New idea", note: "", estHours: "" }); saveState(); repaint("backlog"); return; }
     const del = e.target.closest("[data-bldel]");
     if (del) { getEng().backlog.splice(+del.dataset.bldel, 1); saveState(); repaint("backlog"); }
   });
@@ -547,7 +553,22 @@ function applyEngagement() {
   tog.innerHTML =
     `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-engmode="retainer">Monthly Services</button>` +
     `<button class="eng-seg ${!isRetainer() ? "active" : ""}" data-engmode="project">Projects</button>`;
-  el("#clientMeta").textContent = (!isRetainer() && !selectedProject()) ? "Projects" : getEng().name;
+  // topbar identity: client name (set once) + engagement label + North Star (moved out of the page header)
+  const eng = getEng();
+  const onFolder = !isRetainer() && !selectedProject();
+  el("#clientMeta").textContent = "· " + (isRetainer() ? "Monthly Services" : (onFolder ? "Projects" : (eng.label || eng.name)));
+  const ns = el("#clientNorthstar");
+  if (ns) {
+    const admin = (typeof canEdit === "function") && canEdit();
+    if (onFolder) { ns.innerHTML = ""; }
+    else {
+      const star = `<svg class="ns-bolt-mini" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>`;
+      const nsTxt = admin ? `<span class="tb-ed" contenteditable="true" data-tbpath="northStar">${esc(eng.northStar || "")}</span>` : esc(eng.northStar || "");
+      const due = (eng.type === "project" && (eng.dueDate || admin))
+        ? `<span class="tb-due"> · Due ${admin ? `<span class="tb-ed" contenteditable="true" data-tbpath="dueDate">${esc(eng.dueDate || "")}</span>` : esc(eng.dueDate || "")}</span>` : "";
+      ns.innerHTML = `${star}<span class="ns-line">${nsTxt}${due}</span>`;
+    }
+  }
   el("#navBacklog").style.display = isRetainer() ? "" : "none";   // Backlog = Monthly-Services-only
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");
@@ -582,6 +603,12 @@ function applyEngagement() {
   // "← All projects" (shown on a project's homepage) returns to the folder
   document.addEventListener("click", e => {
     if (e.target.closest("[data-allprojects]")) { selectProject(""); applyEngagement(); openFresh("projectplan"); }
+  });
+
+  // North Star / due-date edits made in the topbar
+  el("#clientNorthstar").addEventListener("focusout", e => {
+    const f = e.target.closest("[data-tbpath]"); if (!f) return;
+    setPath(getEng(), f.dataset.tbpath, f.textContent.trim()); saveState();
   });
 
   // Live data: pull from Supabase when configured (otherwise stay on localStorage)

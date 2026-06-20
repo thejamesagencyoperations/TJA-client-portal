@@ -62,6 +62,37 @@ window.ExecSummary = (function () {
     </svg>`;
   }
 
+  /* ---- condition (merged into the burn tile) ---- */
+  function conditionInline(e) {
+    const c = e.condition || { level: "green", note: "" }, lvl = c.level;
+    const labels = { green: "On Track", yellow: "Needs Attention", red: "Off Track" };
+    const dot = (col) => `<span class="cond-dot ${col} ${lvl === col ? "on" : ""} ${canAdmin() ? "admin-edit" : ""}" data-cond="${col}" ${canAdmin() ? `title="Set to ${col}"` : ""}></span>`;
+    return `<div class="burn-cond">
+      <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span><span class="cond-label ${lvl}">${labels[lvl] || "—"}</span></div>
+      <div class="cond-note">${ed(c.note, "condition.note")}</div>
+    </div>`;
+  }
+
+  /* ---- monthly history (retainer) — keep every past month so nothing is lost ---- */
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  function syncCurrentMonth(eng) {           // mirror the live burn into the persisted month-history array
+    if (!eng || !eng.burn) return;
+    eng.mom = eng.mom || [];
+    const cur = (eng.burn.periodLabel || "").trim().slice(0, 3);
+    const last = eng.mom[eng.mom.length - 1];
+    if (last && last.month === cur) { last.usedHours = eng.burn.usedHours; last.contractedHours = eng.burn.contractedHours; }
+    else eng.mom.push({ month: cur, usedHours: eng.burn.usedHours, contractedHours: eng.burn.contractedHours });
+  }
+  function nextMonthLabel(periodLabel) {
+    const parts = (periodLabel || "").trim().split(/\s+/);
+    let mi = MONTHS.findIndex(m => m.toLowerCase() === (parts[0] || "").toLowerCase());
+    let year = parseInt(parts[1], 10);
+    if (mi < 0) mi = 0;
+    if (isNaN(year)) year = 2026;
+    mi += 1; if (mi > 11) { mi = 0; year += 1; }
+    return { full: `${MONTHS[mi]} ${year}`, short: MONTHS[mi].slice(0, 3) };
+  }
+
   /* ---- list helpers ---- */
   const owners = (o) => (o === "TJA" ? "tja" : "client");
   function listDel(list, i) { return canAdmin() ? `<button class="row-del" data-listdel="${list}" data-idx="${i}" title="Remove">✕</button>` : ""; }
@@ -80,12 +111,12 @@ window.ExecSummary = (function () {
         <div class="module-head"><span class="module-title">${IC.burn}Project Progress · ${pct}%</span></div>
         <div class="pizza">${steps}</div>
         ${canAdmin() ? `<div class="burn-edit">Click a phase to mark it complete.</div>` : ""}
+        ${conditionInline(e)}
       </div>`;
     }
     // retainer speedometer
     const b = (viewMonthIdx == null) ? e.burn : e.mom[viewMonthIdx];
     const used = b.usedHours, total = b.contractedHours, pct = Math.round(used / total * 100);
-    const tone = pct < 70 ? "good" : pct < 90 ? "warn" : "bad";
     const mom = (e.mom || []).map((m, i) => {
       const active = (viewMonthIdx == null) ? (i === e.mom.length - 1) : (i === viewMonthIdx);
       return `<div class="mom-chip ${active ? "active" : ""}" data-mom="${i}" title="View ${esc(m.month)}"><div class="m">${esc(m.month)}</div><div class="v">${Math.round(m.usedHours / m.contractedHours * 100)}%</div></div>`;
@@ -99,7 +130,7 @@ window.ExecSummary = (function () {
       <div class="burn-wrap">
         ${gauge(pct, interactive)}
         <div class="burn-readout">
-          <div class="big" style="color:var(--${tone})">${bigPct}</div>
+          <div class="big">${bigPct}</div>
           ${canAdmin()
             ? `<div class="sub">${used} of ${ed(total, "burn.contractedHours", { num: true, rerender: true })} hrs used</div>
                <div class="burn-hint">drag the dial or edit the % to set burn</div>`
@@ -107,6 +138,8 @@ window.ExecSummary = (function () {
         </div>
       </div>
       ${mom ? `<div class="mom-strip">${mom}</div>` : ""}
+      ${canAdmin() ? `<button class="row-add mom-newmonth" data-newmonth title="Save this month to history and roll into the next">＋ New month</button>` : ""}
+      ${conditionInline(e)}
     </div>`;
   }
 
@@ -220,7 +253,6 @@ window.ExecSummary = (function () {
   /* ---- module registry + kanban layout ---- */
   const MODULES = {
     burn:         { label: "Burn",          fn: burnModule },
-    condition:    { label: "Condition",     fn: conditionModule },
     service:      { label: "Service Lines", fn: serviceModule },
     milestones:   { label: "Milestones",    fn: milestoneModule },
     todos:        { label: "To-Do's",       fn: todosModule },
@@ -228,24 +260,28 @@ window.ExecSummary = (function () {
     kpis:         { label: "KPIs",          fn: kpiModule },
     pr:           { label: "PR Coverage",   fn: prModule },
   };
+  const LAYOUT_V = 3;   // bump to force every saved layout onto the 3-column default once
+  const COLS = ["c1", "c2", "c3"];
   function defaultLayout(e) {
-    const right = ["condition", "milestones", "kpis"];
-    if (e.type !== "project") right.push("pr");
-    return { left: ["burn", "service", "todos", "dependencies"], right, hidden: e.type === "project" ? ["pr"] : [] };
+    const c3 = ["dependencies", "kpis"];
+    if (e.type !== "project") c3.push("pr");
+    return { v: LAYOUT_V, c1: ["burn", "service"], c2: ["milestones", "todos"], c3, hidden: e.type === "project" ? ["pr"] : [], widths: [1.2, 1, 1] };
   }
   function getLayout(e) {
-    if (!e.layout || !Array.isArray(e.layout.left) || !Array.isArray(e.layout.right)) e.layout = defaultLayout(e);
-    if (!Array.isArray(e.layout.hidden)) e.layout.hidden = [];
-    // drop any unknown/duplicate keys; keep only real modules, de-duped
+    if (!e.layout || e.layout.v !== LAYOUT_V) e.layout = defaultLayout(e);
+    const L = e.layout;
+    if (!Array.isArray(L.hidden)) L.hidden = [];
+    if (!Array.isArray(L.widths) || L.widths.length !== 3) L.widths = [1.2, 1, 1];
+    // drop unknown/duplicate keys; keep only real modules, de-duped (e.g. legacy "condition" is now folded into burn)
     const valid = Object.keys(MODULES); const used = new Set();
-    ["left", "right", "hidden"].forEach(c => {
-      e.layout[c] = e.layout[c].filter(k => valid.includes(k) && !used.has(k) && used.add(k));
-    });
-    // backfill any module not placed anywhere
-    valid.forEach(k => { if (!used.has(k)) e.layout.hidden.push(k); });
-    // SAFETY: never leave both columns empty — restore a sensible default
-    if (e.layout.left.length + e.layout.right.length === 0) e.layout = defaultLayout(e);
-    return e.layout;
+    [...COLS, "hidden"].forEach(c => { if (!Array.isArray(L[c])) L[c] = []; L[c] = L[c].filter(k => valid.includes(k) && !used.has(k) && used.add(k)); });
+    valid.forEach(k => { if (!used.has(k)) L.hidden.push(k); });
+    if (L.c1.length + L.c2.length + L.c3.length === 0) { const d = defaultLayout(e); L.c1 = d.c1; L.c2 = d.c2; L.c3 = d.c3; }
+    return L;
+  }
+  function colTemplate(e) {
+    const w = getLayout(e).widths;
+    return `minmax(0,${w[0]}fr) 16px minmax(0,${w[1]}fr) 16px minmax(0,${w[2]}fr)`;
   }
   const TILEBAR = (key) => !canAdmin() ? "" : `<button class="tile-remove" data-tileremove="${key}" title="Remove tile">✕</button>`;
   function colHtml(e, col) {
@@ -261,35 +297,61 @@ window.ExecSummary = (function () {
       : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
-    ${canAdmin() ? `<div class="admin-hint">✎ Admin — fields are editable · drag a tile by its header to rearrange · ✕ to remove a tile</div>` : ""}
-    <div class="exec-header">
-      <div>
-        <div class="exec-eng-name">${esc(e.name)}</div>
-        <div class="exec-northstar"><span class="ns-bolt">${IC.bolt}</span><span class="ns-text">${ed(e.northStar, "northStar")}</span></div>
-        ${e.type === "project" ? `<div class="exec-due">Completion date: <b>${ed(e.dueDate, "dueDate")}</b></div>` : ""}
-      </div>
-      ${window.DASH.D.client.logo
-        ? `<div class="exec-logo has-logo"><img src="${window.DASH.D.client.logo}" alt="${esc(window.DASH.D.client.name)}"></div>`
-        : `<div class="exec-logo">${esc(window.DASH.D.client.initials)}</div>`}
-    </div>
-    <div class="exec-cols">
-      <div class="exec-col" data-col="left">${colHtml(e, "left")}</div>
-      <div class="exec-col" data-col="right">${colHtml(e, "right")}</div>
+    <div class="exec-cols" style="grid-template-columns:${colTemplate(e)}">
+      <div class="exec-col" data-col="c1">${colHtml(e, "c1")}</div>
+      <div class="exec-gutter" data-gutter="0" title="Drag to resize columns"></div>
+      <div class="exec-col" data-col="c2">${colHtml(e, "c2")}</div>
+      <div class="exec-gutter" data-gutter="1" title="Drag to resize columns"></div>
+      <div class="exec-col" data-col="c3">${colHtml(e, "c3")}</div>
     </div>
     ${hiddenRow}`;
   }
-  function rerender() { const s = section(); if (s) { s.innerHTML = render(window.DASH.getEng()); setupDrag(); } }
+  function rerender() { const s = section(); if (s) { s.innerHTML = render(window.DASH.getEng()); setupDrag(); setupResize(); } }
 
   /* ---- tile remove / restore ---- */
   function tileAction(action, key) {
     const e = window.DASH.getEng(); const lay = getLayout(e);
     if (action === "remove") {
-      ["left", "right"].forEach(c => { const i = lay[c].indexOf(key); if (i > -1) lay[c].splice(i, 1); });
+      COLS.forEach(c => { const i = lay[c].indexOf(key); if (i > -1) lay[c].splice(i, 1); });
       if (!lay.hidden.includes(key)) lay.hidden.push(key);
     } else if (action === "restore") {
-      lay.hidden = lay.hidden.filter(k => k !== key); lay.right.push(key);
+      lay.hidden = lay.hidden.filter(k => k !== key); lay.c3.push(key);
     }
     window.DASH.saveState(); rerender();
+  }
+
+  /* ---- drag a column gutter to resize the three columns ---- */
+  function setupResize() {
+    if (!canAdmin()) return;
+    const s = section(); if (!s) return;
+    const cols = s.querySelector(".exec-cols"); if (!cols) return;
+    s.querySelectorAll(".exec-gutter").forEach(g => {
+      g.addEventListener("pointerdown", ev => {
+        ev.preventDefault();
+        const gi = +g.dataset.gutter;
+        const e = window.DASH.getEng(), lay = getLayout(e);
+        const rect = cols.getBoundingClientRect();
+        const pxPerFr = rect.width / lay.widths.reduce((a, b) => a + b, 0);
+        const startX = ev.clientX, w0 = lay.widths[gi], w1 = lay.widths[gi + 1];
+        g.classList.add("resizing");
+        const move = (mv) => {
+          const dFr = (mv.clientX - startX) / pxPerFr; const min = 0.45;
+          let a = w0 + dFr, b = w1 - dFr;
+          if (a < min) { b -= (min - a); a = min; }
+          if (b < min) { a -= (min - b); b = min; }
+          lay.widths[gi] = a; lay.widths[gi + 1] = b;
+          cols.style.gridTemplateColumns = colTemplate(e);
+        };
+        const up = () => {
+          document.removeEventListener("pointermove", move);
+          document.removeEventListener("pointerup", up);
+          g.classList.remove("resizing");
+          window.DASH.saveState();
+        };
+        document.addEventListener("pointermove", move);
+        document.addEventListener("pointerup", up);
+      });
+    });
   }
 
   /* ---- drag-and-drop: grab a tile by its header to move it ---- */
@@ -333,18 +395,18 @@ window.ExecSummary = (function () {
     const tileZone = zone.classList.contains("exec-tile") ? zone : null;
     if (tileZone && tileZone.dataset.key === key) return;          // dropped on itself → no-op
     // remove from wherever it currently lives
-    ["left", "right"].forEach(c => { const i = lay[c].indexOf(key); if (i > -1) lay[c].splice(i, 1); });
+    COLS.forEach(c => { const i = lay[c].indexOf(key); if (i > -1) lay[c].splice(i, 1); });
     let col, idx;
     if (tileZone) {
       const tkey = tileZone.dataset.key;
-      col = lay.left.includes(tkey) ? "left" : lay.right.includes(tkey) ? "right" : "left";
+      col = COLS.find(c => lay[c].includes(tkey)) || "c1";
       const r = tileZone.getBoundingClientRect();
       idx = lay[col].indexOf(tkey) + (ev.clientY > r.top + r.height / 2 ? 1 : 0);
     } else {
-      col = (zone.dataset && zone.dataset.col) || ((zone.closest(".exec-col") || {}).dataset || {}).col || "left";
+      col = (zone.dataset && zone.dataset.col) || ((zone.closest(".exec-col") || {}).dataset || {}).col || "c1";
       idx = lay[col].length;
     }
-    if (!Array.isArray(lay[col])) col = "left";                    // safety
+    if (!Array.isArray(lay[col])) col = "c1";                      // safety
     lay[col].splice(idx, 0, key);
     window.DASH.saveState(); rerender();
   }
@@ -372,13 +434,15 @@ window.ExecSummary = (function () {
         let pct = parseFloat(bp.textContent.replace(/[^0-9.]/g, "")); pct = isNaN(pct) ? 0 : Math.max(0, Math.min(100, pct));
         const eng = window.DASH.getEng();
         eng.burn.usedHours = Math.round(pct / 100 * eng.burn.contractedHours);
-        viewMonthIdx = null; window.DASH.saveState(); rerender(); return;
+        viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return;
       }
       const f = e.target.closest("[data-path]"); if (!f) return;
       let v = f.textContent.trim();
       if (f.dataset.num) { const n = parseFloat(v.replace(/[^0-9.]/g, "")); v = isNaN(n) ? 0 : n; }
-      window.DASH.setPath(window.DASH.getEng(), f.dataset.path, v); window.DASH.saveState();
-      if (f.dataset.path.indexOf("burn.") === 0) viewMonthIdx = null;  // show edited current month on the gauge
+      const eng = window.DASH.getEng();
+      window.DASH.setPath(eng, f.dataset.path, v);
+      if (f.dataset.path.indexOf("burn.") === 0) { viewMonthIdx = null; syncCurrentMonth(eng); }  // keep month-history in step
+      window.DASH.saveState();
       if (f.dataset.rerender) rerender();
     });
 
@@ -404,7 +468,7 @@ window.ExecSummary = (function () {
       if (!gaugeDragging) return; gaugeDragging = false;
       document.removeEventListener("pointermove", gaugeMove);
       document.removeEventListener("pointerup", gaugeUp);
-      window.DASH.saveState();
+      syncCurrentMonth(window.DASH.getEng()); window.DASH.saveState();
     }
     s.addEventListener("pointerdown", ev => {
       if (!canAdmin() || !ev.target.closest(".gauge-drag")) return;
@@ -453,6 +517,15 @@ window.ExecSummary = (function () {
 
       const mom = e.target.closest("[data-mom]");
       if (mom) { viewMonthIdx = +mom.dataset.mom; rerender(); return; }
+
+      const nm = e.target.closest("[data-newmonth]");
+      if (nm && canAdmin()) {
+        syncCurrentMonth(eng);                                   // bank the current month into history
+        const nx = nextMonthLabel(eng.burn.periodLabel);
+        eng.mom.push({ month: nx.short, usedHours: 0, contractedHours: eng.burn.contractedHours });
+        eng.burn = { usedHours: 0, contractedHours: eng.burn.contractedHours, periodLabel: nx.full };
+        viewMonthIdx = null; window.DASH.saveState(); rerender(); return;
+      }
 
       // click a service row (not an editable / control) → status tab
       const row = e.target.closest(".svc-row");
