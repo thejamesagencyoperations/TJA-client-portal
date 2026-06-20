@@ -12,10 +12,10 @@ const el = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
 const STATUS = {
-  complete: "Complete", "in-progress": "In Progress", pending: "Pending",
-  "on-hold": "On Hold", blocked: "Blocked",
+  complete: "Complete", "in-progress": "In Progress", "not-started": "Not Started",
+  pending: "Pending", "on-hold": "On Hold", blocked: "Blocked",
 };
-const STATUS_CLASS = { complete: "complete", "in-progress": "in-progress", pending: "pending", "on-hold": "on-hold", blocked: "blocked" };
+const STATUS_CLASS = { complete: "complete", "in-progress": "in-progress", "not-started": "pending", pending: "pending", "on-hold": "on-hold", blocked: "blocked" };
 const badge = (k) => `<span class="badge ${STATUS_CLASS[k] || "pending"}">${esc(STATUS[k] || k)}</span>`;
 
 /* ---------- editable state ---------- */

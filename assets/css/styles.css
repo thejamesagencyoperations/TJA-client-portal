@@ -813,12 +813,22 @@ body[data-role="client"] .admin-only { display: none !important; }
 .cond-note { font-size: .82rem; color: var(--text-dim); margin-top: 8px; }
 
 /* Service lines */
-.svc-row { display: grid; grid-template-columns: 1.4fr 1fr auto; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.svc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
 .svc-row:last-child { border-bottom: none; }
 .svc-row:hover .svc-name { color: var(--accent-text); }
-.svc-name { font-weight: 600; font-size: .86rem; }
-.svc-alloc { display: flex; align-items: center; gap: 8px; }
+.svc-name { font-weight: 600; font-size: .86rem; flex: 1 1 110px; min-width: 88px; }
+.svc-alloc { display: flex; align-items: center; gap: 8px; flex: 1 1 120px; min-width: 108px; }
 .svc-alloc .pct { font-size: .72rem; color: var(--text-dim); width: 34px; text-align: right; }
+.svc-statuswrap { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+/* 3-state service-line control: Not started / In progress / Complete */
+.svc-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--input); }
+.svc-seg-btn { border: none; border-right: 1px solid var(--line); background: transparent; color: var(--text-dim);
+  font: inherit; font-size: .62rem; font-weight: 700; letter-spacing: .01em; padding: 4px 8px; cursor: pointer; white-space: nowrap; transition: background .12s ease, color .12s ease; }
+.svc-seg-btn:last-child { border-right: none; }
+.svc-seg-btn:hover { color: var(--text); }
+.svc-seg-btn.is-not-started.active { background: rgba(154,154,159,.24); color: var(--text); }
+.svc-seg-btn.is-in-progress.active { background: rgba(246,142,33,.16); color: var(--accent-text); }
+.svc-seg-btn.is-complete.active    { background: rgba(54,194,117,.18); color: var(--good); }
 .mom-strip { display: flex; gap: 7px; margin-top: 14px; }
 .mom-chip { flex: 1; text-align: center; background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 8px 4px; cursor: pointer; }
 .mom-chip.active { border-color: var(--orange); }

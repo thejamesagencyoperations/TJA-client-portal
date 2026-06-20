@@ -158,12 +158,16 @@ window.ExecSummary = (function () {
   }
 
   function serviceModule(e) {
+    const seg = (i, status) => {
+      const opt = (val, label) => `<button class="svc-seg-btn is-${val} ${status === val ? "active" : ""}" data-svcset="${i}:${val}" title="${label}">${label}</button>`;
+      return `<div class="svc-seg">${opt("not-started", "Not started")}${opt("in-progress", "In progress")}${opt("complete", "Complete")}</div>`;
+    };
     const rows = (e.serviceLines || []).map((s, i) => `
       <div class="svc-row" data-svcrow="${i}">
         <div class="svc-name ed-host">${ed(s.name, "serviceLines." + i + ".name")}</div>
         <div class="svc-alloc"><div class="bar" style="flex:1"><span style="width:${s.allocationPct}%"></span></div><span class="pct">${s.allocationPct}%</span></div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="svc-status ${canAdmin() ? "admin-edit" : ""}" data-svc="${i}" ${canAdmin() ? `title="Toggle status"` : ""}>${window.DASH.badge(s.status)}</span>
+        <div class="svc-statuswrap">
+          ${canAdmin() ? seg(i, s.status) : window.DASH.badge(s.status)}
           ${listDel("serviceLines", i)}
         </div>
       </div>`).join("");
@@ -238,8 +242,7 @@ window.ExecSummary = (function () {
           <div class="pr-head">${ed(p.headline, "prCoverage." + i + ".headline")}</div>
         </div>
         <div class="pr-stats">
-          <span class="pr-metric" title="Impressions">${ed(p.impressions, "prCoverage." + i + ".impressions")} impr.</span>
-          <span class="pr-metric pr-val" title="Ad value equivalent">${ed(p.adValue, "prCoverage." + i + ".adValue")}</span>
+          <span class="pr-metric" title="Estimated impressions">${ed(p.impressions, "prCoverage." + i + ".impressions")} est. impressions</span>
         </div>
         ${listDel("prCoverage", i)}
       </div>`).join("");
@@ -413,12 +416,12 @@ window.ExecSummary = (function () {
 
   /* ---- wiring (delegated, attached once) ---- */
   const defaults = {
-    serviceLines: () => ({ name: "New service line", allocationPct: 0, status: "in-progress" }),
+    serviceLines: () => ({ name: "New service line", allocationPct: 0, status: "not-started" }),
     milestones: () => ({ label: "New milestone", date: "", done: false }),
     todos: () => ({ text: "New to-do", owner: "Client" }),
     dependencies: () => ({ text: "New dependency" }),
     kpis: () => ({ label: "New KPI", target: "", current: "" }),
-    prCoverage: () => ({ outlet: "Outlet", headline: "Headline", date: "" }),
+    prCoverage: () => ({ outlet: "Outlet", headline: "Headline", date: "", impressions: "" }),
   };
   let wired = false;
   function init() {
@@ -506,8 +509,8 @@ window.ExecSummary = (function () {
         window.DASH.saveState(); rerender(); return;
       }
 
-      const svc = e.target.closest("[data-svc]");
-      if (svc && canAdmin()) { const sl = eng.serviceLines[+svc.dataset.svc]; sl.status = sl.status === "complete" ? "in-progress" : "complete"; window.DASH.saveState(); rerender(); return; }
+      const svcset = e.target.closest("[data-svcset]");
+      if (svcset && canAdmin()) { const [idx, val] = svcset.dataset.svcset.split(":"); eng.serviceLines[+idx].status = val; window.DASH.saveState(); rerender(); return; }
 
       const own = e.target.closest("[data-owner]");
       if (own && canAdmin()) { const t = eng.todos[+own.dataset.owner]; t.owner = t.owner === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
@@ -529,7 +532,7 @@ window.ExecSummary = (function () {
 
       // click a service row (not an editable / control) → status tab
       const row = e.target.closest(".svc-row");
-      if (row && !e.target.closest(".ed,[data-svc],[data-listdel]")) window.DASH.activate("status");
+      if (row && !e.target.closest(".ed,[data-svcset],[data-listdel]")) window.DASH.activate("status");
     });
   }
 
