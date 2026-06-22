@@ -413,13 +413,16 @@ window.ExecSummary = (function () {
       const head = tile.querySelector(".module-head"); if (!head) return;
       head.classList.add("tile-drag-handle");
       head.addEventListener("pointerdown", ev => {
-        if (ev.button !== 0 || ev.target.closest(".module-link, .tile-remove, .ed, input, button")) return;
+        if (ev.button !== 0 || ev.target.closest(".module-link, .tile-remove, .ed, input, button, a, textarea, select")) return;
         ev.preventDefault();
         const lay = getLayout(window.DASH.getEng());
         const pos = lay.free[tile.dataset.key]; if (!pos) return;
         const sx = ev.clientX, sy = ev.clientY, ox = pos.x, oy = pos.y;
         const others = [...canvas.querySelectorAll(".exec-tile")].filter(t => t !== tile);
         tile.classList.add("dragging"); let moved = false;
+        // pointer capture → pointermove/up keep firing on the handle even as the cursor
+        // passes over other tiles, and the native text/element drag can't hijack it
+        try { head.setPointerCapture(ev.pointerId); } catch {}
         const move = (mv) => {
           moved = true;
           const nx = Math.max(0, ox + (mv.clientX - sx)), ny = Math.max(0, oy + (mv.clientY - sy));
@@ -429,14 +432,17 @@ window.ExecSummary = (function () {
           drawGuides(canvas, sn.gx, sn.gy); updateCanvasHeight();
         };
         const up = () => {
-          document.removeEventListener("pointermove", move);
-          document.removeEventListener("pointerup", up);
+          head.removeEventListener("pointermove", move);
+          head.removeEventListener("pointerup", up);
+          head.removeEventListener("pointercancel", up);
+          try { head.releasePointerCapture(ev.pointerId); } catch {}
           tile.classList.remove("dragging"); clearGuides(canvas);
           if (moved && canAdmin()) window.DASH.saveState();
           updateCanvasHeight();
         };
-        document.addEventListener("pointermove", move);
-        document.addEventListener("pointerup", up);
+        head.addEventListener("pointermove", move);
+        head.addEventListener("pointerup", up);
+        head.addEventListener("pointercancel", up);
       });
     });
   }

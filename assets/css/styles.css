@@ -939,8 +939,8 @@ body[data-role="admin"] .exec-tile::after { content: ""; position: absolute; rig
 .ns-banner-text { font-size: .92rem; color: var(--text); font-weight: 500; flex: 0 1 auto; min-width: 0; }
 .ns-banner-due { font-size: .78rem; color: var(--text-dim); flex: none; }
 /* the module header is the drag handle in admin */
-body[data-role="admin"] .tile-drag-handle { cursor: grab; }
-body[data-role="admin"] .tile-drag-handle:active { cursor: grabbing; }
+body[data-role="admin"] .tile-drag-handle { cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+body[data-role="admin"] .tile-drag-handle:active, .exec-tile.dragging .tile-drag-handle { cursor: grabbing; }
 body[data-role="admin"] .exec-tile:hover .module-head .module-title::after {
   content: "⠿"; margin-left: 8px; color: var(--text-faint); font-size: .8rem; letter-spacing: -1px;
 }
