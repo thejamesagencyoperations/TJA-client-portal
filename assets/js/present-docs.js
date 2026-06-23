@@ -139,8 +139,10 @@ window.PresentDocs = (function () {
             </div>
             <div class="pd-pinlist" id="pdPinList"></div>
 
-            <div class="pd-review-label">Overall Notes</div>
-            <textarea id="pdComments" placeholder="Summary notes for this version…"></textarea>
+            <div class="pd-review-label">Client Notes <span class="pd-notes-tag client">Client</span></div>
+            <textarea id="pdClientNotes" placeholder="Client feedback for this version…"></textarea>
+            <div class="pd-review-label">Agency Notes <span class="pd-notes-tag tja">TJA</span></div>
+            <textarea id="pdAgencyNotes" placeholder="Internal / agency notes for this version…"></textarea>
 
             <button class="btn btn-primary" id="pdSubmit">Submit Review</button>
             <div class="pd-saved" id="pdSaved">✓ Review saved</div>
@@ -204,7 +206,7 @@ window.PresentDocs = (function () {
     });
   }
   function newVersion(dataUrl, label) {
-    return { label, dataUrl, annotation: null, pins: [], status: null, comments: "",
+    return { label, dataUrl, annotation: null, pins: [], status: null, clientNotes: "", agencyNotes: "",
       uploaded: new Date().toLocaleDateString() };
   }
   async function handleNewDeliverables(fileList) {
@@ -381,7 +383,8 @@ window.PresentDocs = (function () {
     const d = deliv(curId); const v = active(d);
     history = []; hidePopup();
     $("pdTitle").textContent = d.name;
-    $("pdComments").value = v.comments || "";
+    $("pdClientNotes").value = (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
+    $("pdAgencyNotes").value = v.agencyNotes || "";
     $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"} · ${d.versions.length} version(s)`;
     document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
     renderVersions();
@@ -424,7 +427,7 @@ window.PresentDocs = (function () {
 
   function submitReview() {
     const d = deliv(curId); if (!d) return;
-    active(d).comments = $("pdComments").value;
+    const av = active(d); av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
     persistCanvas();
     save(); renderGallery();
     const s = $("pdSaved"); s.classList.add("show");
@@ -549,6 +552,9 @@ window.PresentDocs = (function () {
     });
     cv.addEventListener("pointerup", () => { drawing = false; });
     cv.addEventListener("pointerleave", () => { drawing = false; });
+
+    $("pdClientNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.clientNotes = e.target.value; save(); } });
+    $("pdAgencyNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.agencyNotes = e.target.value; save(); } });
 
     $("pdSubmit").addEventListener("click", submitReview);
   }

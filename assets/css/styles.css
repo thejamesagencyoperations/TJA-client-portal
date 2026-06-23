@@ -543,11 +543,14 @@ body[data-role="client"] .admin-only { display: none !important; }
 
 .pd-review { border-left: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
 .pd-review-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); }
+.pd-notes-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 5px; font-size: .55rem; font-weight: 800; letter-spacing: .06em; vertical-align: middle; }
+.pd-notes-tag.tja { background: rgba(246,142,33,.18); color: #f9a94e; }
+.pd-notes-tag.client { background: rgba(106,166,255,.18); color: #6aa6ff; }
 .pd-status-opts { display: flex; flex-direction: column; gap: 9px; }
 .pd-status-opt {
   display: flex; align-items: center; gap: 10px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer;
-  font-size: .85rem; font-weight: 600; transition: all .14s ease;
+  font-size: .85rem; font-weight: 600; color: #fff; transition: all .14s ease;
 }
 .pd-status-opt:hover { border-color: var(--text-faint); }
 .pd-status-opt .tick {
