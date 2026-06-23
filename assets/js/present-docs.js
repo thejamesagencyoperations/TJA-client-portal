@@ -30,6 +30,7 @@ window.PresentDocs = (function () {
   let ctx = null, cv = null, drawing = false, lastPt = null, dpr = 1;
   let history = [];        // unified action stack: {type:'draw',img} | {type:'pinAdd',id} | {type:'pinDel',pin,index}
   let seq = 0;
+  let zoom = 1, panX = 0, panY = 0, spaceDown = false, justPanned = false;   // image zoom/pan
 
   /* ---------- storage ---------- */
   function load() {
@@ -92,13 +93,21 @@ window.PresentDocs = (function () {
         </div>
         <div class="pd-modal-body">
           <div class="pd-stage">
-            <div class="pd-canvas-wrap" id="pdWrap">
-              <img id="pdImg" alt="creative">
-              <canvas id="pdCanvas"></canvas>
-              <div class="pd-pins" id="pdPins"></div>
+            <div class="pd-canvas-wrap" id="pdWrap" title="Scroll to zoom · Space-drag (or middle-drag) to pan">
+              <div class="pd-zoom" id="pdZoom">
+                <img id="pdImg" alt="creative">
+                <canvas id="pdCanvas"></canvas>
+                <div class="pd-pins" id="pdPins"></div>
+              </div>
               <div class="pd-pin-popup" id="pdPopup" style="display:none">
                 <button class="pd-popup-close" id="pdPopupClose" title="Close">✕</button>
                 <textarea data-popuptext placeholder="Add a note for this pin…"></textarea>
+              </div>
+              <div class="pd-zoom-controls">
+                <button class="pd-zbtn" id="pdZoomOut" title="Zoom out">−</button>
+                <span id="pdZoomLevel">100%</span>
+                <button class="pd-zbtn" id="pdZoomIn" title="Zoom in">＋</button>
+                <button class="pd-zbtn pd-zfit" id="pdZoomReset" title="Fit to screen">Fit</button>
               </div>
             </div>
             <div class="pd-draw-tools">
@@ -246,6 +255,45 @@ window.PresentDocs = (function () {
     ctx.scale(dpr, dpr); ctx.lineCap = "round"; ctx.lineJoin = "round";
   }
   function dispSize() { return { w: parseFloat(cv.style.width) || 0, h: parseFloat(cv.style.height) || 0 }; }
+
+  /* ---------- zoom + pan (transforms the image/canvas/pins together) ---------- */
+  function applyZoom() {
+    const z = $("pdZoom"); if (z) z.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    const lvl = $("pdZoomLevel"); if (lvl) lvl.textContent = Math.round(zoom * 100) + "%";
+    const wrap = $("pdWrap"); if (wrap) wrap.classList.toggle("zoomed", zoom > 1);
+  }
+  function clampPan() {
+    if (zoom <= 1) { panX = 0; panY = 0; return; }
+    const wrap = $("pdWrap"); if (!wrap) return;
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    panX = Math.min(0, Math.max(W - W * zoom, panX));
+    panY = Math.min(0, Math.max(H - H * zoom, panY));
+  }
+  function setZoom(nz, cx, cy) {
+    nz = Math.max(1, Math.min(5, nz));
+    const wrap = $("pdWrap"); if (!wrap) return;
+    if (cx == null) { cx = wrap.clientWidth / 2; cy = wrap.clientHeight / 2; }
+    const contentX = (cx - panX) / zoom, contentY = (cy - panY) / zoom;   // keep this point under the cursor
+    zoom = nz;
+    panX = cx - contentX * zoom; panY = cy - contentY * zoom;
+    clampPan(); applyZoom(); hidePopup();
+  }
+  function resetZoom() { zoom = 1; panX = 0; panY = 0; applyZoom(); }
+  const panKey = (e) => spaceDown || e.button === 1;
+  function startPan(e) {
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY, x0 = panX, y0 = panY, wrap = $("pdWrap");
+    if (wrap) wrap.classList.add("panning");
+    hidePopup();
+    let moved = false;
+    const mv = (m) => { moved = true; panX = x0 + (m.clientX - sx); panY = y0 + (m.clientY - sy); clampPan(); applyZoom(); };
+    const up = () => {
+      document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up);
+      if (wrap) wrap.classList.remove("panning");
+      if (moved) { justPanned = true; setTimeout(() => { justPanned = false; }, 60); }
+    };
+    document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up);
+  }
   function drawSaved(annotation, cb) {
     if (!annotation || !ctx) { cb && cb(); return; }
     const a = new Image();
@@ -328,7 +376,7 @@ window.PresentDocs = (function () {
     if (!wrap || !pins || !pop) return;
     const ox = parseFloat(pins.style.left) || 0, oy = parseFloat(pins.style.top) || 0;
     const pw = parseFloat(pins.style.width) || 0, ph = parseFloat(pins.style.height) || 0;
-    const px = ox + p.x * pw, py = oy + p.y * ph;
+    const px = panX + (ox + p.x * pw) * zoom, py = panY + (oy + p.y * ph) * zoom;   // account for zoom/pan
     pop.dataset.pin = p.id;
     const ta = pop.querySelector("[data-popuptext]");
     ta.value = p.text || "";
@@ -381,7 +429,7 @@ window.PresentDocs = (function () {
   /* ---------- modal ---------- */
   function loadVersionIntoModal() {
     const d = deliv(curId); const v = active(d);
-    history = []; hidePopup();
+    history = []; hidePopup(); resetZoom();
     $("pdTitle").textContent = d.name;
     $("pdClientNotes").value = (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
     $("pdAgencyNotes").value = v.agencyNotes || "";
@@ -411,7 +459,7 @@ window.PresentDocs = (function () {
     $("pdSaved").classList.remove("show");
     loadVersionIntoModal();
   }
-  function closeModal() { persistCanvas(); save(); renderGallery(); hidePopup(); $("pdModal").classList.remove("open"); curId = null; }
+  function closeModal() { persistCanvas(); save(); renderGallery(); hidePopup(); resetZoom(); $("pdModal").classList.remove("open"); curId = null; }
 
   function setTool(t) {
     tool = t;
@@ -448,7 +496,7 @@ window.PresentDocs = (function () {
   }
 
   /* ---------- drawing ---------- */
-  function pos(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function pos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / zoom, y: (e.clientY - r.top) / zoom }; }
   function snapshot() { if (!ctx) return; try { history.push({ type: "draw", img: ctx.getImageData(0, 0, cv.width, cv.height) }); if (history.length > 60) history.shift(); } catch {} }
 
   /* ---------- wiring ---------- */
@@ -462,13 +510,18 @@ window.PresentDocs = (function () {
     wiredGlobal = true;
     document.addEventListener("keydown", e => {
       const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
+      const typing = /INPUT|TEXTAREA/.test(e.target.tagName || "") || e.target.isContentEditable;
+      if (e.code === "Space" && !typing) { spaceDown = true; const w = $("pdWrap"); if (w) w.classList.add("space-pan"); e.preventDefault(); return; }
       if (e.key === "Escape") closeModal();
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
+    });
+    document.addEventListener("keyup", e => {
+      if (e.code === "Space") { spaceDown = false; const w = $("pdWrap"); if (w) w.classList.remove("space-pan"); }
     });
     window.addEventListener("resize", () => {
       const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
       const v = active(deliv(curId));
-      persistCanvas(); sizeOverlay(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); drawSaved(v && v.annotation); renderPins(); hidePopup();
+      persistCanvas(); sizeOverlay(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); drawSaved(v && v.annotation); renderPins(); hidePopup(); clampPan(); applyZoom();
     });
   }
 
@@ -522,7 +575,7 @@ window.PresentDocs = (function () {
     $("pdClearComments").addEventListener("click", clearComments);
 
     $("pdPins").addEventListener("click", e => {
-      if (tool !== "comment") return;
+      if (tool !== "comment" || justPanned || spaceDown) return;
       const marker = e.target.closest(".pd-pin");
       if (marker) { selectPin(marker.dataset.pin); return; }
       const layer = $("pdPins"); const r = layer.getBoundingClientRect();
@@ -541,8 +594,22 @@ window.PresentDocs = (function () {
       $("pdPopupClose").addEventListener("click", hidePopup);
     }
 
+    // zoom controls + wheel-to-zoom + pan
+    $("pdWrap").addEventListener("wheel", e => {
+      e.preventDefault();
+      const r = $("pdWrap").getBoundingClientRect();
+      setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+    $("pdZoomIn").addEventListener("click", () => setZoom(zoom * 1.25));
+    $("pdZoomOut").addEventListener("click", () => setZoom(zoom / 1.25));
+    $("pdZoomReset").addEventListener("click", resetZoom);
+    $("pdPins").addEventListener("pointerdown", e => { if (panKey(e)) startPan(e); });
+
     cv = $("pdCanvas");
-    cv.addEventListener("pointerdown", e => { if (tool !== "draw" || !ctx) return; hidePopup(); snapshot(); drawing = true; lastPt = pos(e); cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointerdown", e => {
+      if (panKey(e)) { startPan(e); return; }                      // space/middle-drag → pan
+      if (tool !== "draw" || !ctx) return; hidePopup(); snapshot(); drawing = true; lastPt = pos(e); cv.setPointerCapture(e.pointerId);
+    });
     cv.addEventListener("pointermove", e => {
       if (!drawing || !ctx) return;
       const p = pos(e);

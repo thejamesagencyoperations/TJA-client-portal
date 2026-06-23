@@ -508,6 +508,17 @@ body[data-role="client"] .admin-only { display: none !important; }
 /* pin layer sits above the canvas; numbered comment markers */
 .pd-pins { position: absolute; z-index: 2; pointer-events: none; }
 .pd-pins.comment-mode { cursor: copy; }
+/* zoom + pan */
+.pd-zoom { position: absolute; inset: 0; transform-origin: 0 0; }
+.pd-canvas-wrap.space-pan, .pd-canvas-wrap.space-pan canvas, .pd-canvas-wrap.space-pan .pd-pins { cursor: grab; }
+.pd-canvas-wrap.panning, .pd-canvas-wrap.panning canvas, .pd-canvas-wrap.panning .pd-pins { cursor: grabbing; }
+.pd-zoom-controls { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 12;
+  display: flex; align-items: center; gap: 2px; padding: 4px;
+  background: rgba(18,18,20,.82); backdrop-filter: blur(6px); border: 1px solid var(--line); border-radius: 10px; }
+.pd-zbtn { width: 30px; height: 28px; border: none; background: transparent; color: #fff; font-size: 1.05rem; line-height: 1; cursor: pointer; border-radius: 7px; }
+.pd-zbtn:hover { background: rgba(255,255,255,.14); }
+.pd-zfit { width: auto; padding: 0 10px; font-size: .72rem; font-weight: 700; }
+#pdZoomLevel { min-width: 42px; text-align: center; font-size: .72rem; color: #cfcfd2; }
 .pd-pin {
   position: absolute; transform: translate(-50%, -50%);
   width: 26px; height: 26px; border-radius: 50% 50% 50% 2px;
