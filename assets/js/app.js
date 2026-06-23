@@ -478,8 +478,17 @@ const RENDERERS = {
   exec: () => window.ExecSummary.render(getEng()),
   projectplan: renderProjectFolder, status: renderStatus,
   docs: () => (window.PresentDocs ? window.PresentDocs.render() : ""),
+  reporting: renderReporting,
   files: renderFiles, backlog: renderBacklog,
 };
+function renderReporting() {
+  return `
+  <div class="page-head">
+    <div class="page-title">Reporting</div>
+    <div class="page-desc">Performance reporting &amp; analytics for this client.</div>
+  </div>
+  <div class="placeholder-note" style="margin-top:10px">📊 Reporting is coming soon — we'll build out the contents here.</div>`;
+}
 function paint(page) {
   const sec = document.querySelector(`.page[data-page="${page}"]`);
   if (sec && !sec.dataset.painted) {

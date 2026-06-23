@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=136">
+<link rel="stylesheet" href="assets/css/styles.css?v=137">
 </head>
 <body>
 <div class="app">
@@ -30,6 +30,10 @@
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
         Present Docs
       </div>
+      <div class="nav-item" data-page="reporting">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg>
+        Reporting
+      </div>
       <div class="nav-item" data-page="files">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>
         Files
@@ -40,7 +44,7 @@
       </div>
     </nav>
     <div class="sidebar-foot">
-      <div class="version-pill">Sandbox · v1.36</div>
+      <div class="version-pill">Sandbox · v1.37</div>
     </div>
   </aside>
 
@@ -76,6 +80,7 @@
       <section class="page" data-page="projectplan"></section>
       <section class="page" data-page="status"></section>
       <section class="page" data-page="docs"></section>
+      <section class="page" data-page="reporting"></section>
       <section class="page" data-page="files"></section>
       <section class="page" data-page="backlog"></section>
     </main>
@@ -83,13 +88,13 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=136"></script>
-<script src="assets/js/supabase-sync.js?v=136"></script>
-<script src="assets/js/auth.js?v=136"></script>
+<script src="assets/js/supabase-config.js?v=137"></script>
+<script src="assets/js/supabase-sync.js?v=137"></script>
+<script src="assets/js/auth.js?v=137"></script>
 <script>requireAuth();</script>
 <script src="assets/data/celtic-elevator.js"></script>
-<script src="assets/js/present-docs.js?v=136"></script>
-<script src="assets/js/exec-summary.js?v=136"></script>
-<script src="assets/js/app.js?v=136"></script>
+<script src="assets/js/present-docs.js?v=137"></script>
+<script src="assets/js/exec-summary.js?v=137"></script>
+<script src="assets/js/app.js?v=137"></script>
 </body>
 </html>
