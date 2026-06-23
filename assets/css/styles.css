@@ -495,7 +495,7 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pd-modal-title { font-weight: 700; font-size: .98rem; }
 .pd-x { background: transparent; border: 1px solid var(--line); color: var(--text-dim);
   width: 34px; height: 34px; border-radius: 9px; cursor: pointer; font-size: 1rem; }
-.pd-x:hover { color: #fff; border-color: var(--text-faint); }
+.pd-x:hover { color: var(--text); border-color: var(--text-faint); }
 
 .pd-modal-body { display: grid; grid-template-columns: 1fr 320px; min-height: 0; height: 100%; }
 .pd-stage { display: flex; flex-direction: column; min-height: 0; height: 100%; background: #0a0a0c; }
@@ -552,16 +552,16 @@ body[data-role="client"] .admin-only { display: none !important; }
 }
 .pd-tool-btn:hover { color: #fff; border-color: var(--text-faint); }
 
-.pd-review { border-left: 1px solid var(--line); padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow: auto; }
+.pd-review { border-left: 1px solid var(--line); padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
 .pd-review-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); }
 .pd-notes-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 5px; font-size: .55rem; font-weight: 800; letter-spacing: .06em; vertical-align: middle; }
 .pd-notes-tag.tja { background: rgba(246,142,33,.18); color: #f9a94e; }
 .pd-notes-tag.client { background: rgba(106,166,255,.18); color: #6aa6ff; }
-.pd-status-opts { display: flex; flex-direction: column; gap: 9px; }
+.pd-status-opts { display: flex; flex-direction: column; gap: 7px; }
 .pd-status-opt {
-  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px; padding: 9px 13px;
   border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer;
-  font-size: .85rem; font-weight: 600; color: #fff; transition: all .14s ease;
+  font-size: .85rem; font-weight: 600; color: var(--text); transition: all .14s ease;
 }
 .pd-status-opt:hover { border-color: var(--text-faint); }
 .pd-status-opt .tick {
@@ -576,7 +576,7 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pd-status-opt.sel.revisions .tick  { background: var(--bad); border-color: var(--bad); }
 
 .pd-review textarea {
-  width: 100%; min-height: 110px; resize: vertical; padding: 12px;
+  width: 100%; min-height: 58px; resize: vertical; padding: 10px;
   background: var(--input); border: 1px solid var(--line); border-radius: var(--radius-sm);
   color: var(--text); font-family: inherit; font-size: .85rem;
 }
@@ -807,8 +807,8 @@ body[data-role="client"] .admin-only { display: none !important; }
 .burn-cond-row { display: flex; align-items: center; gap: 10px; }
 .burn-cond-row .bc-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
 .burn-cond-row .bc-label svg { width: 14px; height: 14px; color: var(--orange); }
-.burn-cond-row .cond-dots { margin-left: auto; }
-.burn-cond-row .cond-label { font-size: .9rem; }
+.burn-cond-row .cond-label { font-size: .9rem; margin-left: auto; text-align: right; }
+.burn-cond-row .cond-dots { flex: none; }
 .burn-cond .cond-note { margin-top: 7px; }
 .mom-newmonth { margin-top: 12px; }
 .undo-btn:disabled { opacity: .4; cursor: default; }
@@ -1100,7 +1100,9 @@ body[data-role="admin"] .mom-chip:hover { border-color: var(--text-faint); }
 
 /* keep the Present Docs review modal dark in BOTH themes (media-review surface).
    Redefining the tokens on the subtree cascades to every descendant. */
-.pd-modal {
+/* keep the image STAGE dark always (ideal for proofing); the modal chrome +
+   right review panel follow the page theme (light in light mode). */
+.pd-stage {
   --panel: #161618; --panel-2: #1d1d20; --input: #0d0d0f; --line: #2a2a2e;
   --text: #f2f2f3; --text-dim: #9a9a9f; --text-faint: #6a6a70; --hover: rgba(255,255,255,.04);
 }

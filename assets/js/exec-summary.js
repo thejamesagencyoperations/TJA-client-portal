@@ -68,7 +68,7 @@ window.ExecSummary = (function () {
     const labels = { green: "On Track", yellow: "Needs Attention", red: "Off Track" };
     const dot = (col) => `<span class="cond-dot ${col} ${lvl === col ? "on" : ""} ${canAdmin() ? "admin-edit" : ""}" data-cond="${col}" ${canAdmin() ? `title="Set to ${col}"` : ""}></span>`;
     return `<div class="burn-cond">
-      <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span><span class="cond-label ${lvl}">${labels[lvl] || "—"}</span></div>
+      <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span><span class="cond-label ${lvl}">${labels[lvl] || "—"}</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span></div>
       <div class="cond-note">${ed(c.note, "condition.note")}</div>
     </div>`;
   }
