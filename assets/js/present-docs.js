@@ -155,7 +155,28 @@ window.PresentDocs = (function () {
 
             <button class="btn btn-primary" id="pdSubmit">Submit Review</button>
             <div class="pd-saved" id="pdSaved">✓ Review saved</div>
+            <div class="pd-sign-status" id="pdSignStatus"></div>
+            <button class="pd-tool-btn pd-export-btn" id="pdExport">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>
+              Export PDF
+            </button>
             <div class="pd-meta-line" id="pdMeta"></div>
+          </div>
+        </div>
+
+        <div class="pd-sign-overlay" id="pdSignOverlay" style="display:none">
+          <div class="pd-sign-card">
+            <div class="pd-sign-title">Sign to approve</div>
+            <div class="pd-sign-sub" id="pdSignSub">Draw your signature below to approve this version.</div>
+            <canvas id="pdSignPad" class="pd-sign-pad"></canvas>
+            <div class="pd-sign-row">
+              <input type="text" id="pdSignName" class="pd-sign-name" placeholder="Type your name (optional)">
+              <button class="pd-tool-btn" id="pdSignClear">Clear</button>
+            </div>
+            <div class="pd-sign-actions">
+              <button class="pd-tool-btn" id="pdSignCancel">Cancel</button>
+              <button class="btn btn-primary" id="pdSignConfirm">Confirm &amp; Submit</button>
+            </div>
           </div>
         </div>
       </div>
@@ -183,6 +204,7 @@ window.PresentDocs = (function () {
       const v = active(d);
       return `<div class="pd-card" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
+        <button class="pd-card-export" data-export="${d.id}" title="Export PDF">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
         <div class="pd-thumb"><img src="${v.dataUrl}" alt="${esc(d.name)}"></div>
         <div class="pd-card-foot">
@@ -429,7 +451,7 @@ window.PresentDocs = (function () {
   /* ---------- modal ---------- */
   function loadVersionIntoModal() {
     const d = deliv(curId); const v = active(d);
-    history = []; hidePopup(); resetZoom();
+    history = []; hidePopup(); resetZoom(); closeSignaturePad(); updateSignStatus();
     $("pdTitle").textContent = d.name;
     $("pdClientNotes").value = (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
     $("pdAgencyNotes").value = v.agencyNotes || "";
@@ -459,7 +481,7 @@ window.PresentDocs = (function () {
     $("pdSaved").classList.remove("show");
     loadVersionIntoModal();
   }
-  function closeModal() { persistCanvas(); save(); renderGallery(); hidePopup(); resetZoom(); $("pdModal").classList.remove("open"); curId = null; }
+  function closeModal() { persistCanvas(); save(); renderGallery(); hidePopup(); resetZoom(); closeSignaturePad(); $("pdModal").classList.remove("open"); curId = null; }
 
   function setTool(t) {
     tool = t;
@@ -477,9 +499,143 @@ window.PresentDocs = (function () {
     const d = deliv(curId); if (!d) return;
     const av = active(d); av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
     persistCanvas();
-    save(); renderGallery();
+    // an approval needs a signature first
+    if ((av.status === "approved" || av.status === "changes") && !av.signature) { openSignaturePad(); return; }
+    finishSubmit();
+  }
+  function finishSubmit() {
+    save(); renderGallery(); updateSignStatus();
     const s = $("pdSaved"); s.classList.add("show");
     setTimeout(() => s.classList.remove("show"), 2200);
+  }
+  function updateSignStatus() {
+    const el = $("pdSignStatus"); if (!el) return;
+    const v = active(deliv(curId));
+    el.innerHTML = (v && v.signature)
+      ? `<span class="pd-signed">✓ Approved &amp; signed${v.signedBy ? " by " + esc(v.signedBy) : ""}${v.signedDate ? " · " + esc(v.signedDate) : ""}</span>`
+      : "";
+  }
+
+  /* ---------- approval signature ---------- */
+  let sigCtx = null, sigDrawing = false, sigLast = null, sigDirty = false;
+  function openSignaturePad() {
+    const ov = $("pdSignOverlay"); if (!ov) return;
+    const d = deliv(curId);
+    $("pdSignSub").textContent = `Sign to approve “${d.name}” (${active(d).label}).`;
+    $("pdSignName").value = (typeof getSession === "function" && getSession() && getSession().name) || "";
+    ov.style.display = "flex";
+    requestAnimationFrame(() => {
+      const cv2 = $("pdSignPad"); const r = cv2.getBoundingClientRect(); const dp = window.devicePixelRatio || 1;
+      cv2.width = Math.round(r.width * dp); cv2.height = Math.round(r.height * dp);
+      sigCtx = cv2.getContext("2d"); sigCtx.scale(dp, dp);
+      sigCtx.lineCap = "round"; sigCtx.lineJoin = "round"; sigCtx.lineWidth = 2.4; sigCtx.strokeStyle = "#111";
+      sigDirty = false;
+    });
+  }
+  function closeSignaturePad() { const ov = $("pdSignOverlay"); if (ov) ov.style.display = "none"; }
+  function sigPos(e) { const r = $("pdSignPad").getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function clearSig() { const cv2 = $("pdSignPad"); if (sigCtx && cv2) sigCtx.clearRect(0, 0, cv2.width, cv2.height); sigDirty = false; }
+  function nameToSignature(name) {
+    const c = document.createElement("canvas"); c.width = 600; c.height = 150; const x = c.getContext("2d");
+    x.fillStyle = "#111"; x.textBaseline = "middle"; x.font = "italic 52px 'Brush Script MT','Segoe Script',cursive";
+    x.fillText(name, 14, 80); return c.toDataURL("image/png");
+  }
+  function confirmSign() {
+    const v = active(deliv(curId)); const name = $("pdSignName").value.trim();
+    if (!sigDirty && !name) { $("pdSignSub").textContent = "Please draw a signature or type your name to approve."; return; }
+    v.signature = sigDirty ? $("pdSignPad").toDataURL("image/png") : nameToSignature(name);
+    v.signedBy = name || ((typeof getSession === "function" && getSession() && getSession().name) || "Client");
+    v.signedDate = new Date().toLocaleDateString();
+    closeSignaturePad(); finishSubmit();
+  }
+
+  /* ---------- PDF export (image + drawings + numbered comments + sign-off) ---------- */
+  function loadJsPDF() {
+    return new Promise((resolve, reject) => {
+      if (window.jspdf && window.jspdf.jsPDF) return resolve(window.jspdf.jsPDF);
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+      s.onload = () => resolve(window.jspdf && window.jspdf.jsPDF);
+      s.onerror = () => reject(new Error("pdf lib failed"));
+      document.head.appendChild(s);
+    });
+  }
+  function buildComposite(v) {     // base image + saved drawing + numbered pins, at full resolution
+    return new Promise((resolve) => {
+      const base = new Image();
+      base.onload = () => {
+        const W = base.naturalWidth, H = base.naturalHeight;
+        const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d");
+        x.drawImage(base, 0, 0, W, H);
+        const pins = () => {
+          (v.pins || []).forEach((p, i) => {
+            const px = p.x * W, py = p.y * H, r = Math.max(13, W * 0.014);
+            x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2);
+            x.fillStyle = p.resolved ? "#36c275" : "#F68E21"; x.fill();
+            x.lineWidth = Math.max(2, r * 0.16); x.strokeStyle = "#fff"; x.stroke();
+            x.fillStyle = "#111"; x.font = `bold ${Math.round(r * 1.15)}px Arial,sans-serif`; x.textAlign = "center"; x.textBaseline = "middle";
+            x.fillText(String(i + 1), px, py);
+          });
+          resolve(c.toDataURL("image/jpeg", 0.92));
+        };
+        if (v.annotation) { const a = new Image(); a.onload = () => { x.drawImage(a, 0, 0, W, H); pins(); }; a.onerror = pins; a.src = v.annotation; }
+        else pins();
+      };
+      base.onerror = () => resolve(null);
+      base.src = v.dataUrl;
+    });
+  }
+  async function exportPDF(d) {
+    if (!d) return;
+    const btn = $("pdExport"); const old = btn ? btn.innerHTML : "";
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = "Generating…"; }
+      const jsPDF = await loadJsPDF(); if (!jsPDF) throw new Error("no jsPDF");
+      const v = active(d), composite = await buildComposite(v);
+      const pdf = new jsPDF({ unit: "pt", format: "letter" });
+      const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight(), M = 42;
+      let y = M;
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(17); pdf.setTextColor(20); pdf.text(d.name, M, y); y += 22;
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(110);
+      const dir = v.status ? STATUS[v.status].label : "Pending Review";
+      pdf.text(`Version ${v.label}    ·    Direction: ${dir}    ·    Exported ${new Date().toLocaleDateString()}`, M, y);
+      y += 9; pdf.setDrawColor(225); pdf.line(M, y, pageW - M, y); y += 16; pdf.setTextColor(20);
+      if (composite) {
+        const props = pdf.getImageProperties(composite), maxW = pageW - M * 2, ratio = props.height / props.width;
+        let w = maxW, h = maxW * ratio; const maxH = pageH * 0.46; if (h > maxH) { h = maxH; w = h / ratio; }
+        pdf.addImage(composite, "JPEG", M + (maxW - w) / 2, y, w, h); y += h + 18;
+      }
+      const pins = v.pins || [];
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.text(`Comments (${pins.length})`, M, y); y += 15;
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(40);
+      if (!pins.length) { pdf.setTextColor(140); pdf.text("No pinned comments.", M, y); y += 14; pdf.setTextColor(40); }
+      pins.forEach((p, i) => {
+        const lines = pdf.splitTextToSize(`${i + 1}.  ${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2);
+        if (y + lines.length * 13 > pageH - M) { pdf.addPage(); y = M; }
+        pdf.text(lines, M, y); y += lines.length * 13 + 4;
+      });
+      y += 10;
+      const notes = (label, txt) => {
+        if (!txt) return;
+        if (y + 34 > pageH - M) { pdf.addPage(); y = M; }
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.text(label, M, y); y += 14;
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(10);
+        const lines = pdf.splitTextToSize(txt, pageW - M * 2); pdf.text(lines, M, y); y += lines.length * 13 + 10;
+      };
+      notes("Client Notes", v.clientNotes); notes("Agency Notes", v.agencyNotes);
+      if (v.signature) {
+        if (y + 100 > pageH - M) { pdf.addPage(); y = M; }
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(20); pdf.text("Client Approval", M, y); y += 8;
+        try { pdf.addImage(v.signature, "PNG", M, y, 170, 56); } catch (e) {}
+        pdf.setDrawColor(200); pdf.line(M, y + 60, M + 220, y + 60);
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(110);
+        pdf.text(`${v.signedBy || "Client"}${v.signedDate ? "    ·    " + v.signedDate : ""}`, M, y + 72);
+      }
+      pdf.save(`${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}.pdf`);
+    } catch (e) {
+      console.warn("PDF export failed", e);
+      alert("Sorry — couldn't generate the PDF (the PDF library may have failed to load). Check your connection and try again.");
+    } finally { if (btn) { btn.disabled = false; btn.innerHTML = old; } }
   }
 
   /* ---------- rename ---------- */
@@ -532,6 +688,8 @@ window.PresentDocs = (function () {
     $("pdVerFile").addEventListener("change", e => { handleResubmit(e.target.files[0]); e.target.value = ""; });
 
     $("pdGallery").addEventListener("click", e => {
+      const exp = e.target.closest("[data-export]");
+      if (exp) { e.stopPropagation(); exportPDF(deliv(exp.dataset.export)); return; }
       const del = e.target.closest("[data-del]");
       if (del) { e.stopPropagation(); items = items.filter(x => x.id !== del.dataset.del); save(); renderGallery(); return; }
       const card = e.target.closest(".pd-card");
@@ -624,6 +782,19 @@ window.PresentDocs = (function () {
     $("pdAgencyNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.agencyNotes = e.target.value; save(); } });
 
     $("pdSubmit").addEventListener("click", submitReview);
+    $("pdExport").addEventListener("click", () => exportPDF(deliv(curId)));
+
+    // signature pad
+    const pad = $("pdSignPad");
+    if (pad) {
+      pad.addEventListener("pointerdown", e => { if (!sigCtx) return; e.preventDefault(); sigDrawing = true; sigDirty = true; sigLast = sigPos(e); try { pad.setPointerCapture(e.pointerId); } catch {} });
+      pad.addEventListener("pointermove", e => { if (!sigDrawing || !sigCtx) return; const p = sigPos(e); sigCtx.beginPath(); sigCtx.moveTo(sigLast.x, sigLast.y); sigCtx.lineTo(p.x, p.y); sigCtx.stroke(); sigLast = p; });
+      pad.addEventListener("pointerup", () => { sigDrawing = false; });
+      pad.addEventListener("pointerleave", () => { sigDrawing = false; });
+      $("pdSignClear").addEventListener("click", clearSig);
+      $("pdSignCancel").addEventListener("click", closeSignaturePad);
+      $("pdSignConfirm").addEventListener("click", confirmSign);
+    }
   }
 
   return { render, init };

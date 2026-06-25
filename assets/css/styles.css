@@ -538,6 +538,22 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pd-popup-close { position: absolute; top: -9px; right: -9px; width: 22px; height: 22px; border-radius: 50%;
   border: 1px solid var(--line); background: var(--panel); color: var(--text-faint); cursor: pointer; font-size: .68rem; line-height: 1; }
 .pd-popup-close:hover { color: var(--bad); border-color: var(--bad); }
+/* PDF export + approval signature */
+.pd-export-btn { display: inline-flex; align-items: center; gap: 7px; align-self: flex-start; }
+.pd-signed { color: var(--good); font-weight: 700; font-size: .78rem; }
+.pd-card-export { position: absolute; top: 9px; right: 42px; z-index: 3; width: 26px; height: 26px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text-dim); cursor: pointer; font-size: .82rem; line-height: 1; display: none; }
+.pd-card:hover .pd-card-export { display: block; }
+.pd-card-export:hover { color: var(--accent-text); border-color: var(--orange); }
+.pd-sign-overlay { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
+.pd-sign-card { width: min(460px, 92%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: var(--shadow); }
+.pd-sign-title { font-weight: 800; font-size: 1.05rem; }
+.pd-sign-sub { font-size: .82rem; color: var(--text-dim); margin: 4px 0 14px; }
+.pd-sign-pad { width: 100%; height: 150px; background: #fff; border: 1px dashed #c9c9cf; border-radius: 10px; touch-action: none; cursor: crosshair; display: block; }
+.pd-sign-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.pd-sign-name { flex: 1; background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--text); font: inherit; font-size: .85rem; outline: none; }
+.pd-sign-name:focus { border-color: var(--orange); }
+.pd-sign-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
 .pd-draw-tools {
   display: flex; align-items: center; gap: 10px; padding: 11px 18px;
