@@ -167,10 +167,15 @@ window.PresentDocs = (function () {
         <div class="pd-sign-overlay" id="pdSignOverlay" style="display:none">
           <div class="pd-sign-card">
             <div class="pd-sign-title">Sign to approve</div>
-            <div class="pd-sign-sub" id="pdSignSub">Draw your signature below to approve this version.</div>
+            <div class="pd-sign-sub" id="pdSignSub">Type or draw your signature to approve this version.</div>
+            <div class="pd-sign-tabs">
+              <button class="pd-sign-tab" data-sigmode="type" id="pdSigTypeTab">⌨ Type</button>
+              <button class="pd-sign-tab" data-sigmode="draw" id="pdSigDrawTab">✎ Draw</button>
+            </div>
             <canvas id="pdSignPad" class="pd-sign-pad"></canvas>
+            <div class="pd-sign-preview" id="pdSignPreview"></div>
             <div class="pd-sign-row">
-              <input type="text" id="pdSignName" class="pd-sign-name" placeholder="Type your name (optional)">
+              <input type="text" id="pdSignName" class="pd-sign-name" placeholder="Type your full name">
               <button class="pd-tool-btn" id="pdSignClear">Clear</button>
             </div>
             <div class="pd-sign-actions">
@@ -517,33 +522,58 @@ window.PresentDocs = (function () {
   }
 
   /* ---------- approval signature ---------- */
-  let sigCtx = null, sigDrawing = false, sigLast = null, sigDirty = false;
-  function openSignaturePad() {
-    const ov = $("pdSignOverlay"); if (!ov) return;
-    const d = deliv(curId);
-    $("pdSignSub").textContent = `Sign to approve “${d.name}” (${active(d).label}).`;
-    $("pdSignName").value = (typeof getSession === "function" && getSession() && getSession().name) || "";
-    ov.style.display = "flex";
+  let sigCtx = null, sigDrawing = false, sigLast = null, sigDirty = false, sigMode = "type";
+  function setSigMode(m) {
+    sigMode = m;
+    $("pdSigTypeTab").classList.toggle("active", m === "type");
+    $("pdSigDrawTab").classList.toggle("active", m === "draw");
+    $("pdSignPad").style.display = m === "draw" ? "block" : "none";
+    $("pdSignPreview").style.display = m === "type" ? "flex" : "none";
+    $("pdSignClear").style.display = m === "draw" ? "" : "none";
+    if (m === "draw") sizeSigPad(); else updateSigPreview();
+  }
+  function sizeSigPad() {
+    const cv2 = $("pdSignPad"); if (!cv2) return;
     requestAnimationFrame(() => {
-      const cv2 = $("pdSignPad"); const r = cv2.getBoundingClientRect(); const dp = window.devicePixelRatio || 1;
+      const r = cv2.getBoundingClientRect(); if (!r.width) return; const dp = window.devicePixelRatio || 1;
       cv2.width = Math.round(r.width * dp); cv2.height = Math.round(r.height * dp);
       sigCtx = cv2.getContext("2d"); sigCtx.scale(dp, dp);
       sigCtx.lineCap = "round"; sigCtx.lineJoin = "round"; sigCtx.lineWidth = 2.4; sigCtx.strokeStyle = "#111";
       sigDirty = false;
     });
   }
+  function updateSigPreview() {
+    const pv = $("pdSignPreview"); if (!pv) return;
+    const name = $("pdSignName").value.trim();
+    pv.textContent = name || "Your signature";
+    pv.classList.toggle("placeholder", !name);
+  }
+  function openSignaturePad() {
+    const ov = $("pdSignOverlay"); if (!ov) return;
+    const d = deliv(curId);
+    $("pdSignSub").textContent = `Sign to approve “${d.name}” (${active(d).label}).`;
+    $("pdSignName").value = (typeof getSession === "function" && getSession() && getSession().name) || "";
+    ov.style.display = "flex";
+    setSigMode("type");   // default to the typed cursive signature
+  }
   function closeSignaturePad() { const ov = $("pdSignOverlay"); if (ov) ov.style.display = "none"; }
   function sigPos(e) { const r = $("pdSignPad").getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function clearSig() { const cv2 = $("pdSignPad"); if (sigCtx && cv2) sigCtx.clearRect(0, 0, cv2.width, cv2.height); sigDirty = false; }
-  function nameToSignature(name) {
-    const c = document.createElement("canvas"); c.width = 600; c.height = 150; const x = c.getContext("2d");
-    x.fillStyle = "#111"; x.textBaseline = "middle"; x.font = "italic 52px 'Brush Script MT','Segoe Script',cursive";
-    x.fillText(name, 14, 80); return c.toDataURL("image/png");
+  async function typedSignature(name) {
+    try { await document.fonts.load("52px 'Great Vibes'"); } catch (e) {}
+    const c = document.createElement("canvas"); c.width = 640; c.height = 150; const x = c.getContext("2d");
+    x.fillStyle = "#111"; x.textBaseline = "middle"; x.textAlign = "left"; x.font = "52px 'Great Vibes', cursive";
+    x.fillText(name, 18, 84); return c.toDataURL("image/png");
   }
-  function confirmSign() {
+  async function confirmSign() {
     const v = active(deliv(curId)); const name = $("pdSignName").value.trim();
-    if (!sigDirty && !name) { $("pdSignSub").textContent = "Please draw a signature or type your name to approve."; return; }
-    v.signature = sigDirty ? $("pdSignPad").toDataURL("image/png") : nameToSignature(name);
+    if (sigMode === "type") {
+      if (!name) { $("pdSignSub").textContent = "Type your name to create a signature."; return; }
+      v.signature = await typedSignature(name);
+    } else {
+      if (!sigDirty) { $("pdSignSub").textContent = "Draw your signature, or switch to Type."; return; }
+      v.signature = $("pdSignPad").toDataURL("image/png");
+    }
     v.signedBy = name || ((typeof getSession === "function" && getSession() && getSession().name) || "Client");
     v.signedDate = new Date().toLocaleDateString();
     closeSignaturePad(); finishSubmit();
@@ -794,6 +824,9 @@ window.PresentDocs = (function () {
       $("pdSignClear").addEventListener("click", clearSig);
       $("pdSignCancel").addEventListener("click", closeSignaturePad);
       $("pdSignConfirm").addEventListener("click", confirmSign);
+      $("pdSigTypeTab").addEventListener("click", () => setSigMode("type"));
+      $("pdSigDrawTab").addEventListener("click", () => setSigMode("draw"));
+      $("pdSignName").addEventListener("input", () => { if (sigMode === "type") updateSigPreview(); });
     }
   }
 

@@ -549,7 +549,14 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pd-sign-card { width: min(460px, 92%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; box-shadow: var(--shadow); }
 .pd-sign-title { font-weight: 800; font-size: 1.05rem; }
 .pd-sign-sub { font-size: .82rem; color: var(--text-dim); margin: 4px 0 14px; }
+.pd-sign-tabs { display: inline-flex; gap: 3px; background: var(--input); border: 1px solid var(--line); border-radius: 9px; padding: 3px; margin-bottom: 10px; }
+.pd-sign-tab { border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: .76rem; font-weight: 700; padding: 5px 14px; border-radius: 7px; cursor: pointer; }
+.pd-sign-tab.active { background: var(--orange); color: #111; }
 .pd-sign-pad { width: 100%; height: 150px; background: #fff; border: 1px dashed #c9c9cf; border-radius: 10px; touch-action: none; cursor: crosshair; display: block; }
+.pd-sign-preview { width: 100%; height: 150px; background: #fff; border: 1px dashed #c9c9cf; border-radius: 10px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; padding: 0 16px; overflow: hidden;
+  font-family: 'Great Vibes', 'Brush Script MT', cursive; font-size: 56px; line-height: 1.1; color: #111; white-space: nowrap; }
+.pd-sign-preview.placeholder { color: #c2c2c8; }
 .pd-sign-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .pd-sign-name { flex: 1; background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--text); font: inherit; font-size: .85rem; outline: none; }
 .pd-sign-name:focus { border-color: var(--orange); }
