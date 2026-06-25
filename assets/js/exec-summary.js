@@ -315,21 +315,27 @@ window.ExecSummary = (function () {
   /* ---- assemble (free canvas: tiles absolutely positioned, drag anywhere) ---- */
   function render(e) {
     const lay = getLayout(e);
+    const locked = !!lay.locked;
     const visible = Object.keys(MODULES).filter(k => !lay.hidden.includes(k));
     const tiles = visible.map(k => {
       const p = lay.free[k];
       const style = p
         ? `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`
         : `width:${DEF_W}px;`;   // unplaced → positioned by ensurePositions after first layout
-      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${TILEBAR(k)}${MODULES[k].fn(e)}</div>`;
+      const bar = (canAdmin() && !locked) ? `<button class="tile-remove" data-tileremove="${k}" title="Remove tile">✕</button>` : "";
+      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${bar}${MODULES[k].fn(e)}</div>`;
     }).join("");
-    const hiddenRow = (canAdmin() && lay.hidden.length)
+    const lockBtn = canAdmin()
+      ? `<div class="exec-controls"><button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
+      : "";
+    const hiddenRow = (canAdmin() && !locked && lay.hidden.length)
       ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
       : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${northStarBanner(e)}
-    <div class="exec-canvas">${tiles}</div>
+    ${lockBtn}
+    <div class="exec-canvas${locked ? " locked" : ""}">${tiles}</div>
     ${hiddenRow}`;
   }
   function rerender() {
@@ -347,6 +353,24 @@ window.ExecSummary = (function () {
     } else if (action === "restore") {
       lay.hidden = lay.hidden.filter(k => k !== key);   // re-placed by ensurePositions on next render
     }
+    window.DASH.saveState(); rerender();
+  }
+
+  /* ---- lock layout: snapshot exact current positions/sizes, then freeze drag+resize ---- */
+  function snapshotPositions() {
+    const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
+    const lay = getLayout(window.DASH.getEng());
+    canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
+      lay.free[t.dataset.key] = {
+        x: Math.round(t.offsetLeft), y: Math.round(t.offsetTop),
+        w: Math.round(t.offsetWidth), h: Math.round(t.offsetHeight)
+      };
+    });
+  }
+  function toggleLock() {
+    const lay = getLayout(window.DASH.getEng());
+    if (!lay.locked) snapshotPositions();   // pin everything exactly where it sits before freezing
+    lay.locked = !lay.locked;
     window.DASH.saveState(); rerender();
   }
 
@@ -427,6 +451,7 @@ window.ExecSummary = (function () {
   }
   function setupFreeDrag() {
     if (!canAdmin()) return;
+    if (getLayout(window.DASH.getEng()).locked) return;   // layout frozen — no drag handles
     const s = section(); const canvas = s.querySelector(".exec-canvas"); if (!canvas) return;
     canvas.querySelectorAll(".exec-tile").forEach(tile => {
       const head = tile.querySelector(".module-head"); if (!head) return;
@@ -485,7 +510,7 @@ window.ExecSummary = (function () {
     document.addEventListener("mouseup", () => {
       if (!canAdmin()) return;
       const sec = section(); if (!sec) return;
-      const lay = getLayout(window.DASH.getEng()); if (!lay.free) return;
+      const lay = getLayout(window.DASH.getEng()); if (!lay.free || lay.locked) return;
       let changed = false;
       sec.querySelectorAll(".exec-tile[data-key]").forEach(t => {
         const pos = lay.free[t.dataset.key]; if (!pos) return;
@@ -575,6 +600,7 @@ window.ExecSummary = (function () {
       const tm = e.target.closest("[data-tilemove]"); if (tm) { tileAction(tm.dataset.tilemove, tm.dataset.key); return; }
       const tr = e.target.closest("[data-tileremove]"); if (tr) { tileAction("remove", tr.dataset.tileremove); return; }
       const ts = e.target.closest("[data-tilerestore]"); if (ts) { tileAction("restore", ts.dataset.tilerestore); return; }
+      const tl = e.target.closest("[data-tilelock]"); if (tl && canAdmin()) { toggleLock(); return; }
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
 
