@@ -335,7 +335,7 @@ window.ExecSummary = (function () {
   function rerender() {
     const s = section(); if (!s) return;
     s.innerHTML = render(window.DASH.getEng());
-    ensurePositions(); setupFreeDrag(); updateCanvasHeight();
+    ensurePositions(); setupFreeDrag(); fitCanvas();
   }
 
   /* ---- tile remove / restore ---- */
@@ -377,11 +377,30 @@ window.ExecSummary = (function () {
     });
     if (changed && canAdmin()) window.DASH.saveState();
   }
-  function updateCanvasHeight() {
+  let canvasScale = 1;
+  function canvasExtent(canvas) {
+    let maxR = 0, maxB = 120;
+    canvas.querySelectorAll(".exec-tile").forEach(t => { maxR = Math.max(maxR, t.offsetLeft + t.offsetWidth); maxB = Math.max(maxB, t.offsetTop + t.offsetHeight); });
+    return { maxR, maxB };
+  }
+  function updateCanvasHeight() {                 // height only — cheap, safe to call mid-drag
     const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
-    let maxB = 120;
-    canvas.querySelectorAll(".exec-tile").forEach(t => { maxB = Math.max(maxB, t.offsetTop + t.offsetHeight); });
-    canvas.style.height = (maxB + 8) + "px";
+    canvas.style.height = (canvasExtent(canvas).maxB + 8) + "px";
+  }
+  // scale the whole tile canvas down to fit narrower windows so the right-hand
+  // tiles are never cut off / forced into horizontal scroll (arrangement preserved)
+  function fitCanvas() {
+    const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
+    const { maxR, maxB } = canvasExtent(canvas), h = maxB + 8;
+    canvas.style.height = h + "px";
+    const stacked = window.innerWidth <= 760;
+    const avail = canvas.clientWidth || maxR;
+    const sc = stacked ? 1 : Math.max(0.5, Math.min(1, maxR ? avail / maxR : 1));
+    canvasScale = sc;
+    if (sc < 1 && !stacked) {
+      canvas.style.transform = `scale(${sc})`; canvas.style.transformOrigin = "top left";
+      canvas.style.marginBottom = (-h * (1 - sc)) + "px";
+    } else { canvas.style.transform = ""; canvas.style.transformOrigin = ""; canvas.style.marginBottom = ""; }
   }
 
   /* ---- free drag (pointer) with snap-to-align against the other tiles ---- */
@@ -425,7 +444,7 @@ window.ExecSummary = (function () {
         try { head.setPointerCapture(ev.pointerId); } catch {}
         const move = (mv) => {
           moved = true;
-          const nx = Math.max(0, ox + (mv.clientX - sx)), ny = Math.max(0, oy + (mv.clientY - sy));
+          const nx = Math.max(0, ox + (mv.clientX - sx) / canvasScale), ny = Math.max(0, oy + (mv.clientY - sy) / canvasScale);
           const sn = snapPos(tile, nx, ny, others);
           tile.style.left = sn.x + "px"; tile.style.top = sn.y + "px";
           pos.x = Math.round(sn.x); pos.y = Math.round(sn.y);
@@ -438,7 +457,7 @@ window.ExecSummary = (function () {
           try { head.releasePointerCapture(ev.pointerId); } catch {}
           tile.classList.remove("dragging"); clearGuides(canvas);
           if (moved && canAdmin()) window.DASH.saveState();
-          updateCanvasHeight();
+          fitCanvas();
         };
         head.addEventListener("pointermove", move);
         head.addEventListener("pointerup", up);
@@ -473,7 +492,14 @@ window.ExecSummary = (function () {
         const w = Math.round(t.offsetWidth), h = Math.round(t.offsetHeight);
         if (pos.w !== w || (t.style.height && pos.h !== h)) { pos.w = w; if (t.style.height) pos.h = h; changed = true; }
       });
-      if (changed) { window.DASH.saveState(); updateCanvasHeight(); }
+      if (changed) { window.DASH.saveState(); fitCanvas(); }
+    });
+
+    // keep the tile canvas fitted to the window so nothing gets cut off on narrower screens
+    let fitRaf = null;
+    window.addEventListener("resize", () => {
+      if (fitRaf) return;
+      fitRaf = requestAnimationFrame(() => { fitRaf = null; const sec = section(); if (sec && sec.querySelector(".exec-canvas")) fitCanvas(); });
     });
 
     // service-line allocation sliders (admin): live-update while dragging, persist on release
