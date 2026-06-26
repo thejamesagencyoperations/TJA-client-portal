@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=143">
+<link rel="stylesheet" href="assets/css/styles.css?v=144">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -35,16 +35,75 @@
   </main>
 </div>
 
+<!-- Add / Edit client modal -->
+<div class="cl-overlay" id="clOverlay" style="display:none">
+  <div class="cl-card" role="dialog" aria-modal="true">
+    <div class="cl-card-head">
+      <div class="cl-title" id="clModalTitle">Add client</div>
+      <button class="cl-x" id="clCancel" title="Close">✕</button>
+    </div>
+    <form id="clForm" autocomplete="off">
+      <div class="cl-row">
+        <div class="cl-logo-pick">
+          <div class="cl-logo-prev" id="clLogoPrev"><span id="clLogoInitials">?</span></div>
+          <label class="cl-logo-btn">Upload logo<input type="file" id="clLogo" accept="image/*" hidden></label>
+          <button type="button" class="cl-logo-clear" id="clLogoClear" style="display:none">Remove</button>
+        </div>
+        <div class="cl-fields">
+          <label class="cl-field"><span>Client name <em>*</em></span>
+            <input type="text" id="clName" placeholder="e.g. Acme Manufacturing" required></label>
+          <div class="cl-field-2">
+            <label class="cl-field cl-field-sm"><span>Initials</span>
+              <input type="text" id="clInitials" maxlength="3" placeholder="AM"></label>
+            <label class="cl-field"><span>Tagline</span>
+              <input type="text" id="clTagline" placeholder="e.g. Industrial equipment · Phoenix"></label>
+          </div>
+          <label class="cl-field"><span>Engagement</span>
+            <select id="clKind">
+              <option value="retainer">Monthly Services (retainer)</option>
+              <option value="project">Project only</option>
+              <option value="both">Both</option>
+            </select></label>
+        </div>
+      </div>
+      <div class="cl-err" id="clErr"></div>
+      <div class="cl-actions">
+        <button type="button" class="btn btn-ghost" id="clCancel2">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="clSave">Create workspace</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- New-client credentials confirmation -->
+<div class="cl-overlay" id="clDoneOverlay" style="display:none">
+  <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
+    <div class="cl-card-head"><div class="cl-title">Workspace created ✓</div></div>
+    <p class="cl-done-lead" id="clDoneLead"></p>
+    <div class="cl-creds">
+      <div class="cl-cred"><span>Client login</span><code id="clDoneEmail"></code></div>
+      <div class="cl-cred"><span>Password</span><code id="clDonePass"></code></div>
+    </div>
+    <p class="cl-done-note">Mock sandbox credentials — share with the client to let them sign in, or open the workspace yourself to set it up.</p>
+    <div class="cl-actions">
+      <button type="button" class="btn btn-ghost" id="clDoneClose">Stay here</button>
+      <button type="button" class="btn btn-primary" id="clDoneOpen">Open workspace →</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=143"></script>
-<script src="assets/js/supabase-sync.js?v=143"></script>
-<script src="assets/js/auth.js?v=143"></script>
+<script src="assets/js/supabase-config.js?v=144"></script>
+<script src="assets/js/supabase-sync.js?v=144"></script>
+<script src="assets/js/auth.js?v=144"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js"></script>
+<script src="assets/js/clients.js?v=144"></script>
+<script src="assets/js/client-template.js?v=144"></script>
+<script src="assets/js/client-store.js?v=144"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -65,34 +124,130 @@
     applyTheme(next);
   });
 
-  // render client tiles
+  /* ---------- client roster (store-backed) ---------- */
   const grid = document.getElementById("clientGrid");
-  const clients = window.TJA_CLIENTS || [];
-  grid.innerHTML = clients.map(c => `
-    <button class="proj-tile client-tile" data-client="${esc(c.id)}">
-      <div class="client-tile-head">
-        <span class="client-tile-logo">${c.logo ? `<img src="${esc(c.logo)}" alt="${esc(c.name)}">` : esc(c.initials || "?")}</span>
-        <span class="proj-tile-name">${esc(c.name)}</span>
-      </div>
-      ${c.tagline ? `<div class="proj-tile-sub">${esc(c.tagline)}</div>` : ""}
-      ${c.engagements ? `<div class="proj-tile-foot">${esc(c.engagements)}</div>` : ""}
-    </button>`).join("")
-    + `<button class="proj-tile proj-tile-add" id="addClient" title="Coming soon"><span class="pta-plus">＋</span> Add client</button>`;
+
+  function openClient(id) {
+    try {
+      const s = JSON.parse(sessionStorage.getItem("tja_portal_session") || "{}");
+      s.client = id;
+      sessionStorage.setItem("tja_portal_session", JSON.stringify(s));
+    } catch {}
+    window.location.href = "dashboard.html";
+  }
+
+  function renderGrid() {
+    const clients = window.TJA_STORE.list();
+    grid.innerHTML = clients.map(c => `
+      <div class="proj-tile client-tile" data-client="${esc(c.id)}" role="button" tabindex="0">
+        <div class="client-tile-actions">
+          <button class="ct-act" data-edit="${esc(c.id)}" title="Edit client">✎</button>
+          ${c.builtin ? "" : `<button class="ct-act ct-del" data-del="${esc(c.id)}" title="Delete workspace">🗑</button>`}
+        </div>
+        <div class="client-tile-head">
+          <span class="client-tile-logo">${c.logo ? `<img src="${esc(c.logo)}" alt="${esc(c.name)}">` : esc(c.initials || "?")}</span>
+          <span class="proj-tile-name">${esc(c.name)}</span>
+        </div>
+        ${c.tagline ? `<div class="proj-tile-sub">${esc(c.tagline)}</div>` : ""}
+        ${c.engagements ? `<div class="proj-tile-foot">${esc(c.engagements)}</div>` : ""}
+      </div>`).join("")
+      + `<button class="proj-tile proj-tile-add" id="addClient"><span class="pta-plus">＋</span> Add client</button>`;
+  }
+  renderGrid();
+
+  // refresh from Supabase roster if configured, then re-render
+  if (window.TJA_STORE.hydrate) window.TJA_STORE.hydrate().then(renderGrid).catch(() => {});
 
   grid.addEventListener("click", e => {
-    const t = e.target.closest("[data-client]");
-    if (t) {
-      // remember which client workspace the admin chose, then open the dashboard
-      try {
-        const s = JSON.parse(sessionStorage.getItem("tja_portal_session") || "{}");
-        s.client = t.dataset.client;
-        sessionStorage.setItem("tja_portal_session", JSON.stringify(s));
-      } catch {}
-      window.location.href = "dashboard.html";
+    const ed = e.target.closest("[data-edit]"); if (ed) { e.stopPropagation(); openModal(ed.dataset.edit); return; }
+    const dl = e.target.closest("[data-del]"); if (dl) { e.stopPropagation(); deleteClient(dl.dataset.del); return; }
+    if (e.target.closest("#addClient")) { openModal(null); return; }
+    const t = e.target.closest("[data-client]"); if (t) openClient(t.dataset.client);
+  });
+  grid.addEventListener("keydown", e => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("client-tile")) { e.preventDefault(); openClient(e.target.dataset.client); }
+  });
+
+  /* ---------- Add / Edit modal ---------- */
+  const ov = document.getElementById("clOverlay");
+  const f = {
+    name: document.getElementById("clName"), initials: document.getElementById("clInitials"),
+    tagline: document.getElementById("clTagline"), kind: document.getElementById("clKind"),
+    logo: document.getElementById("clLogo"), logoPrev: document.getElementById("clLogoPrev"),
+    logoInitials: document.getElementById("clLogoInitials"), logoClear: document.getElementById("clLogoClear"),
+    err: document.getElementById("clErr"), title: document.getElementById("clModalTitle"), save: document.getElementById("clSave"),
+  };
+  let editingId = null, logoData = "";
+
+  function setLogoPreview() {
+    if (logoData) { f.logoPrev.innerHTML = `<img src="${esc(logoData)}" alt="">`; f.logoClear.style.display = ""; }
+    else { f.logoPrev.innerHTML = `<span id="clLogoInitials">${esc((f.initials.value || window.tjaInitialsFrom(f.name.value) || "?"))}</span>`; f.logoClear.style.display = "none"; }
+  }
+  function openModal(id) {
+    editingId = id; logoData = ""; f.err.textContent = "";
+    const c = id ? window.TJA_STORE.get(id) : null;
+    f.title.textContent = id ? "Edit client" : "Add client";
+    f.save.textContent = id ? "Save changes" : "Create workspace";
+    f.name.value = c ? c.name : "";
+    f.initials.value = c ? (c.initials || "") : "";
+    f.tagline.value = c ? (c.tagline || "") : "";
+    f.kind.value = c ? (c.kind || "retainer") : "retainer";
+    f.kind.disabled = !!id;   // engagement mix is set at creation; managed in the workspace afterward
+    logoData = c && c.logo ? c.logo : "";
+    setLogoPreview();
+    ov.style.display = "flex"; setTimeout(() => f.name.focus(), 30);
+  }
+  function closeModal() { ov.style.display = "none"; }
+
+  f.name.addEventListener("input", setLogoPreview);
+  f.initials.addEventListener("input", setLogoPreview);
+  f.logo.addEventListener("change", e => {
+    const file = e.target.files && e.target.files[0]; if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { f.err.textContent = "Logo must be under 1.5 MB."; return; }
+    const r = new FileReader(); r.onload = () => { logoData = r.result; setLogoPreview(); }; r.readAsDataURL(file);
+  });
+  f.logoClear.addEventListener("click", () => { logoData = ""; f.logo.value = ""; setLogoPreview(); });
+  document.getElementById("clCancel").addEventListener("click", closeModal);
+  document.getElementById("clCancel2").addEventListener("click", closeModal);
+  ov.addEventListener("click", e => { if (e.target === ov) closeModal(); });
+
+  document.getElementById("clForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const name = f.name.value.trim();
+    if (!name) { f.err.textContent = "Client name is required."; return; }
+    const initials = (f.initials.value || window.tjaInitialsFrom(name)).trim().toUpperCase().slice(0, 3);
+    if (editingId) {
+      window.TJA_STORE.update(editingId, { name, initials, tagline: f.tagline.value.trim(), logo: logoData });
+      closeModal(); renderGrid();
       return;
     }
-    if (e.target.closest("#addClient")) alert("Adding new clients comes in a later phase. For now this lists the workspaces already set up.");
+    const entry = window.TJA_STORE.add({ name, initials, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value });
+    window.TJA_STORE.seedWorkspace(entry);
+    closeModal(); renderGrid();
+    showDone(entry);
   });
+
+  /* ---------- delete ---------- */
+  function deleteClient(id) {
+    const c = window.TJA_STORE.get(id); if (!c) return;
+    if (!confirm(`Delete the "${c.name}" workspace?\n\nThis permanently removes its Executive Summary, files and Present Docs data. This cannot be undone.`)) return;
+    window.TJA_STORE.remove(id);
+    renderGrid();
+  }
+
+  /* ---------- created confirmation ---------- */
+  const doneOv = document.getElementById("clDoneOverlay");
+  let doneEntry = null;
+  function showDone(entry) {
+    doneEntry = entry;
+    document.getElementById("clDoneLead").textContent = `“${entry.name}” is ready. It starts blank — open it to add the burn, service lines, milestones and more.`;
+    document.getElementById("clDoneEmail").textContent = entry.login.email;
+    document.getElementById("clDonePass").textContent = entry.login.password;
+    doneOv.style.display = "flex";
+  }
+  document.getElementById("clDoneClose").addEventListener("click", () => { doneOv.style.display = "none"; });
+  document.getElementById("clDoneOpen").addEventListener("click", () => { if (doneEntry) openClient(doneEntry.id); });
+  doneOv.addEventListener("click", e => { if (e.target === doneOv) doneOv.style.display = "none"; });
 </script>
 </body>
 </html>

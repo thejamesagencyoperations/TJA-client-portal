@@ -67,5 +67,14 @@ window.SUPA = (function () {
     }, 600);
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pushScope };
+  // delete every scope row for a client (used when an admin removes a workspace)
+  async function removeClient(clientId) {
+    if (!client) return;
+    try {
+      const { error } = await client.from("app_state").delete().eq("client_id", clientId);
+      if (error) console.warn("SUPA removeClient", error.message);
+    } catch (e) { console.warn("SUPA removeClient", e); }
+  }
+
+  return { enabled, client, signIn, signOut, currentSession, pullScope, pushScope, removeClient };
 })();

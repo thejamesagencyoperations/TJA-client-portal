@@ -9,7 +9,8 @@
    tabs render the currently-selected engagement.
    ============================================================ */
 
-window.CLIENT_DATA = {
+window.CLIENT_SEEDS = window.CLIENT_SEEDS || {};
+window.CLIENT_SEEDS["celtic-elevator"] = {
   client: { name: "Celtic Elevator", initials: "CE", logo: "assets/img/celtic-elevator-logo.png" },
 
   // Shared across engagements (working/final files)

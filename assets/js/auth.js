@@ -26,8 +26,16 @@ const ACCOUNTS = {
 const SESSION_KEY = "tja_portal_session";
 const PREVIEW_KEY = "tja_preview_client";   // admin-only "view as client" flag
 
+// Look up a mock client account generated for an admin-added client.
+function registryAccount(email) {
+  if (!(window.TJA_STORE && typeof window.TJA_STORE.list === "function")) return null;
+  const e = (email || "").trim().toLowerCase();
+  const c = window.TJA_STORE.list().find(x => x.login && (x.login.email || "").toLowerCase() === e);
+  return c ? { password: c.login.password, client: c.id, name: c.name, role: "client" } : null;
+}
+
 function attemptLogin(email, password) {
-  const acct = ACCOUNTS[(email || "").trim().toLowerCase()];
+  const acct = ACCOUNTS[(email || "").trim().toLowerCase()] || registryAccount(email);
   if (!acct || acct.password !== password) return false;
   sessionStorage.setItem(SESSION_KEY, JSON.stringify({
     email: email.trim().toLowerCase(),

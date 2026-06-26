@@ -116,10 +116,11 @@ window.ExecSummary = (function () {
     }
     // retainer speedometer
     const b = (viewMonthIdx == null) ? e.burn : e.mom[viewMonthIdx];
-    const used = b.usedHours, total = b.contractedHours, pct = Math.round(used / total * 100);
+    const used = b.usedHours, total = b.contractedHours, pct = total > 0 ? Math.round(used / total * 100) : 0;
     const mom = (e.mom || []).map((m, i) => {
       const active = (viewMonthIdx == null) ? (i === e.mom.length - 1) : (i === viewMonthIdx);
-      return `<div class="mom-chip ${active ? "active" : ""}" data-mom="${i}" title="View ${esc(m.month)}"><div class="m">${esc(m.month)}</div><div class="v">${Math.round(m.usedHours / m.contractedHours * 100)}%</div></div>`;
+      const mp = m.contractedHours > 0 ? Math.round(m.usedHours / m.contractedHours * 100) : 0;
+      return `<div class="mom-chip ${active ? "active" : ""}" data-mom="${i}" title="View ${esc(m.month)}"><div class="m">${esc(m.month)}</div><div class="v">${mp}%</div></div>`;
     }).join("");
     const interactive = canAdmin() && viewMonthIdx == null;
     const bigPct = canAdmin()
