@@ -283,8 +283,20 @@ window.ExecSummary = (function () {
   };
   const LAYOUT_V = 4;        // free-canvas layout: tiles are absolutely positioned and drag anywhere
   const SNAP = 9, GRID_GAP = 16, DEF_W = 360;   // snap distance (px), default gap + tile width
+  // The monthly-services layout we like (captured from Celtic) — exact box position
+  // AND size, so every fresh retainer renders identical tiles regardless of content.
+  const DEFAULT_RETAINER_FREE = {
+    burn:         { x: 0,   y: 0,   w: 360, h: 525 },
+    service:      { x: 376, y: 0,   w: 360, h: 474 },
+    milestones:   { x: 752, y: 0,   w: 360, h: 284 },
+    todos:        { x: 752, y: 300, w: 360, h: 186 },
+    dependencies: { x: 376, y: 490, w: 360, h: 176 },
+    kpis:         { x: 752, y: 502, w: 360, h: 185 },
+    pr:           { x: 0,   y: 541, w: 360, h: 558 },
+  };
   function defaultLayout(e) {
-    return { v: LAYOUT_V, free: {}, hidden: e.type === "project" ? ["pr"] : [] };
+    const free = (e.type === "project") ? {} : JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
+    return { v: LAYOUT_V, free, hidden: e.type === "project" ? ["pr"] : [] };
   }
   function getLayout(e) {
     if (!e.layout || e.layout.v !== LAYOUT_V) {
