@@ -127,12 +127,27 @@ window.TJA_STORE = (function () {
     return null;
   }
 
+  // Project layout = the SAME reference layout as monthly services, minus PR
+  // Coverage (hidden on projects). Guarantees a project's tiles are identical in
+  // size/position to the monthly-services page.
+  function referenceProjectLayout() {
+    const lay = referenceRetainerLayout();
+    if (!lay) return null;
+    if (lay.free) delete lay.free.pr;
+    lay.hidden = Array.isArray(lay.hidden) ? lay.hidden.slice() : [];
+    if (!lay.hidden.includes("pr")) lay.hidden.push("pr");
+    return lay;
+  }
+
   // write the initial blank workspace for a freshly-added client so the
   // dashboard's loadState() finds it (instead of falling back to a seed)
   function seedWorkspace(entry) {
     const data = window.makeClientData({ name: entry.name, initials: entry.initials, logo: entry.logo, kind: entry.kind });
     const refLay = referenceRetainerLayout();
     if (refLay && data.engagements.retainer) data.engagements.retainer.layout = refLay;
+    const projLay = referenceProjectLayout();
+    if (projLay && Array.isArray(data.engagements.projects))
+      data.engagements.projects.forEach(p => { p.layout = JSON.parse(JSON.stringify(projLay)); });
     const state = { engagements: data.engagements };
     try { localStorage.setItem("tja_dashboard_" + entry.id, JSON.stringify(state)); } catch {}
     if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(entry.id, "dashboard", state);
@@ -153,5 +168,5 @@ window.TJA_STORE = (function () {
     } catch (e) { console.warn("roster hydrate", e); }
   }
 
-  return { list, get, exists, add, update, remove, seedWorkspace, hydrate, uniqueId, referenceRetainerLayout };
+  return { list, get, exists, add, update, remove, seedWorkspace, hydrate, uniqueId, referenceRetainerLayout, referenceProjectLayout };
 })();

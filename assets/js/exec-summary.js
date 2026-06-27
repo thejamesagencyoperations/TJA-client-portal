@@ -308,10 +308,13 @@ window.ExecSummary = (function () {
     return f;
   })();
   function defaultLayout(e) {
-    const free = (e.type === "project")
-      ? JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE))
-      : JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
-    return { v: LAYOUT_V, free, hidden: e.type === "project" ? ["pr"] : [] };
+    // projects mirror the monthly-services reference layout (minus PR) so their
+    // tiles are identical in size to that page; fall back to the baked default
+    if (e.type === "project") {
+      const ref = (window.TJA_STORE && window.TJA_STORE.referenceProjectLayout) ? window.TJA_STORE.referenceProjectLayout() : null;
+      return ref || { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: ["pr"] };
+    }
+    return { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
   }
   function getLayout(e) {
     if (!e.layout || e.layout.v !== LAYOUT_V) {
