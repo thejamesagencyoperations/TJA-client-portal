@@ -338,8 +338,10 @@ window.ExecSummary = (function () {
       const bar = (canAdmin() && !locked) ? `<button class="tile-remove" data-tileremove="${k}" title="Remove tile">✕</button>` : "";
       return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${bar}${MODULES[k].fn(e)}</div>`;
     }).join("");
+    const resetBtn = (canAdmin() && !locked && e.type !== "project")
+      ? `<button class="exec-reset-btn" data-tilereset title="Reset tiles to the default monthly-services layout">↺ Reset layout</button>` : "";
     const lockBtn = canAdmin()
-      ? `<div class="exec-controls"><button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
+      ? `<div class="exec-controls">${resetBtn}<button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
       : "";
     const hiddenRow = (canAdmin() && !locked && lay.hidden.length)
       ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
@@ -384,6 +386,15 @@ window.ExecSummary = (function () {
     const lay = getLayout(window.DASH.getEng());
     if (!lay.locked) snapshotPositions();   // pin everything exactly where it sits before freezing
     lay.locked = !lay.locked;
+    window.DASH.saveState(); rerender();
+  }
+  // Reset this engagement's tiles to the default monthly-services layout — a clone
+  // of the team's Celtic layout (matched box sizes) when available, else the baked default.
+  function resetLayout() {
+    const e = window.DASH.getEng();
+    if (!confirm("Reset this Executive Summary to the default monthly-services layout? Your current tile arrangement here will be replaced.")) return;
+    const ref = (window.TJA_STORE && window.TJA_STORE.referenceRetainerLayout) ? window.TJA_STORE.referenceRetainerLayout() : null;
+    e.layout = (ref && e.type !== "project") ? ref : defaultLayout(e);
     window.DASH.saveState(); rerender();
   }
 
@@ -634,6 +645,7 @@ window.ExecSummary = (function () {
       const tr = e.target.closest("[data-tileremove]"); if (tr) { tileAction("remove", tr.dataset.tileremove); return; }
       const ts = e.target.closest("[data-tilerestore]"); if (ts) { tileAction("restore", ts.dataset.tilerestore); return; }
       const tl = e.target.closest("[data-tilelock]"); if (tl && canAdmin()) { toggleLock(); return; }
+      const trs = e.target.closest("[data-tilereset]"); if (trs && canAdmin()) { resetLayout(); return; }
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
 

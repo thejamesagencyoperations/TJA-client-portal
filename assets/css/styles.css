@@ -1043,7 +1043,10 @@ body[data-role="admin"] .exec-tile:hover .module-head .module-title::after {
 body[data-role="admin"] .exec-tile:hover .tile-remove { display: block; }
 .tile-remove:hover { color: var(--bad); border-color: var(--bad); }
 /* lock-layout control (admin) */
-.exec-controls { display: flex; justify-content: flex-end; margin: -2px 0 10px; }
+.exec-controls { display: flex; justify-content: flex-end; gap: 8px; margin: -2px 0 10px; }
+.exec-reset-btn { background: transparent; border: 1px solid var(--line); color: var(--text-dim); font-family: inherit;
+  border-radius: 8px; padding: 6px 12px; font-size: .72rem; font-weight: 600; cursor: pointer; transition: all .12s ease; }
+.exec-reset-btn:hover { border-color: var(--orange); color: var(--accent-text); }
 .exec-lock-btn {
   background: transparent; border: 1px solid var(--line); color: var(--text-dim); font-family: inherit;
   border-radius: 8px; padding: 6px 12px; font-size: .72rem; font-weight: 600; cursor: pointer; transition: all .12s ease;

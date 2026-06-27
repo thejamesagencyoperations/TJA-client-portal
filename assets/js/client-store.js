@@ -89,10 +89,50 @@ window.TJA_STORE = (function () {
     if (window.SUPA && window.SUPA.enabled && window.SUPA.removeClient) window.SUPA.removeClient(id);
   }
 
+  // ----- reference layout (copy the team's Celtic monthly-services layout) -----
+  const REFERENCE_ID = "celtic-elevator";
+  const BAKED_H = { burn: 525, service: 474, milestones: 284, todos: 186, dependencies: 176, kpis: 185, pr: 558 };
+  // Celtic's saved layout stores x/y/w but lets height follow content. Give every
+  // tile an explicit height so a (blank) new client's boxes are the SAME SIZE:
+  // derive each tile's height from the gap to the next tile in its column; the
+  // last tile in a column falls back to the captured baked height.
+  function completeHeights(free) {
+    const GAP = 16, cols = {};
+    Object.keys(free).forEach(k => { const x = Math.round(free[k].x || 0); (cols[x] = cols[x] || []).push(k); });
+    Object.keys(cols).forEach(x => {
+      const keys = cols[x].sort((a, b) => (free[a].y || 0) - (free[b].y || 0));
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        if (free[k].h) continue;
+        free[k].h = (i < keys.length - 1)
+          ? Math.max(80, (free[keys[i + 1]].y || 0) - (free[k].y || 0) - GAP)
+          : (BAKED_H[k] || 200);
+      }
+    });
+  }
+  // The retainer layout to hand new clients: a clone of the reference client's
+  // CURRENT layout (so it matches whatever the team's Celtic looks like in this
+  // browser), with every box given an explicit size. null if none saved yet.
+  function referenceRetainerLayout() {
+    try {
+      const ref = JSON.parse(localStorage.getItem("tja_dashboard_" + REFERENCE_ID));
+      const lay = ref && ref.engagements && ref.engagements.retainer && ref.engagements.retainer.layout;
+      if (lay && lay.free && Object.keys(lay.free).length) {
+        const out = JSON.parse(JSON.stringify(lay));
+        out.locked = false;            // new clients start unlocked
+        completeHeights(out.free);
+        return out;
+      }
+    } catch (e) {}
+    return null;
+  }
+
   // write the initial blank workspace for a freshly-added client so the
   // dashboard's loadState() finds it (instead of falling back to a seed)
   function seedWorkspace(entry) {
     const data = window.makeClientData({ name: entry.name, initials: entry.initials, logo: entry.logo, kind: entry.kind });
+    const refLay = referenceRetainerLayout();
+    if (refLay && data.engagements.retainer) data.engagements.retainer.layout = refLay;
     const state = { engagements: data.engagements };
     try { localStorage.setItem("tja_dashboard_" + entry.id, JSON.stringify(state)); } catch {}
     if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(entry.id, "dashboard", state);
@@ -113,5 +153,5 @@ window.TJA_STORE = (function () {
     } catch (e) { console.warn("roster hydrate", e); }
   }
 
-  return { list, get, exists, add, update, remove, seedWorkspace, hydrate, uniqueId };
+  return { list, get, exists, add, update, remove, seedWorkspace, hydrate, uniqueId, referenceRetainerLayout };
 })();
