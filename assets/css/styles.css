@@ -747,6 +747,8 @@ body[data-role="client"] .admin-only { display: none !important; }
 .cl-field input, .cl-field select { font: inherit; font-size: .88rem; padding: 9px 11px; border-radius: 9px;
   border: 1px solid var(--line); background: var(--input); color: var(--text); }
 .cl-field input:focus, .cl-field select:focus { outline: none; border-color: var(--orange); }
+.cl-login-head { font-size: .66rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint);
+  font-weight: 800; margin-top: 6px; padding-top: 13px; border-top: 1px solid var(--line); }
 .cl-field-2 { display: flex; gap: 10px; }
 .cl-field-sm { width: 92px; flex: none; }
 .cl-field-2 > .cl-field:not(.cl-field-sm) { flex: 1; }

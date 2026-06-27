@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=144">
+<link rel="stylesheet" href="assets/css/styles.css?v=145">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -64,6 +64,13 @@
               <option value="project">Project only</option>
               <option value="both">Both</option>
             </select></label>
+          <div class="cl-login-head">Client login</div>
+          <div class="cl-field-2">
+            <label class="cl-field"><span>Email <em>*</em></span>
+              <input type="email" id="clEmail" placeholder="client@company.com"></label>
+            <label class="cl-field cl-field-pw"><span>Password <em>*</em></span>
+              <input type="text" id="clPassword" placeholder="Set a password"></label>
+          </div>
         </div>
       </div>
       <div class="cl-err" id="clErr"></div>
@@ -93,17 +100,17 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=144"></script>
-<script src="assets/js/supabase-sync.js?v=144"></script>
-<script src="assets/js/auth.js?v=144"></script>
+<script src="assets/js/supabase-config.js?v=145"></script>
+<script src="assets/js/supabase-sync.js?v=145"></script>
+<script src="assets/js/auth.js?v=145"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=144"></script>
-<script src="assets/js/client-template.js?v=144"></script>
-<script src="assets/js/client-store.js?v=144"></script>
+<script src="assets/js/clients.js?v=145"></script>
+<script src="assets/js/client-template.js?v=145"></script>
+<script src="assets/js/client-store.js?v=145"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -175,6 +182,7 @@
     tagline: document.getElementById("clTagline"), kind: document.getElementById("clKind"),
     logo: document.getElementById("clLogo"), logoPrev: document.getElementById("clLogoPrev"),
     logoInitials: document.getElementById("clLogoInitials"), logoClear: document.getElementById("clLogoClear"),
+    email: document.getElementById("clEmail"), password: document.getElementById("clPassword"),
     err: document.getElementById("clErr"), title: document.getElementById("clModalTitle"), save: document.getElementById("clSave"),
   };
   let editingId = null, logoData = "";
@@ -193,6 +201,8 @@
     f.tagline.value = c ? (c.tagline || "") : "";
     f.kind.value = c ? (c.kind || "retainer") : "retainer";
     f.kind.disabled = !!id;   // engagement mix is set at creation; managed in the workspace afterward
+    f.email.value = c && c.login ? (c.login.email || "") : "";
+    f.password.value = c && c.login ? (c.login.password || "") : "";
     logoData = c && c.logo ? c.logo : "";
     setLogoPreview();
     ov.style.display = "flex"; setTimeout(() => f.name.focus(), 30);
@@ -215,13 +225,21 @@
     e.preventDefault();
     const name = f.name.value.trim();
     if (!name) { f.err.textContent = "Client name is required."; return; }
+    const email = f.email.value.trim().toLowerCase();
+    const password = f.password.value;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { f.err.textContent = "Enter a valid login email."; return; }
+    if (password.length < 4) { f.err.textContent = "Password must be at least 4 characters."; return; }
+    // login email must be unique across clients (it's how a client signs in)
+    const clash = window.TJA_STORE.list().find(c => c.id !== editingId && c.login && (c.login.email || "").toLowerCase() === email);
+    if (clash) { f.err.textContent = `That email is already used by “${clash.name}”.`; return; }
     const initials = (f.initials.value || window.tjaInitialsFrom(name)).trim().toUpperCase().slice(0, 3);
+    const login = { email, password };
     if (editingId) {
-      window.TJA_STORE.update(editingId, { name, initials, tagline: f.tagline.value.trim(), logo: logoData });
+      window.TJA_STORE.update(editingId, { name, initials, tagline: f.tagline.value.trim(), logo: logoData, login });
       closeModal(); renderGrid();
       return;
     }
-    const entry = window.TJA_STORE.add({ name, initials, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value });
+    const entry = window.TJA_STORE.add({ name, initials, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login });
     window.TJA_STORE.seedWorkspace(entry);
     closeModal(); renderGrid();
     showDone(entry);
