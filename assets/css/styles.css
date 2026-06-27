@@ -873,6 +873,14 @@ body[data-role="client"] .admin-only { display: none !important; }
 .burn-hint { margin-top: 6px; font-size: .64rem; color: var(--orange-soft); letter-spacing: .02em; }
 /* condition, merged into the burn tile */
 .burn-cond { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); }
+/* project due date — stands out at the top of the condition area */
+.proj-due { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; padding: 9px 12px;
+  border-radius: 10px; background: linear-gradient(180deg, rgba(246,142,33,.16), rgba(246,142,33,.09));
+  border: 1px solid rgba(246,142,33,.42); }
+.proj-due-cal { display: inline-flex; }
+.proj-due-cal svg { width: 16px; height: 16px; color: var(--orange); }
+.proj-due-label { font-size: .66rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; color: var(--accent-text); }
+.proj-due-date { margin-left: auto; font-size: .98rem; font-weight: 800; letter-spacing: -.01em; color: var(--text); }
 .burn-cond-row { display: flex; align-items: center; gap: 10px; }
 .burn-cond-row .bc-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
 .burn-cond-row .bc-label svg { width: 14px; height: 14px; color: var(--orange); }

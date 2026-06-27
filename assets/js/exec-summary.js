@@ -28,6 +28,7 @@ window.ExecSummary = (function () {
     kpi:    svg('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/>'),
     pr:     svg('<path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/>'),
     bolt:   svg('<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/>', true),
+    cal:    svg('<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/>'),
   };
 
   /* ---- inline editable field ---- */
@@ -67,7 +68,12 @@ window.ExecSummary = (function () {
     const c = e.condition || { level: "green", note: "" }, lvl = c.level;
     const labels = { green: "On Track", yellow: "Needs Attention", red: "Off Track" };
     const dot = (col) => `<span class="cond-dot ${col} ${lvl === col ? "on" : ""} ${canAdmin() ? "admin-edit" : ""}" data-cond="${col}" ${canAdmin() ? `title="Set to ${col}"` : ""}></span>`;
+    // projects show their due date prominently right in the condition area
+    const due = (e.type === "project")
+      ? `<div class="proj-due"><span class="proj-due-cal">${IC.cal}</span><span class="proj-due-label">Due date</span><span class="proj-due-date">${ed(e.dueDate, "dueDate")}</span></div>`
+      : "";
     return `<div class="burn-cond">
+      ${due}
       <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span><span class="cond-label ${lvl}">${labels[lvl] || "—"}</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span></div>
       <div class="cond-note">${ed(c.note, "condition.note")}</div>
     </div>`;
@@ -294,8 +300,17 @@ window.ExecSummary = (function () {
     kpis:         { x: 752, y: 502, w: 360, h: 185 },
     pr:           { x: 0,   y: 541, w: 360, h: 558 },
   };
+  // Projects use the SAME box sizes/positions as monthly services, minus PR Coverage
+  // (which is hidden on projects). Same three columns, same dimensions.
+  const DEFAULT_PROJECT_FREE = (function () {
+    const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
+    delete f.pr;
+    return f;
+  })();
   function defaultLayout(e) {
-    const free = (e.type === "project") ? {} : JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
+    const free = (e.type === "project")
+      ? JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE))
+      : JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
     return { v: LAYOUT_V, free, hidden: e.type === "project" ? ["pr"] : [] };
   }
   function getLayout(e) {
