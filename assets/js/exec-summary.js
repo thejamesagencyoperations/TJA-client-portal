@@ -375,26 +375,46 @@ window.ExecSummary = (function () {
     window.DASH.saveState(); rerender();
   }
 
-  /* ---- default placement: pack any unplaced tile into the shortest column ---- */
+  /* ---- default placement: the curated 3-column arrangement we like for monthly
+     services (Celtic's layout) — every fresh client starts here. Tiles not named in
+     the template, or any leftovers, fall to the shortest column. Hidden tiles (e.g.
+     PR on projects) are simply skipped. ---- */
+  const DEFAULT_COLS = [
+    ["burn", "pr"],                       // left:   burn / pizza, then PR coverage
+    ["service", "dependencies"],          // middle: service lines, then dependencies
+    ["milestones", "todos", "kpis"],      // right:  milestones, to-do's, KPIs
+  ];
+  function templateCol(key) { for (let i = 0; i < DEFAULT_COLS.length; i++) if (DEFAULT_COLS[i].includes(key)) return i; return -1; }
   function nearestCol(x, colX) { let b = 0, bd = Infinity; colX.forEach((cx, i) => { const d = Math.abs(x - cx); if (d < bd) { bd = d; b = i; } }); return b; }
   function applyPos(t, p) { t.style.left = p.x + "px"; t.style.top = p.y + "px"; t.style.width = p.w + "px"; if (p.h) t.style.height = p.h + "px"; }
   function ensurePositions() {
     const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
     const lay = getLayout(window.DASH.getEng());
-    const cw = canvas.clientWidth || 1100;
-    const ncols = Math.max(1, Math.min(3, Math.floor((cw + GRID_GAP) / (DEF_W + GRID_GAP))));
-    const colW = ncols === 1 ? cw : DEF_W;
+    // lay the template out at design width (3 columns); fitCanvas() scales it down to
+    // fit narrower windows, exactly like a saved 3-column layout
+    const ncols = DEFAULT_COLS.length, colW = DEF_W;
     const colX = []; for (let i = 0; i < ncols; i++) colX.push(Math.round(i * (colW + GRID_GAP)));
     const colH = new Array(ncols).fill(0);
+    // existing placed tiles set each column's running height so restored/added tiles stack below
     canvas.querySelectorAll(".exec-tile:not(.unplaced)").forEach(t => {
       const ci = nearestCol(t.offsetLeft, colX);
       colH[ci] = Math.max(colH[ci], t.offsetTop + t.offsetHeight + GRID_GAP);
     });
+    // place unplaced tiles in template order: by column, then by position within the column
+    const unplaced = [...canvas.querySelectorAll(".exec-tile.unplaced")].sort((a, b) => {
+      const ca = templateCol(a.dataset.key), cb = templateCol(b.dataset.key);
+      const ka = ca < 0 ? 99 : ca, kb = cb < 0 ? 99 : cb;
+      if (ka !== kb) return ka - kb;
+      const oa = ca < 0 ? 99 : DEFAULT_COLS[ca].indexOf(a.dataset.key);
+      const ob = cb < 0 ? 99 : DEFAULT_COLS[cb].indexOf(b.dataset.key);
+      return oa - ob;
+    });
     let changed = false;
-    canvas.querySelectorAll(".exec-tile.unplaced").forEach(t => {
+    unplaced.forEach(t => {
       t.style.width = colW + "px";
       const h = t.offsetHeight;
-      const ci = colH.indexOf(Math.min(...colH));
+      let ci = templateCol(t.dataset.key);
+      if (ci < 0 || ci >= ncols) ci = colH.indexOf(Math.min(...colH));   // leftover → shortest column
       const pos = { x: colX[ci], y: Math.round(colH[ci]), w: colW };
       colH[ci] += h + GRID_GAP;
       applyPos(t, pos); t.classList.remove("unplaced");
