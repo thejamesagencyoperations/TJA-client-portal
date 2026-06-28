@@ -112,10 +112,14 @@ window.ExecSummary = (function () {
         const state = p.done ? "done" : (i === cur ? "current" : "");
         return `<div class="pizza-step ${state}"><div class="pizza-dot ${canAdmin() ? "admin-edit" : ""}" data-phase="${i}" ${canAdmin() ? `title="Toggle ${esc(p.label)} complete"` : ""}>${p.done ? "✓" : i + 1}</div><div class="pizza-label">${esc(p.label)}</div></div>`;
       }).join("");
-      const pct = Math.round(ph.filter(p => p.done).length / ph.length * 100);
+      const pct = ph.length ? Math.round(ph.filter(p => p.done).length / ph.length * 100) : (e.progressPct || 0);
+      const hrs = (e.allocatedHours != null)
+        ? `<div class="proj-hours"><b>${e.allocatedHours}h</b>${e.contractedHours ? ` of ${e.contractedHours}h` : ""} allocated</div>`
+        : "";
       return `<div class="module">
         <div class="module-head"><span class="module-title">${IC.burn}Project Progress · ${pct}%</span></div>
         <div class="pizza">${steps}</div>
+        ${hrs}
         ${canAdmin() ? `<div class="burn-edit">Click a phase to mark it complete.</div>` : ""}
         ${conditionInline(e)}
       </div>`;
@@ -164,7 +168,35 @@ window.ExecSummary = (function () {
     </div>`;
   }
 
+  // Projects show a WMJ-fed "Tasks" module (grouped by phase) instead of Service Lines.
+  function tasksModule(e) {
+    const admin = canAdmin();
+    const all = Array.isArray(e.wmjTasks) ? e.wmjTasks : [];
+    const tasks = admin ? all : all.filter(t => !t.internal);
+    const order = (e.pizza && e.pizza.phases) ? e.pizza.phases.map(p => p.label) : [];
+    const groups = {};
+    tasks.forEach(t => { (groups[t.phase] = groups[t.phase] || []).push(t); });
+    const names = Object.keys(groups).sort((a, b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+    const stCls = { Completed: "complete", Production: "in-progress", "On Hold": "on-hold" };
+    const body = names.map(pn => `
+      <div class="task-group">
+        <div class="task-group-head">${esc(pn)}</div>
+        ${groups[pn].map(t => `
+          <div class="task-row${t.internal ? " is-internal" : ""}">
+            <span class="task-dot ${stCls[t.status] || "pending"}" title="${esc(t.status)}"></span>
+            <span class="task-name">${esc(t.name)}${t.internal ? ` <span class="task-int">internal</span>` : ""}</span>
+            ${t.service ? `<span class="task-svc">${esc(t.service)}</span>` : ""}
+            ${t.hours ? `<span class="task-hrs">${t.hours}h</span>` : ""}
+          </div>`).join("")}
+      </div>`).join("");
+    return `<div class="module">
+      <div class="module-head"><span class="module-title">${IC.svc}Tasks</span><span class="module-link" data-go="status">View status →</span></div>
+      <div class="task-list-wrap">${body || `<div class="pr-date">No tasks yet.</div>`}</div>
+    </div>`;
+  }
+
   function serviceModule(e) {
+    if (e.type === "project" && Array.isArray(e.wmjTasks)) return tasksModule(e);
     const seg = (i, status) => {
       const opt = (val, label) => `<button class="svc-seg-btn is-${val} ${status === val ? "active" : ""}" data-svcset="${i}:${val}" title="${label}">${label}</button>`;
       return `<div class="svc-seg">${opt("not-started", "Not started")}${opt("in-progress", "In progress")}${opt("complete", "Complete")}</div>`;

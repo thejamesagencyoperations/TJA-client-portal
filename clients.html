@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=150">
+<link rel="stylesheet" href="assets/css/styles.css?v=151">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -27,9 +27,15 @@
   </header>
 
   <main class="content">
-    <div class="page-head">
-      <div class="page-title">Clients</div>
-      <div class="page-desc">Choose a client workspace to open.</div>
+    <div class="page-head page-head-row">
+      <div>
+        <div class="page-title">Clients</div>
+        <div class="page-desc">Choose a client workspace to open.</div>
+      </div>
+      <div class="wmj-bar">
+        <span class="wmj-stamp" id="wmjStamp"></span>
+        <button class="btn btn-primary" id="wmjSync">⟳ Sync Workamajig</button>
+      </div>
     </div>
     <div class="proj-grid" id="clientGrid"></div>
   </main>
@@ -100,17 +106,19 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=150"></script>
-<script src="assets/js/supabase-sync.js?v=150"></script>
-<script src="assets/js/auth.js?v=150"></script>
+<script src="assets/js/supabase-config.js?v=151"></script>
+<script src="assets/js/supabase-sync.js?v=151"></script>
+<script src="assets/js/auth.js?v=151"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=150"></script>
-<script src="assets/js/client-template.js?v=150"></script>
-<script src="assets/js/client-store.js?v=150"></script>
+<script src="assets/js/clients.js?v=151"></script>
+<script src="assets/js/client-template.js?v=151"></script>
+<script src="assets/js/client-store.js?v=151"></script>
+<script src="assets/js/wmj-transform.js?v=151"></script>
+<script src="assets/js/wmj-sync.js?v=151"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -164,6 +172,33 @@
 
   // refresh from Supabase roster if configured, then re-render
   if (window.TJA_STORE.hydrate) window.TJA_STORE.hydrate().then(renderGrid).catch(() => {});
+
+  /* ---------- Workamajig sync ---------- */
+  const syncBtn = document.getElementById("wmjSync");
+  const stamp = document.getElementById("wmjStamp");
+  function showStamp() {
+    const t = window.WMJ_SYNC && window.WMJ_SYNC.lastSync();
+    stamp.textContent = t ? ("Last synced " + new Date(t).toLocaleString()) : "Not synced yet";
+  }
+  showStamp();
+  async function runSync() {
+    if (!window.WMJ_SYNC) return;
+    syncBtn.disabled = true; const label = syncBtn.textContent; syncBtn.textContent = "⟳ Syncing…";
+    try {
+      const r = await window.WMJ_SYNC.sync();
+      renderGrid();
+      stamp.textContent = `Synced ${r.clients} clients · ${r.created} new · ${r.projects} projects`;
+      if (r.createdClients && r.createdClients.length) {
+        console.log("WMJ created clients + logins:", r.createdClients.map(c => `${c.name} → ${c.login.email} / ${c.login.password}`));
+      }
+    } catch (e) {
+      stamp.textContent = "Sync failed — " + e.message;
+      console.warn(e);
+    } finally { syncBtn.disabled = false; syncBtn.textContent = label; setTimeout(showStamp, 6000); }
+  }
+  syncBtn.addEventListener("click", runSync);
+  // hourly auto-sync while this admin hub is open
+  if (window.WMJ_SYNC) window.WMJ_SYNC.startAuto();
 
   grid.addEventListener("click", e => {
     const ed = e.target.closest("[data-edit]"); if (ed) { e.stopPropagation(); openModal(ed.dataset.edit); return; }
