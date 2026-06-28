@@ -1071,8 +1071,26 @@ body[data-role="admin"] .exec-tile:hover .tile-remove { display: block; }
 .tile-remove:hover { color: var(--bad); border-color: var(--bad); }
 /* clients page: header row with WMJ sync control */
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.wmj-bar { display: flex; align-items: center; gap: 12px; flex: none; }
-.wmj-stamp { font-size: .72rem; color: var(--text-faint); }
+.wmj-bar { display: flex; align-items: center; gap: 8px; flex: none; }
+.wmj-stamp { font-size: .7rem; color: var(--text-faint); }
+.wmj-refresh { width: 26px; height: 26px; border: 1px solid var(--line); background: var(--panel); color: var(--text-dim);
+  border-radius: 7px; cursor: pointer; font-size: .9rem; line-height: 1; display: grid; place-items: center; }
+.wmj-refresh:hover { color: var(--accent-text); border-color: var(--orange); }
+.wmj-refresh.spin { animation: wmjspin 1s linear infinite; }
+@keyframes wmjspin { to { transform: rotate(360deg); } }
+/* Current / Archived folder tabs (also drop targets) */
+.cl-tabs { display: inline-flex; gap: 4px; background: var(--input); border: 1px solid var(--line);
+  border-radius: 10px; padding: 4px; margin: 6px 0 16px; }
+.cl-tab { border: none; background: transparent; color: var(--text-dim); font: inherit; font-size: .8rem; font-weight: 700;
+  padding: 7px 16px; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: all .12s ease; }
+.cl-tab.active { background: var(--panel); color: var(--text); box-shadow: var(--card-shadow); }
+.cl-tab-n { font-size: .66rem; font-weight: 800; background: var(--line); color: var(--text-dim); border-radius: 20px; padding: 1px 7px; }
+.cl-tab.active .cl-tab-n { background: var(--orange); color: #111; }
+.cl-tab.drop-hover { background: var(--orange); color: #111; outline: 2px dashed var(--orange); outline-offset: 2px; }
+.cl-tab.drop-hover .cl-tab-n { background: #111; color: var(--orange); }
+.client-tile[draggable="true"] { cursor: grab; }
+.client-tile.dragging { opacity: .45; }
+.cl-empty { grid-column: 1 / -1; color: var(--text-faint); font-size: .82rem; padding: 18px 2px; }
 /* lock-layout control (admin) */
 .exec-controls { display: flex; justify-content: flex-end; gap: 8px; margin: -2px 0 10px; }
 .exec-reset-btn { background: transparent; border: 1px solid var(--line); color: var(--text-dim); font-family: inherit;

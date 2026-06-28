@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=151">
+<link rel="stylesheet" href="assets/css/styles.css?v=152">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -30,12 +30,16 @@
     <div class="page-head page-head-row">
       <div>
         <div class="page-title">Clients</div>
-        <div class="page-desc">Choose a client workspace to open.</div>
+        <div class="page-desc">Choose a client workspace to open. Drag a tile onto a tab to file it.</div>
       </div>
       <div class="wmj-bar">
         <span class="wmj-stamp" id="wmjStamp"></span>
-        <button class="btn btn-primary" id="wmjSync">⟳ Sync Workamajig</button>
+        <button class="wmj-refresh" id="wmjSync" title="Sync Workamajig now">↻</button>
       </div>
+    </div>
+    <div class="cl-tabs" id="clTabs">
+      <button class="cl-tab active" data-bucket="current">Current <span class="cl-tab-n" id="nCurrent">0</span></button>
+      <button class="cl-tab" data-bucket="archived">Archived <span class="cl-tab-n" id="nArchived">0</span></button>
     </div>
     <div class="proj-grid" id="clientGrid"></div>
   </main>
@@ -106,19 +110,19 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=151"></script>
-<script src="assets/js/supabase-sync.js?v=151"></script>
-<script src="assets/js/auth.js?v=151"></script>
+<script src="assets/js/supabase-config.js?v=152"></script>
+<script src="assets/js/supabase-sync.js?v=152"></script>
+<script src="assets/js/auth.js?v=152"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=151"></script>
-<script src="assets/js/client-template.js?v=151"></script>
-<script src="assets/js/client-store.js?v=151"></script>
-<script src="assets/js/wmj-transform.js?v=151"></script>
-<script src="assets/js/wmj-sync.js?v=151"></script>
+<script src="assets/js/clients.js?v=152"></script>
+<script src="assets/js/client-template.js?v=152"></script>
+<script src="assets/js/client-store.js?v=152"></script>
+<script src="assets/js/wmj-transform.js?v=152"></script>
+<script src="assets/js/wmj-sync.js?v=152"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -151,11 +155,20 @@
     window.location.href = "dashboard.html";
   }
 
+  /* ---------- Current / Archived buckets ---------- */
+  let bucket = "current";   // which folder is shown
+  function isArchived(c) { return !!c.archived; }
+
   function renderGrid() {
-    const clients = window.TJA_STORE.list();
+    const all = window.TJA_STORE.list();
+    const nCur = all.filter(c => !isArchived(c)).length, nArc = all.length - nCur;
+    document.getElementById("nCurrent").textContent = nCur;
+    document.getElementById("nArchived").textContent = nArc;
+    const clients = all.filter(c => isArchived(c) === (bucket === "archived"));
     grid.innerHTML = clients.map(c => `
-      <div class="proj-tile client-tile" data-client="${esc(c.id)}" role="button" tabindex="0">
+      <div class="proj-tile client-tile" data-client="${esc(c.id)}" role="button" tabindex="0" draggable="true">
         <div class="client-tile-actions">
+          <button class="ct-act" data-arch="${esc(c.id)}" title="${isArchived(c) ? "Move to Current" : "Move to Archived"}">${isArchived(c) ? "↩" : "📁"}</button>
           <button class="ct-act" data-edit="${esc(c.id)}" title="Edit client">✎</button>
           ${c.builtin ? "" : `<button class="ct-act ct-del" data-del="${esc(c.id)}" title="Delete workspace">🗑</button>`}
         </div>
@@ -166,41 +179,60 @@
         ${c.tagline ? `<div class="proj-tile-sub">${esc(c.tagline)}</div>` : ""}
         ${c.engagements ? `<div class="proj-tile-foot">${esc(c.engagements)}</div>` : ""}
       </div>`).join("")
-      + `<button class="proj-tile proj-tile-add" id="addClient"><span class="pta-plus">＋</span> Add client</button>`;
+      + (bucket === "current" ? `<button class="proj-tile proj-tile-add" id="addClient"><span class="pta-plus">＋</span> Add client</button>` : `<div class="cl-empty">${clients.length ? "" : "No archived clients. Drag a tile onto Archived to file it here."}</div>`);
   }
+  function setArchived(id, archived) { window.TJA_STORE.update(id, { archived: archived }); renderGrid(); }
   renderGrid();
 
   // refresh from Supabase roster if configured, then re-render
   if (window.TJA_STORE.hydrate) window.TJA_STORE.hydrate().then(renderGrid).catch(() => {});
 
-  /* ---------- Workamajig sync ---------- */
+  /* tab switching + drop targets */
+  const tabs = document.getElementById("clTabs");
+  tabs.addEventListener("click", e => {
+    const t = e.target.closest(".cl-tab"); if (!t) return;
+    bucket = t.dataset.bucket;
+    [...tabs.querySelectorAll(".cl-tab")].forEach(x => x.classList.toggle("active", x === t));
+    renderGrid();
+  });
+  tabs.addEventListener("dragover", e => { const t = e.target.closest(".cl-tab"); if (t) { e.preventDefault(); t.classList.add("drop-hover"); } });
+  tabs.addEventListener("dragleave", e => { const t = e.target.closest(".cl-tab"); if (t) t.classList.remove("drop-hover"); });
+  tabs.addEventListener("drop", e => {
+    const t = e.target.closest(".cl-tab"); if (!t) return;
+    e.preventDefault(); t.classList.remove("drop-hover");
+    const id = e.dataTransfer.getData("text/plain"); if (id) setArchived(id, t.dataset.bucket === "archived");
+  });
+
+  /* ---------- Workamajig sync (auto on load + hourly; ↻ to force) ---------- */
   const syncBtn = document.getElementById("wmjSync");
   const stamp = document.getElementById("wmjStamp");
   function showStamp() {
     const t = window.WMJ_SYNC && window.WMJ_SYNC.lastSync();
-    stamp.textContent = t ? ("Last synced " + new Date(t).toLocaleString()) : "Not synced yet";
+    stamp.textContent = t ? ("Synced " + new Date(t).toLocaleString()) : "Syncing…";
   }
   showStamp();
   async function runSync() {
     if (!window.WMJ_SYNC) return;
-    syncBtn.disabled = true; const label = syncBtn.textContent; syncBtn.textContent = "⟳ Syncing…";
+    syncBtn.disabled = true; syncBtn.classList.add("spin");
     try {
       const r = await window.WMJ_SYNC.sync();
       renderGrid();
-      stamp.textContent = `Synced ${r.clients} clients · ${r.created} new · ${r.projects} projects`;
-      if (r.createdClients && r.createdClients.length) {
-        console.log("WMJ created clients + logins:", r.createdClients.map(c => `${c.name} → ${c.login.email} / ${c.login.password}`));
-      }
-    } catch (e) {
-      stamp.textContent = "Sync failed — " + e.message;
-      console.warn(e);
-    } finally { syncBtn.disabled = false; syncBtn.textContent = label; setTimeout(showStamp, 6000); }
+      if (r.createdClients && r.createdClients.length) console.log("WMJ created clients + logins:", r.createdClients.map(c => `${c.name} → ${c.login.email} / ${c.login.password}`));
+    } catch (e) { stamp.textContent = "Sync failed — " + e.message; console.warn(e); }
+    finally { syncBtn.disabled = false; syncBtn.classList.remove("spin"); showStamp(); }
   }
   syncBtn.addEventListener("click", runSync);
-  // hourly auto-sync while this admin hub is open
-  if (window.WMJ_SYNC) window.WMJ_SYNC.startAuto();
+  // auto-sync on load + hourly while open (no manual action needed)
+  if (window.WMJ_SYNC) window.WMJ_SYNC.startAuto(renderGrid);
 
+  /* tile interactions: drag to file, click to open */
+  grid.addEventListener("dragstart", e => {
+    const t = e.target.closest("[data-client]"); if (!t) return;
+    e.dataTransfer.setData("text/plain", t.dataset.client); e.dataTransfer.effectAllowed = "move"; t.classList.add("dragging");
+  });
+  grid.addEventListener("dragend", e => { const t = e.target.closest("[data-client]"); if (t) t.classList.remove("dragging"); });
   grid.addEventListener("click", e => {
+    const ar = e.target.closest("[data-arch]"); if (ar) { e.stopPropagation(); const c = window.TJA_STORE.get(ar.dataset.arch); setArchived(ar.dataset.arch, !(c && c.archived)); return; }
     const ed = e.target.closest("[data-edit]"); if (ed) { e.stopPropagation(); openModal(ed.dataset.edit); return; }
     const dl = e.target.closest("[data-del]"); if (dl) { e.stopPropagation(); deleteClient(dl.dataset.del); return; }
     if (e.target.closest("#addClient")) { openModal(null); return; }

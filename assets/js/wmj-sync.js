@@ -116,13 +116,13 @@ window.WMJ_SYNC = (function () {
 
   function lastSync() { try { return localStorage.getItem(LAST_KEY) || null; } catch (e) { return null; } }
 
-  // hourly auto-sync (admin only; client browsers just read the synced data)
+  // auto-sync: once on load (always fresh when the page opens) + hourly while open.
+  // onDone(result) fires after each successful sync so the UI can re-render.
   let timer = null;
-  function startAuto() {
-    if (timer) return;
-    const due = !lastSync() || (Date.now() - new Date(lastSync()).getTime() > HOUR);
-    if (due) sync().catch(e => console.warn("WMJ auto-sync", e));
-    timer = setInterval(() => sync().catch(e => console.warn("WMJ auto-sync", e)), HOUR);
+  function startAuto(onDone) {
+    const run = () => sync().then(r => { if (onDone) { try { onDone(r); } catch (e) {} } }).catch(e => console.warn("WMJ auto-sync", e));
+    run();
+    if (!timer) timer = setInterval(run, HOUR);
   }
 
   return { sync, fetchCSV, lastSync, startAuto, CSV_URL };
