@@ -98,6 +98,13 @@ window.WMJ_SYNC = (function () {
     data.forEach(wc => {
       const r = resolveClientId(wc.wmjName);
       if (r.created) { created++; createdClients.push({ name: wc.wmjName, id: r.id, login: r.login }); }
+      // set/refresh the website logo, but never overwrite an uploaded one
+      if (window.CLIENT_LOGOS) {
+        const ent = window.TJA_STORE.get(r.id);
+        const url = window.CLIENT_LOGOS.logoUrlFor(wc.wmjName);
+        const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));
+        if (ent && url && isAuto && ent.logo !== url) window.TJA_STORE.update(r.id, { logo: url });
+      }
       const state = loadState(r.id);
       state.engagements = state.engagements || {};
       const existing = Array.isArray(state.engagements.projects) ? state.engagements.projects : [];
