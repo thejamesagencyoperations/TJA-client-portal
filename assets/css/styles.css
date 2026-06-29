@@ -707,7 +707,7 @@ body[data-role="client"] .admin-only { display: none !important; }
   border-style: dashed; color: var(--accent-text); font-weight: 700; min-height: 130px; }
 .pta-plus { font-size: 1.15rem; line-height: 1; }
 /* Clients landing page (admin) */
-.clients-page .content { max-width: 1120px; }
+.clients-page .content { max-width: none; }
 .brand-logo--sm { width: 60px; }
 .client-tile-head { display: flex; align-items: center; gap: 11px; }
 .client-tile-logo { width: 40px; height: 40px; border-radius: 9px; overflow: hidden; flex: none;
