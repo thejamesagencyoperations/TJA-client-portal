@@ -332,27 +332,33 @@ window.ExecSummary = (function () {
     kpis:         { x: 752, y: 502, w: 360, h: 185 },
     pr:           { x: 0,   y: 541, w: 360, h: 558 },
   };
-  // Projects use the SAME box sizes/positions as monthly services, minus PR Coverage
-  // (which is hidden on projects). Same three columns, same dimensions.
+  // Projects mirror a designated template project (DNA Stratagem) — see
+  // referenceProjectLayout in client-store. PR Coverage + KPIs are hidden on
+  // projects. PROJECT_LAYOUT_V forces existing project layouts to re-adopt the
+  // template when bumped (without touching monthly-services layouts).
+  const PROJECT_LAYOUT_V = 2;
+  const PROJECT_HIDDEN = ["pr", "kpis"];
   const DEFAULT_PROJECT_FREE = (function () {
     const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
-    delete f.pr;
+    PROJECT_HIDDEN.forEach(k => delete f[k]);
     return f;
   })();
   function defaultLayout(e) {
-    // projects mirror the monthly-services reference layout (minus PR) so their
-    // tiles are identical in size to that page; fall back to the baked default
     if (e.type === "project") {
       const ref = (window.TJA_STORE && window.TJA_STORE.referenceProjectLayout) ? window.TJA_STORE.referenceProjectLayout() : null;
-      return ref || { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: ["pr"] };
+      const lay = ref || { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() };
+      lay.v = LAYOUT_V; lay.pv = PROJECT_LAYOUT_V;
+      return lay;
     }
     return { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
   }
   function getLayout(e) {
-    if (!e.layout || e.layout.v !== LAYOUT_V) {
+    const isProj = e.type === "project";
+    const stale = !e.layout || e.layout.v !== LAYOUT_V || (isProj && e.layout.pv !== PROJECT_LAYOUT_V);
+    if (stale) {
       const prevHidden = (e.layout && Array.isArray(e.layout.hidden)) ? e.layout.hidden.slice() : null;
       e.layout = defaultLayout(e);
-      if (prevHidden) e.layout.hidden = prevHidden;
+      if (!isProj && prevHidden) e.layout.hidden = prevHidden;   // projects get the forced hidden set (pr+kpis)
     }
     const L = e.layout;
     if (!L.free || typeof L.free !== "object") L.free = {};

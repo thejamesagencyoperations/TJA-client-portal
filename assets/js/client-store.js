@@ -127,15 +127,31 @@ window.TJA_STORE = (function () {
     return null;
   }
 
-  // Project layout = the SAME reference layout as monthly services, minus PR
-  // Coverage (hidden on projects). Guarantees a project's tiles are identical in
-  // size/position to the monthly-services page.
+  // Project layout: every project mirrors a designated TEMPLATE project that the
+  // team arranged (DNA Stratagem). Read that project's saved layout straight from
+  // localStorage (so it matches whatever it looks like in THIS browser); fall back
+  // to the monthly-services reference. PR Coverage + KPIs are hidden on projects.
+  const REFERENCE_PROJECT_ID = "wmj_dnastratagem";
+  const PROJECT_HIDDEN = ["pr", "kpis"];
+  function readProjectLayoutById(pid) {
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (!/^tja_dashboard_/.test(k)) continue;
+        const s = JSON.parse(localStorage.getItem(k));
+        const p = ((s && s.engagements && s.engagements.projects) || [])
+          .find(x => x.id === pid && x.layout && x.layout.free && Object.keys(x.layout.free).length);
+        if (p) return JSON.parse(JSON.stringify(p.layout));
+      }
+    } catch (e) {}
+    return null;
+  }
   function referenceProjectLayout() {
-    const lay = referenceRetainerLayout();
+    const lay = readProjectLayoutById(REFERENCE_PROJECT_ID) || referenceRetainerLayout();
     if (!lay) return null;
-    if (lay.free) delete lay.free.pr;
-    lay.hidden = Array.isArray(lay.hidden) ? lay.hidden.slice() : [];
-    if (!lay.hidden.includes("pr")) lay.hidden.push("pr");
+    lay.locked = false;
+    lay.free = lay.free || {};
+    PROJECT_HIDDEN.forEach(k => { delete lay.free[k]; });
+    lay.hidden = [...new Set([...(Array.isArray(lay.hidden) ? lay.hidden : []), ...PROJECT_HIDDEN])];
     return lay;
   }
 
