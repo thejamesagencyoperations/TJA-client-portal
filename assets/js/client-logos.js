@@ -32,7 +32,7 @@ window.CLIENT_LOGOS = (function () {
     mountainshadows: "mountainshadows.com",
     phoenixchildrenshospital: "phoenixchildrens.org",
     professionalpipingsystemsllc: "ppsphx.com",
-    rcsinc: "rcsconstruction.com",
+    rcsinc: "rcsfun.com",
     restorationhq: "restorationhq.us",
     saddleback: "saddlebackarizona.com",
     sagehospitalitygroup: "sagehospitalitygroup.com",
