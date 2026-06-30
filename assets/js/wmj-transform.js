@@ -51,11 +51,14 @@
   function isNonBillable(r) {
     const cm = (r.Campaign_Name || "").toLowerCase();
     const cl = (r.Client_Name || "").toLowerCase();
-    return cm.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1 || !cl;
+    const pn = (r.Project_Name || "").toLowerCase();
+    return cm.indexOf("non-billable") > -1 || pn.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1 || !cl;
   }
 
   // A task that is internal-only (shown to admins, hidden from clients)
-  const INTERNAL_RE = /(internal\b|internal revision|mech\b|mech\s*\/?\s*(check|mech)|admin time|huddle|collab time|final eyes|account management|project management|strategic oversight|account supervis|internal planning|internal meeting|internal kickoff|internal stakeholder|monday morning|1:1|q[1-4] quarterly|camp james)/i;
+  // Internal / non-client-facing tasks (hidden from clients, shown greyed to admins).
+  // NB: "internal revisions" is hidden but "client revisions" is intentionally kept.
+  const INTERNAL_RE = /(internal\b|internal revision|mech\b|mech\s*\/?\s*(check|mech)|admin time|huddle|collab time|final eyes|account management|project management|strategic oversight|account supervis|internal planning|internal meeting|internal kickoff|internal stakeholder|monday morning|1:1|q[1-4] quarterly|camp james|proofing|\bproof\b|kickoff question|non-billable|account ramp|account health)/i;
   function isInternalTask(name) { return INTERNAL_RE.test(name || ""); }
 
   const NUM_PREFIX = /^[\d]+(\.[\d]+)*\s+/;        // "4.3 Key Page…" → strip "4.3 "

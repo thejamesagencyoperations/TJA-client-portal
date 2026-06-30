@@ -107,13 +107,16 @@ window.ExecSummary = (function () {
   /* ---- modules ---- */
   function burnModule(e) {
     if (e.type === "project") {
-      const ph = e.pizza.phases, cur = ph.findIndex(p => !p.done);
+      const allPhases = e.pizza.phases || [];
+      const ph = allPhases.slice(0, 8);                 // cap the tracker graphic at 8 phases
+      const cur = ph.findIndex(p => !p.done);
       const steps = ph.map((p, i) => {
         const state = p.done ? "done" : (i === cur ? "current" : "");
         return `<div class="pizza-step ${state}"><div class="pizza-dot ${canAdmin() ? "admin-edit" : ""}" data-phase="${i}" ${canAdmin() ? `title="Toggle ${esc(p.label)} complete"` : ""}>${p.done ? "✓" : i + 1}</div><div class="pizza-label">${esc(p.label)}</div></div>`;
       }).join("");
-      const pct = ph.length ? Math.round(ph.filter(p => p.done).length / ph.length * 100) : (e.progressPct || 0);
-      const hrs = (e.allocatedHours != null)
+      const pct = allPhases.length ? Math.round(allPhases.filter(p => p.done).length / allPhases.length * 100) : (e.progressPct || 0);
+      // hours/budget is internal — admin only
+      const hrs = (canAdmin() && e.allocatedHours != null)
         ? `<div class="proj-hours"><b>${e.allocatedHours}h</b>${e.contractedHours ? ` of ${e.contractedHours}h` : ""} allocated</div>`
         : "";
       return `<div class="module">
@@ -186,7 +189,7 @@ window.ExecSummary = (function () {
             <span class="task-dot ${stCls[t.status] || "pending"}" title="${esc(t.status)}"></span>
             <span class="task-name">${esc(t.name)}${t.internal ? ` <span class="task-int">internal</span>` : ""}</span>
             ${t.service ? `<span class="task-svc">${esc(t.service)}</span>` : ""}
-            ${t.hours ? `<span class="task-hrs">${t.hours}h</span>` : ""}
+            ${(admin && t.hours) ? `<span class="task-hrs">${t.hours}h</span>` : ""}
           </div>`).join("")}
       </div>`).join("");
     return `<div class="module">

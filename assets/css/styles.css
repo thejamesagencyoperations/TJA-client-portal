@@ -911,8 +911,8 @@ body[data-role="client"] .admin-only { display: none !important; }
 .undo-btn { font-weight: 700; }
 
 /* Pizza tracker (projects) */
-.pizza { display: flex; align-items: center; margin: 10px 0 4px; }
-.pizza-step { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; cursor: default; }
+.pizza { display: flex; align-items: flex-start; margin: 10px 0 4px; }
+.pizza-step { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; min-width: 0; position: relative; cursor: default; }
 .pizza .admin-edit { cursor: pointer; }
 .pizza-dot {
   width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line);
@@ -926,7 +926,8 @@ body[data-role="client"] .admin-only { display: none !important; }
 }
 .pizza-step:first-child::before { display: none; }
 .pizza-step.done::before, .pizza-step.current::before { background: var(--tja-grad-h); }
-.pizza-label { margin-top: 8px; font-size: .68rem; color: var(--text-dim); text-align: center; }
+.pizza-label { margin-top: 8px; font-size: .68rem; color: var(--text-dim); text-align: center; width: 100%;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; word-break: break-word; }
 .pizza-step.done .pizza-label, .pizza-step.current .pizza-label { color: var(--text); font-weight: 600; }
 
 /* Condition / temperature */
