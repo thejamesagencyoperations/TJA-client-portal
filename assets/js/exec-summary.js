@@ -115,8 +115,8 @@ window.ExecSummary = (function () {
         return `<div class="pizza-step ${state}"><div class="pizza-dot ${canAdmin() ? "admin-edit" : ""}" data-phase="${i}" ${canAdmin() ? `title="Toggle ${esc(p.label)} complete"` : ""}>${p.done ? "✓" : i + 1}</div><div class="pizza-label">${esc(p.label)}</div></div>`;
       }).join("");
       const pct = allPhases.length ? Math.round(allPhases.filter(p => p.done).length / allPhases.length * 100) : (e.progressPct || 0);
-      // hours/budget is internal — admin only
-      const hrs = (canAdmin() && e.allocatedHours != null)
+      // hours readout is client-facing (per Cameron); per-task hours stay admin-only
+      const hrs = (e.allocatedHours != null)
         ? `<div class="proj-hours"><b>${e.allocatedHours}h</b>${e.contractedHours ? ` of ${e.contractedHours}h` : ""} allocated</div>`
         : "";
       return `<div class="module">
