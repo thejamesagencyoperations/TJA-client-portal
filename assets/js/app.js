@@ -141,6 +141,11 @@ function taskStatusCell(status, path) {
 const ppDel = (key) => `<button class="row-del" data-ppdel="${key}" title="Remove">✕</button>`;
 
 function projectPct(p) {
+  if (p.source === "wmj") {                                  // WMJ projects: trust the synced progress
+    if (typeof p.progressPct === "number") return p.progressPct;
+    const wph = (p.pizza && p.pizza.phases) || [];
+    if (wph.length) return Math.round(wph.filter(x => x.done).length / wph.length * 100);
+  }
   const pp = p.projectPlan || {};
   if (pp.status && pp.status.pct !== "" && pp.status.pct != null) return +pp.status.pct || 0;
   const tasks = (pp.phases || []).flatMap(ph => ph.tasks || []);
@@ -149,6 +154,8 @@ function projectPct(p) {
   if (ph.length) return Math.round(ph.filter(x => x.done).length / ph.length * 100);
   return 0;
 }
+// "completed" = WMJ says Completed, or 100% progress
+function isProjComplete(p) { return (p.source === "wmj" && p.wmjStatus === "Completed") || projectPct(p) >= 100; }
 let pendingDeleteId = null;   // project id awaiting delete-confirm (two-step, prevents accidental delete)
 // Projects landing — a folder of project tiles (Projects is a top-mode, not a left-nav tab).
 function renderProjectFolder() {
@@ -537,7 +544,8 @@ function toggleTheme() {
 function applyRole() {
   const effRole = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
   document.body.dataset.role = effRole;
-  const cb = el("#clientsBack"); if (cb) cb.style.display = (typeof isAdmin === "function" && isAdmin()) ? "" : "none";
+  // "All clients" is an admin nav — hide it in client view (incl. admin previewing as client)
+  const cb = el("#clientsBack"); if (cb) cb.style.display = (effRole === "admin") ? "" : "none";
   const rc = el("#roleControls");
   if (typeof isAdmin === "function" && isAdmin()) {
     const prev = isPreviewing();
