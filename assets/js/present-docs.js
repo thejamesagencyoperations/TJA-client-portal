@@ -142,6 +142,11 @@ window.PresentDocs = (function () {
               <div class="pd-status-opt revisions" data-val="revisions"><span class="tick">✓</span> Revisions needed</div>
             </div>
 
+            <div class="pd-revdue-row">
+              <label class="pd-review-label" for="pdRevDue">Revisions due</label>
+              <input type="date" id="pdRevDue" class="pd-revdue">
+            </div>
+
             <div class="pd-comments-head">
               <span class="pd-review-label" id="pdCommentsCount">Comments</span>
               <button class="pd-tool-btn" id="pdClearComments" style="display:none">Clear all</button>
@@ -241,9 +246,17 @@ window.PresentDocs = (function () {
       reader.readAsDataURL(file);
     });
   }
+  // date + time stamp, e.g. "Jun 25, 2026 · 3:45 PM"
+  function stamp() {
+    try {
+      const d = new Date();
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+        + " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    } catch (e) { return new Date().toLocaleString(); }
+  }
   function newVersion(dataUrl, label) {
     return { label, dataUrl, annotation: null, pins: [], status: null, clientNotes: "", agencyNotes: "",
-      uploaded: new Date().toLocaleDateString() };
+      uploaded: stamp(), revisionsDue: "" };
   }
   async function handleNewDeliverables(fileList) {
     const files = Array.from(fileList).filter(f => f.type.startsWith("image/"));
@@ -460,7 +473,8 @@ window.PresentDocs = (function () {
     $("pdTitle").textContent = d.name;
     $("pdClientNotes").value = (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
     $("pdAgencyNotes").value = v.agencyNotes || "";
-    $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"} · ${d.versions.length} version(s)`;
+    $("pdRevDue").value = v.revisionsDue || "";
+    updateMeta();
     document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
     renderVersions();
     const img = $("pdImg");
@@ -508,8 +522,16 @@ window.PresentDocs = (function () {
     if ((av.status === "approved" || av.status === "changes") && !av.signature) { openSignaturePad(); return; }
     finishSubmit();
   }
+  const STATUS_WORD = { approved: "Approved", changes: "Approved w/ changes", revisions: "Revisions needed" };
+  function updateMeta() {
+    const d = deliv(curId); if (!d) return; const v = active(d);
+    const rev = v.reviewedAt ? ` · reviewed ${v.reviewedAt}${v.reviewedStatus ? " (" + (STATUS_WORD[v.reviewedStatus] || v.reviewedStatus) + ")" : ""}` : "";
+    $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"}${rev} · ${d.versions.length} version(s)`;
+  }
   function finishSubmit() {
-    save(); renderGallery(); updateSignStatus();
+    const v = active(deliv(curId));
+    if (v) { v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; }   // stamp date+time of this review submit
+    save(); renderGallery(); updateSignStatus(); updateMeta();
     const s = $("pdSaved"); s.classList.add("show");
     setTimeout(() => s.classList.remove("show"), 2200);
   }
@@ -810,6 +832,7 @@ window.PresentDocs = (function () {
 
     $("pdClientNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.clientNotes = e.target.value; save(); } });
     $("pdAgencyNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.agencyNotes = e.target.value; save(); } });
+    $("pdRevDue").addEventListener("change", e => { const v = active(deliv(curId)); if (v) { v.revisionsDue = e.target.value; save(); } });
 
     $("pdSubmit").addEventListener("click", submitReview);
     $("pdExport").addEventListener("click", () => exportPDF(deliv(curId)));
