@@ -64,13 +64,28 @@ window.ExecSummary = (function () {
   }
 
   /* ---- condition (merged into the burn tile) ---- */
+  // due date ⇄ ISO (<input type="date"> needs YYYY-MM-DD; we store "MMM D, YYYY")
+  function dueToISO(s) {
+    if (!s) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s); if (isNaN(d)) return "";
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function isoToDue(iso) {
+    const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); if (!m) return iso || "";
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
   function conditionInline(e) {
     const c = e.condition || { level: "green", note: "" }, lvl = c.level;
     const labels = { green: "On Track", yellow: "Needs Attention", red: "Off Track" };
     const dot = (col) => `<span class="cond-dot ${col} ${lvl === col ? "on" : ""} ${canAdmin() ? "admin-edit" : ""}" data-cond="${col}" ${canAdmin() ? `title="Set to ${col}"` : ""}></span>`;
-    // projects show their due date prominently right in the condition area
+    // projects show their due date prominently right in the condition area —
+    // admins get a calendar picker; clients see the formatted date
+    const dueVal = canAdmin()
+      ? `<input type="date" class="proj-due-input" data-projdue value="${dueToISO(e.dueDate)}" title="Set the due date">`
+      : `<span class="proj-due-date">${esc(e.dueDate || "—")}</span>`;
     const due = (e.type === "project")
-      ? `<div class="proj-due"><span class="proj-due-cal">${IC.cal}</span><span class="proj-due-label">Due date</span><span class="proj-due-date">${ed(e.dueDate, "dueDate")}</span></div>`
+      ? `<div class="proj-due"><span class="proj-due-cal">${IC.cal}</span><span class="proj-due-label">Due date</span>${dueVal}</div>`
       : "";
     return `<div class="burn-cond">
       ${due}
@@ -640,6 +655,8 @@ window.ExecSummary = (function () {
     });
     s.addEventListener("change", e => {
       if (e.target.closest("[data-svcalloc]")) { window.DASH.saveState(); return; }
+      const dd = e.target.closest("[data-projdue]");
+      if (dd && canAdmin()) { window.DASH.getEng().dueDate = isoToDue(dd.value); window.DASH.saveState(); return; }
       const tc = e.target.closest("[data-todocolor]");
       if (tc) { window.DASH.getEng().todoClientColor = tc.value; window.DASH.saveState(); rerender(); return; }
     });

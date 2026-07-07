@@ -888,6 +888,10 @@ body[data-role="client"] .admin-only { display: none !important; }
 .proj-due-cal svg { width: 16px; height: 16px; color: var(--orange); }
 .proj-due-label { font-size: .66rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; color: var(--accent-text); }
 .proj-due-date { margin-left: auto; font-size: .98rem; font-weight: 800; letter-spacing: -.01em; color: var(--text); }
+.proj-due-input { margin-left: auto; font: inherit; font-size: .9rem; font-weight: 700; color: var(--text);
+  background: var(--panel); border: 1px solid rgba(246,142,33,.5); border-radius: 8px; padding: 5px 9px; cursor: pointer; }
+.proj-due-input:hover { border-color: var(--orange); }
+.proj-due-input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px rgba(246,142,33,.15); }
 /* project allocated-hours readout under the pizza tracker */
 .proj-hours { margin-top: 10px; font-size: .82rem; color: var(--text-dim); text-align: center; }
 .proj-hours b { color: var(--text); font-weight: 800; }
