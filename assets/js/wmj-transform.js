@@ -52,7 +52,7 @@
     const cm = (r.Campaign_Name || "").toLowerCase();
     const cl = (r.Client_Name || "").toLowerCase();
     const pn = (r.Project_Name || "").toLowerCase();
-    return cm.indexOf("non-billable") > -1 || pn.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1 || !cl;
+    return !cm || cm.indexOf("non-billable") > -1 || pn.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1 || !cl;
   }
 
   // A task that is internal-only (shown to admins, hidden from clients)
@@ -140,7 +140,7 @@
             if (t.start && (!firstStart || t.start.key < firstStart.key)) firstStart = t.start;
             if (t.end && (!lastEnd || t.end.key > lastEnd.key)) lastEnd = t.end;
             tasks.push({
-              name: t.name, phase: pn,
+              name: t.name, raw: t.raw, phase: pn,
               hours: Math.round(t.hours * 100) / 100,
               service: [...t.services][0] || "",
               status: st, internal: t.internal,
@@ -153,11 +153,31 @@
         });
         phases.sort((a, b) => a._startKey - b._startKey).forEach(p => delete p._startKey);
 
+        // Single-workstream campaigns (e.g. website builds) put ALL work under one
+        // Project_Name → the tracker would show a single useless dot. Derive phases
+        // from the tasks' top-level numbering (1, 2, 3 … = the real sequence).
+        let displayPhases = phases;
+        if (phases.length <= 1) {
+          const byNum = new Map();
+          tasks.filter(t => !t.internal).forEach(t => {
+            const top = taskOrder(t.raw)[0];
+            if (!isFinite(top) || top >= 9999) return;
+            if (!byNum.has(top)) byNum.set(top, []);
+            byNum.get(top).push(t);
+          });
+          if (byNum.size >= 2) {
+            displayPhases = [...byNum.entries()].sort((a, b) => a[0] - b[0]).map(([top, ts]) => {
+              const bare = ts.find(t => taskOrder(t.raw).length === 1);   // the plain "N …" task
+              return { label: (bare || ts[0]).name, done: ts.every(t => t.status === "Completed"), status: rollupStatus(ts.map(t => t.status)) };
+            });
+          }
+        }
+
         const clientTasks = tasks.filter(t => !t.internal);
         const allocated = Math.round(tasks.reduce((s, t) => s + t.hours, 0) * 100) / 100;
         const contracted = contractedHours(cm);
-        const doneCount = phases.filter(p => p.done).length;
-        const progressPct = phases.length ? Math.round(doneCount / phases.length * 100) : 0;
+        const doneCount = displayPhases.filter(p => p.done).length;
+        const progressPct = displayPhases.length ? Math.round(doneCount / displayPhases.length * 100) : 0;
         const status = rollupStatus(allTaskStatuses);
 
         projects.push({
@@ -172,7 +192,7 @@
           dueDate: fmtDate(lastEnd),
           startDate: fmtDate(firstStart),
           progressPct,
-          phases: phases,
+          phases: displayPhases,
           tasks: tasks,                 // includes internal (UI hides for clients)
           taskCount: tasks.length,
           clientTaskCount: clientTasks.length,

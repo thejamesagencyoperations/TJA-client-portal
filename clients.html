@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=163">
+<link rel="stylesheet" href="assets/css/styles.css?v=164">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -110,20 +110,20 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=163"></script>
-<script src="assets/js/supabase-sync.js?v=163"></script>
-<script src="assets/js/auth.js?v=163"></script>
+<script src="assets/js/supabase-config.js?v=164"></script>
+<script src="assets/js/supabase-sync.js?v=164"></script>
+<script src="assets/js/auth.js?v=164"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=163"></script>
-<script src="assets/js/client-template.js?v=163"></script>
-<script src="assets/js/client-store.js?v=163"></script>
-<script src="assets/js/wmj-transform.js?v=163"></script>
-<script src="assets/js/client-logos.js?v=163"></script>
-<script src="assets/js/wmj-sync.js?v=163"></script>
+<script src="assets/js/clients.js?v=164"></script>
+<script src="assets/js/client-template.js?v=164"></script>
+<script src="assets/js/client-store.js?v=164"></script>
+<script src="assets/js/wmj-transform.js?v=164"></script>
+<script src="assets/js/client-logos.js?v=164"></script>
+<script src="assets/js/wmj-sync.js?v=164"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -204,11 +204,29 @@
     const id = e.dataTransfer.getData("text/plain"); if (id) setArchived(id, t.dataset.bucket === "archived");
   });
 
-  /* ---------- Workamajig sync — PAUSED during the clean-slate reset ----------
-     The old single-projects auto-sync is disabled while we re-implement the data
-     from the revised retainer + project sheets. The sync engine (WMJ_SYNC) stays
-     as the foundation; it's just not invoked. Re-enable when the new pipeline lands. */
-  const wmjBar = document.querySelector(".wmj-bar"); if (wmjBar) wmjBar.style.display = "none";
+  /* ---------- Workamajig PROJECTS sync (v1 test) ----------
+     Pulls the PROJECTS sheet only and writes each client's Projects. Retainers are
+     a separate sheet + pipeline (not wired yet) — the two never mix here. */
+  const syncBtn = document.getElementById("wmjSync");
+  const stamp = document.getElementById("wmjStamp");
+  function showStamp() {
+    const t = window.WMJ_SYNC && window.WMJ_SYNC.lastSync();
+    stamp.textContent = t ? ("Projects synced " + new Date(t).toLocaleString()) : "Syncing projects…";
+  }
+  showStamp();
+  async function runSync() {
+    if (!window.WMJ_SYNC) return;
+    syncBtn.disabled = true; syncBtn.classList.add("spin");
+    try {
+      const r = await window.WMJ_SYNC.sync();
+      renderGrid();
+      if (r.createdClients && r.createdClients.length) console.log("WMJ created clients + logins:", r.createdClients.map(c => `${c.name} → ${c.login.email} / ${c.login.password}`));
+    } catch (e) { stamp.textContent = "Sync failed — " + e.message; console.warn(e); }
+    finally { syncBtn.disabled = false; syncBtn.classList.remove("spin"); showStamp(); }
+  }
+  syncBtn.addEventListener("click", runSync);
+  syncBtn.title = "Sync Workamajig projects now";
+  if (window.WMJ_SYNC) window.WMJ_SYNC.startAuto(renderGrid);
 
   /* tile interactions: drag to file, click to open */
   grid.addEventListener("dragstart", e => {
