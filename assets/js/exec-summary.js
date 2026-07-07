@@ -192,7 +192,7 @@ window.ExecSummary = (function () {
             ${(admin && t.hours) ? `<span class="task-hrs">${t.hours}h</span>` : ""}
           </div>`).join("")}
       </div>`).join("");
-    return `<div class="module">
+    return `<div class="module module--tasks">
       <div class="module-head"><span class="module-title">${IC.svc}Tasks</span><span class="module-link" data-go="status">View status →</span></div>
       <div class="task-list-wrap">${body || `<div class="pr-date">No tasks yet.</div>`}</div>
     </div>`;
@@ -339,7 +339,7 @@ window.ExecSummary = (function () {
   // referenceProjectLayout in client-store. PR Coverage + KPIs are hidden on
   // projects. PROJECT_LAYOUT_V forces existing project layouts to re-adopt the
   // template when bumped (without touching monthly-services layouts).
-  const PROJECT_LAYOUT_V = 2;
+  const PROJECT_LAYOUT_V = 3;   // bump → all projects re-adopt the current template (RCS), locked
   const PROJECT_HIDDEN = ["pr", "kpis"];
   const DEFAULT_PROJECT_FREE = (function () {
     const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
@@ -375,12 +375,12 @@ window.ExecSummary = (function () {
 
   /* ---- North Star banner (full-width strip across all 3 columns) ---- */
   function northStarBanner(e) {
-    const due = e.type === "project" ? `<span class="ns-banner-due">Due ${ed(e.dueDate, "dueDate")}</span>` : "";
+    // Projects call it "Goal"; the due date lives only in the Project Progress tile.
+    const label = e.type === "project" ? "Goal" : "North Star";
     return `<div class="ns-banner">
       <span class="ns-banner-bolt">${IC.bolt}</span>
-      <span class="ns-banner-label">North Star</span>
+      <span class="ns-banner-label">${label}</span>
       <span class="ns-banner-text">${ed(e.northStar, "northStar")}</span>
-      ${due}
     </div>`;
   }
 

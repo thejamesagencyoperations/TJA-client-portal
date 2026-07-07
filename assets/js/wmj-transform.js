@@ -47,19 +47,25 @@
   function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
   function num(s) { const v = parseFloat(s); return isFinite(v) ? v : 0; }
 
-  // A row is internal/non-client (excluded from the whole sync)
-  function isNonBillable(r) {
-    const cm = (r.Campaign_Name || "").toLowerCase();
-    const cl = (r.Client_Name || "").toLowerCase();
-    const pn = (r.Project_Name || "").toLowerCase();
-    return !cm || cm.indexOf("non-billable") > -1 || pn.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1 || !cl;
-  }
-
-  // A task that is internal-only (shown to admins, hidden from clients)
-  // Internal / non-client-facing tasks (hidden from clients, shown greyed to admins).
-  // NB: "internal revisions" is hidden but "client revisions" is intentionally kept.
-  const INTERNAL_RE = /(internal\b|internal revision|mech\b|mech\s*\/?\s*(check|mech)|admin time|huddle|collab time|final eyes|account management|project management|strategic oversight|account supervis|internal planning|internal meeting|internal kickoff|internal stakeholder|monday morning|1:1|q[1-4] quarterly|camp james|proofing|\bproof\b|kickoff question|non-billable|account ramp|account health)/i;
-  function isInternalTask(name) { return INTERNAL_RE.test(name || ""); }
+  /* ================================================================
+     PROJECT RULES — the ONE place to tune what clients see across ALL
+     current + future projects. Add new patterns to the right list:
+       • DROP_ROW      — rows removed entirely (internal / non-billable)
+       • INTERNAL_TASK — tasks hidden from clients (greyed for admins)
+       • EXCLUDE_PHASE — labels that must NEVER be a pizza-tracker phase
+                         (oversight / management / comms are not milestones)
+     ================================================================ */
+  const RULES = {
+    DROP_ROW: r => {
+      const cm = (r.Campaign_Name || "").toLowerCase(), cl = (r.Client_Name || "").toLowerCase(), pn = (r.Project_Name || "").toLowerCase();
+      return !cm || !cl || cm.indexOf("non-billable") > -1 || pn.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1;
+    },
+    INTERNAL_TASK: /(internal\b|internal revision|mech\b|mech\s*\/?\s*(check|mech)|admin time|huddle|collab time|final eyes|account management|project management|strategic oversight|account supervis|internal planning|internal meeting|internal kickoff|internal stakeholder|monday morning|1:1|q[1-4] quarterly|camp james|proofing|\bproof\b|kickoff question|non-billable|account ramp|account health)/i,
+    EXCLUDE_PHASE: /(oversight|client communications|account leadership|account (management|supervis)|project management|ongoing client services|status meeting)/i,
+  };
+  function isNonBillable(r) { return RULES.DROP_ROW(r); }
+  function isInternalTask(name) { return RULES.INTERNAL_TASK.test(name || ""); }
+  function isExcludedPhase(label) { return RULES.EXCLUDE_PHASE.test(label || ""); }
 
   const NUM_PREFIX = /^[\d]+(\.[\d]+)*\s+/;        // "4.3 Key Page…" → strip "4.3 "
   function cleanTaskName(s) { return String(s || "").replace(NUM_PREFIX, "").trim(); }
@@ -172,6 +178,8 @@
             });
           }
         }
+        // RULES.EXCLUDE_PHASE — oversight / management / comms are never pizza phases
+        displayPhases = displayPhases.filter(p => !isExcludedPhase(p.label));
 
         const clientTasks = tasks.filter(t => !t.internal);
         const allocated = Math.round(tasks.reduce((s, t) => s + t.hours, 0) * 100) / 100;

@@ -892,7 +892,10 @@ body[data-role="client"] .admin-only { display: none !important; }
 .proj-hours { margin-top: 10px; font-size: .82rem; color: var(--text-dim); text-align: center; }
 .proj-hours b { color: var(--text); font-weight: 800; }
 /* WMJ Tasks module (projects) */
-.task-list-wrap { display: flex; flex-direction: column; gap: 12px; }
+/* Tasks tile: fade the bottom so a partial (cut-off) row softens instead of hard-cutting */
+.module--tasks { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%); }
+.task-list-wrap { display: flex; flex-direction: column; gap: 12px; padding-bottom: 18px; }
 .task-group-head { font-size: .66rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint);
   font-weight: 800; margin-bottom: 5px; }
 .task-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: .82rem; }

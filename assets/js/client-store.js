@@ -149,7 +149,7 @@ window.TJA_STORE = (function () {
   // team arranged (DNA Stratagem). Read that project's saved layout straight from
   // localStorage (so it matches whatever it looks like in THIS browser); fall back
   // to the monthly-services reference. PR Coverage + KPIs are hidden on projects.
-  const REFERENCE_PROJECT_ID = "wmj_dnastratagem";
+  const REFERENCE_PROJECT_ID = "wmj_rcswebsiteredesigndevelopment";   // the arranged template project
   const PROJECT_HIDDEN = ["pr", "kpis"];
   function readProjectLayoutById(pid) {
     try {
@@ -166,7 +166,7 @@ window.TJA_STORE = (function () {
   function referenceProjectLayout() {
     const lay = readProjectLayoutById(REFERENCE_PROJECT_ID) || referenceRetainerLayout();
     if (!lay) return null;
-    lay.locked = false;
+    lay.locked = true;   // projects are locked in to the template arrangement by default
     lay.free = lay.free || {};
     PROJECT_HIDDEN.forEach(k => { delete lay.free[k]; });
     lay.hidden = [...new Set([...(Array.isArray(lay.hidden) ? lay.hidden : []), ...PROJECT_HIDDEN])];
