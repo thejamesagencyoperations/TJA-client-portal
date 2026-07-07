@@ -10,6 +10,24 @@
                  kind, login:{email,password}, createdAt, builtin }
    Exposed as window.TJA_STORE.
    ============================================================ */
+/* One-time clean slate (2026-07): wipe the auto-created client roster + every
+   client's stored workspace/files/deliverables so we can re-implement the data
+   from the revised Workamajig sheets. Runs once per browser (gated by the flag);
+   bump PURGE_TAG to force another clean sweep. */
+(function () {
+  const PURGE_TAG = "2026-07-clean-slate";
+  try {
+    if (localStorage.getItem("tja_purge") !== PURGE_TAG) {
+      localStorage.removeItem("tja_clients");
+      localStorage.removeItem("tja_wmj_last_sync");
+      Object.keys(localStorage)
+        .filter(k => /^tja_(dashboard|files|deliverables)_/.test(k))
+        .forEach(k => localStorage.removeItem(k));
+      localStorage.setItem("tja_purge", PURGE_TAG);
+    }
+  } catch (e) {}
+})();
+
 window.TJA_STORE = (function () {
   const LS_KEY = "tja_clients";
   const REG_CLIENT = "_registry";   // pseudo client_id for the roster row
