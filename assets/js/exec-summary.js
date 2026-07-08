@@ -275,7 +275,9 @@ window.ExecSummary = (function () {
 
   function serviceModule(e) {
     if (e.type === "project" && Array.isArray(e.wmjTasks)) return tasksModule(e);
-    if (e.type === "retainer" && Array.isArray(e.wmjServiceLines)) return retainerServiceModule(e);
+    // Retainers always use the disciplines view — driven by the admin-set contracted hours,
+    // NOT gated on WMJ actuals (actuals just fill the bars; missing actuals → 0%, never a blank tile).
+    if (e.type === "retainer") return retainerServiceModule(e);
     const seg = (i, status) => {
       const opt = (val, label) => `<button class="svc-seg-btn is-${val} ${status === val ? "active" : ""}" data-svcset="${i}:${val}" title="${label}">${label}</button>`;
       return `<div class="svc-seg">${opt("not-started", "Not started")}${opt("in-progress", "In progress")}${opt("complete", "Complete")}</div>`;

@@ -41,7 +41,7 @@
     anewleaf: [
       { name: "Public Relations", contracted: 30 },
       { name: "Strategic Oversight", contracted: 31 },
-      { name: "Creative", contracted: 33 },
+      { name: "Creative", contracted: 34.63 },   // buffered to make the 101.63 total
       { name: "Paid Media", contracted: 6 },
     ],
   };

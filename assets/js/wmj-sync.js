@@ -147,6 +147,12 @@ window.WMJ_SYNC = (function () {
     // first time; the total contracted = sum of the disciplines. Never overwrite once set.
     if (!Array.isArray(e.serviceDisciplines) || !e.serviceDisciplines.length) {
       e.serviceDisciplines = (window.tjaSeedDisciplinesFor ? window.tjaSeedDisciplinesFor(rc.wmjName) : []);
+    } else if (RT() && RT().normName && RT().normName(rc.wmjName) === "anewleaf") {
+      // one-time correction: bump A New Leaf's Creative 33→34.63 (total 100→101.63) if still the
+      // original unmodified seed. Guarded so a manual edit is never overwritten.
+      const cr = e.serviceDisciplines.find(d => /creative/i.test(d.name));
+      const tot = e.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
+      if (cr && +cr.contracted === 33 && tot === 100) cr.contracted = 34.63;
     }
     e.burn.contractedHours = e.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
     if (e.burn.periodLabel == null) e.burn.periodLabel = "";
