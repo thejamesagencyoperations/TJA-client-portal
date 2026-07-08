@@ -963,6 +963,11 @@ body[data-role="client"] .admin-only { display: none !important; }
 .rsvc-status.is-in-progress { background: rgba(246,142,33,.16); color: var(--accent-text); }
 .rsvc-status.is-complete    { background: rgba(46,160,110,.18); color: #2ea06e; }
 .rsvc-status.is-over        { background: #e5322b; color: #fff; }
+.rsvc-status.is-unalloc     { background: var(--input); color: var(--text-dim); }
+/* admin-only "Unallocated" line: billable hrs with no matching discipline (still in the burn) */
+.rsvc-unalloc { opacity: .8; border-top: 1px dashed var(--line); padding-top: 10px; }
+.rsvc-unalloc .rsvc-name { color: var(--text-dim); font-style: italic; }
+.rsvc-setup-note { font-size: .72rem; color: var(--text-faint); line-height: 1.4; margin-top: 10px; }
 /* editable contracted-hours input inside the admin caption */
 .rsvc-hrs { width: 64px; padding: 1px 4px 1px 7px; margin: 0 2px; font: inherit; font-size: .7rem; font-weight: 700;
   color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 5px; text-align: left; }

@@ -162,17 +162,20 @@ window.ExecSummary = (function () {
       const mp = m.contractedHours > 0 ? Math.round(m.usedHours / m.contractedHours * 100) : 0;
       return `<div class="mom-chip ${active ? "active" : ""}" data-mom="${i}" title="View ${esc(m.month)}"><div class="m">${esc(m.month)}</div><div class="v">${mp}%</div></div>`;
     }).join("");
-    const interactive = canAdmin() && viewMonthIdx == null;
-    const bigPct = canAdmin()
-      ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
+    const unset = viewMonthIdx == null && total <= 0;   // no contracted hours entered yet
+    const interactive = canAdmin() && viewMonthIdx == null && !unset;
+    const bigPct = unset ? `—`
+      : canAdmin() ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
       : `${pct}%`;
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.burn}Retainer Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span></div>
       <div class="burn-wrap">
-        ${gauge(pct, interactive)}
+        ${gauge(unset ? 0 : pct, interactive)}
         <div class="burn-readout">
           <div class="big">${bigPct}${canAdmin() && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</div>
-          ${canAdmin()
+          ${unset
+            ? `<div class="sub">${used} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>`
+            : canAdmin()
             ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>
                <div class="burn-hint">drag the dial (or edit the %) to set the total — you'll pick which disciplines absorb it</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
@@ -260,13 +263,19 @@ window.ExecSummary = (function () {
     const ov = (e.svcUtilOverride || {})[d.name];
     return (typeof ov === "number") ? (ov / 100 * (+d.contracted || 0)) : act;
   }
-  function retainerUsed(e) {
-    const m = actualByDiscipline(e);
-    return (e.serviceDisciplines || []).reduce((s, d) => s + discUsed(e, d, m), 0);
+  // billable hours in WMJ departments that DON'T match any defined discipline ("misc"/unallocated).
+  // These still count toward the burn (it must reflect ALL billable hours) and are surfaced to
+  // admins as an "Unallocated" line so the PM team can categorize them.
+  function unmatchedBillable(e) {
+    const keys = new Set((e.serviceDisciplines || []).map(d => canon(d.name)));
+    return (e.wmjServiceLines || []).reduce((s, l) => s + (keys.has(canon(l.name)) ? 0 : (+l.billable || 0)), 0);
   }
-  function retainerActualUsed(e) {   // the true WMJ used total (ignoring overrides) — for the "actual" reference
+  function retainerUsed(e) {   // burn numerator = Σ disciplines' used + unallocated billable
     const m = actualByDiscipline(e);
-    return (e.serviceDisciplines || []).reduce((s, d) => s + (m[canon(d.name)] || 0), 0);
+    return (e.serviceDisciplines || []).reduce((s, d) => s + discUsed(e, d, m), 0) + unmatchedBillable(e);
+  }
+  function retainerActualUsed(e) {   // true WMJ total billable (all depts, ignoring overrides)
+    return (e.wmjServiceLines || []).reduce((s, l) => s + (+l.billable || 0), 0);
   }
   function retainerServiceModule(e) {
     const admin = canAdmin();
@@ -274,25 +283,27 @@ window.ExecSummary = (function () {
     const actual = actualByDiscipline(e);
     const total = retainerTotalContracted(e);
     const ov = e.svcUtilOverride || {};   // admin manual % overrides, keyed by discipline name
+    const unset = total <= 0;   // no contracted hours entered yet → "needs setup", don't blast everything red
     const rows = disc.map((d, i) => {
       const contracted = +d.contracted || 0;
       const act = actual[canon(d.name)] || 0;
       const share = total > 0 ? Math.round(contracted / total * 100) : 0;
-      const realUtil = contracted > 0 ? (act / contracted * 100) : (act > 0 ? 999 : 0);
+      const realUtil = contracted > 0 ? (act / contracted * 100) : 0;   // 0 contracted → no util yet (not "over")
       const hasOv = typeof ov[d.name] === "number";
       const dispUtil = hasOv ? ov[d.name] : realUtil;   // the bar/status follow the shown (maybe overridden) %
       const fill = Math.max(0, Math.min(100, dispUtil));
       // status: 0% → not started; >0 & <100% → in progress; ≥100% → completed;
       // >120% (20% past budget) → the completed chip turns vibrant red "Over"
       let st = "not-started", lbl = "Not started";
-      if (dispUtil > 120) { st = "over"; lbl = "Over"; }
+      if (contracted <= 0 && !hasOv) { st = "not-started"; lbl = "—"; }
+      else if (dispUtil > 120) { st = "over"; lbl = "Over"; }
       else if (dispUtil >= 100) { st = "complete"; lbl = "Completed"; }
       else if (dispUtil > 0) { st = "in-progress"; lbl = "In progress"; }
       const nameCell = admin ? ed(d.name, "serviceDisciplines." + i + ".name") : esc(d.name);
       // admin caption = the REAL actual/contracted + real % (ground truth); client sees only the shown %
       const hrsCell = admin
-        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs · ${Math.round(realUtil)}%`
-        : `${Math.round(dispUtil)}% of hours used`;
+        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs${contracted > 0 ? ` · ${Math.round(realUtil)}%` : ""}`
+        : `${contracted > 0 ? Math.round(dispUtil) + "% of hours used" : ""}`;
       const handle = admin ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %"></button>` : "";
       return `<div class="rsvc-row">
         <div class="rsvc-top">
@@ -303,9 +314,19 @@ window.ExecSummary = (function () {
         <div class="rsvc-cap">${hrsCell}</div>
       </div>`;
     }).join("");
+    // Unallocated: WMJ billable in departments with no matching discipline (admin-only flag)
+    const misc = round2(unmatchedBillable(e));
+    const miscRow = (admin && misc > 0)
+      ? `<div class="rsvc-row rsvc-unalloc" title="Billable hours in WMJ departments that don't match a discipline. They count toward the burn — add a discipline to categorize them.">
+           <div class="rsvc-top"><span class="rsvc-name">Unallocated</span><span class="rsvc-right"><span class="rsvc-status is-unalloc">In burn</span></span></div>
+           <div class="rsvc-cap">${misc} hrs billable · not in a discipline</div>
+         </div>` : "";
+    const setupNote = (admin && unset)
+      ? `<div class="rsvc-setup-note">No contracted hours yet — set them per discipline (or they'll auto-fill from the SOW sheet once connected).</div>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span class="rsvc-legend">% of retainer</span></div>
-      <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}</div>
+      <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}${miscRow}</div>
+      ${setupNote}
       ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
     </div>`;
   }
