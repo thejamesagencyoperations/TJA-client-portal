@@ -155,7 +155,7 @@ window.ExecSummary = (function () {
       ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
       : `${pct}%`;
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.burn}Retainer Burn · ${esc(e.burn.periodLabel)}</span></div>
+      <div class="module-head"><span class="module-title">${IC.burn}Retainer Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span></div>
       <div class="burn-wrap">
         ${gauge(pct, interactive)}
         <div class="burn-readout">
@@ -213,8 +213,29 @@ window.ExecSummary = (function () {
     </div>`;
   }
 
+  // Retainer service lines fed from WMJ: name = User_Department, a share-of-retainer
+  // % (allocated ÷ total allocated, sums to 100) and a utilization bar (billable ÷
+  // allocated for that line — how much of its hours are used up).
+  function retainerServiceModule(e) {
+    const admin = canAdmin();
+    const rows = (e.wmjServiceLines || []).map(l => {
+      const util = Math.max(0, Math.min(100, l.utilPct || 0));
+      const over = (l.utilPct || 0) > 100;
+      return `<div class="rsvc-row">
+        <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}</span><span class="rsvc-share">${l.sharePct}%</span></div>
+        <div class="rsvc-bar${over ? " over" : ""}"><span style="width:${util}%"></span></div>
+        <div class="rsvc-cap">${admin ? `${l.billable} of ${l.allocated} hrs used · ${l.utilPct}%` : `${l.utilPct}% of hours used`}</div>
+      </div>`;
+    }).join("");
+    return `<div class="module">
+      <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span class="rsvc-legend">% of retainer</span></div>
+      <div class="rsvc-list">${rows || `<div class="pr-date">No service-line data yet.</div>`}</div>
+    </div>`;
+  }
+
   function serviceModule(e) {
     if (e.type === "project" && Array.isArray(e.wmjTasks)) return tasksModule(e);
+    if (e.type === "retainer" && Array.isArray(e.wmjServiceLines)) return retainerServiceModule(e);
     const seg = (i, status) => {
       const opt = (val, label) => `<button class="svc-seg-btn is-${val} ${status === val ? "active" : ""}" data-svcset="${i}:${val}" title="${label}">${label}</button>`;
       return `<div class="svc-seg">${opt("not-started", "Not started")}${opt("in-progress", "In progress")}${opt("complete", "Complete")}</div>`;

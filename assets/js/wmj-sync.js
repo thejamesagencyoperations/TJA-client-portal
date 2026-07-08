@@ -13,11 +13,14 @@
    ============================================================ */
 window.WMJ_SYNC = (function () {
   "use strict";
-  const SHEET_ID = "1UpX-3ddqVsKpRXYENCARUXBTgU4QexZviO2XM2RyFio";
+  const SHEET_ID = "1UpX-3ddqVsKpRXYENCARUXBTgU4QexZviO2XM2RyFio";        // PROJECTS sheet
   const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
+  const RET_SHEET_ID = "1d-iwYnkA_rmdZyysRPz_b1X7zSucBBviIBwhzdlrj00";    // RETAINERS sheet (separate)
+  const RET_CSV_URL = `https://docs.google.com/spreadsheets/d/${RET_SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
   const LAST_KEY = "tja_wmj_last_sync";
   const HOUR = 3600 * 1000;
   const T = () => window.WMJ_TRANSFORM;
+  const RT = () => window.WMJ_RETAINER_TRANSFORM;
 
   function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
@@ -121,16 +124,68 @@ window.WMJ_SYNC = (function () {
     return { clients: data.length, created, updated, projects: projectCount, createdClients, at: lastSync() };
   }
 
+  /* ---------- RETAINERS (separate sheet → Monthly Services engagement) ---------- */
+  async function fetchRetCSV() {
+    const res = await fetch(RET_CSV_URL, { cache: "no-store" });
+    if (!res.ok) throw new Error("WMJ retainer fetch failed: " + res.status);
+    return res.text();
+  }
+  // fold retainer data onto a client's retainer engagement (WMJ owns service-line
+  // hours + burn; manual fields — North Star, condition note, milestones, to-dos,
+  // dependencies, KPIs, layout — are preserved).
+  function applyRetainer(state, rc) {
+    const eng = state.engagements || (state.engagements = {});
+    const e = eng.retainer || (eng.retainer = {});
+    e.type = "retainer"; e.label = e.label || "Retainer"; e.name = e.name || (rc.wmjName + " — Retainer");
+    e.source = "wmj";
+    e.wmjServiceLines = rc.serviceLines;                     // [{name, allocated, billable, sharePct, utilPct}]
+    e.burn = e.burn || {};
+    e.burn.usedHours = rc.totalBillable;                     // billable hours worked
+    e.burn.contractedHours = rc.totalAllocated;              // allocated hours (denominator)
+    if (e.burn.periodLabel == null) e.burn.periodLabel = "";
+    e.condition = e.condition || { level: "green", note: "" };
+    e.milestones = e.milestones || []; e.todos = e.todos || []; e.dependencies = e.dependencies || [];
+    e.kpis = e.kpis || []; e.mom = e.mom || []; e.prCoverage = e.prCoverage || []; e.serviceLines = e.serviceLines || [];
+    e.status = e.status || { groups: [] };
+    e.projectPlan = e.projectPlan || { outcome: "", startDate: "", endDate: "", status: { level: "green", pct: 0, note: "" }, criticalPath: [], phases: [], risks: [] };
+    if (typeof e.northStar !== "string") e.northStar = "";
+    return e;
+  }
+  async function syncRetainers() {
+    if (!RT()) throw new Error("retainer-transform not loaded");
+    const data = RT().transform(RT().parseCSV(await fetchRetCSV()));
+    let created = 0, updated = 0; const createdClients = [];
+    data.forEach(rc => {
+      const r = resolveClientId(rc.wmjName);
+      if (r.created) { created++; createdClients.push({ name: rc.wmjName, id: r.id, login: r.login }); }
+      if (window.CLIENT_LOGOS) {
+        const ent = window.TJA_STORE.get(r.id), url = window.CLIENT_LOGOS.logoUrlFor(rc.wmjName);
+        const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));
+        if (ent && url && isAuto && ent.logo !== url) window.TJA_STORE.update(r.id, { logo: url });
+      }
+      const state = loadState(r.id);
+      applyRetainer(state, rc);
+      saveState(r.id, state);
+      if (!r.created) updated++;
+    });
+    return { clients: data.length, created, updated, createdClients };
+  }
+
   function lastSync() { try { return localStorage.getItem(LAST_KEY) || null; } catch (e) { return null; } }
 
   // auto-sync: once on load (always fresh when the page opens) + hourly while open.
   // onDone(result) fires after each successful sync so the UI can re-render.
   let timer = null;
   function startAuto(onDone) {
-    const run = () => sync().then(r => { if (onDone) { try { onDone(r); } catch (e) {} } }).catch(e => console.warn("WMJ auto-sync", e));
+    const run = () => Promise.allSettled([sync(), syncRetainers()]).then(res => {
+      if (res[0].status === "rejected") console.warn("WMJ projects sync", res[0].reason);
+      if (res[1].status === "rejected") console.warn("WMJ retainers sync", res[1].reason);
+      try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
+      if (onDone) { try { onDone(res[0].value || null); } catch (e) {} }
+    });
     run();
     if (!timer) timer = setInterval(run, HOUR);
   }
 
-  return { sync, fetchCSV, lastSync, startAuto, CSV_URL };
+  return { sync, syncRetainers, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
 })();
