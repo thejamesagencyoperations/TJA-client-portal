@@ -50,16 +50,20 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA pull", scope, e); return null; }
   }
 
-  // debounced upsert per scope so rapid edits coalesce into one write
+  // debounced upsert per (client, scope) so rapid edits coalesce into one write.
+  // MUST be keyed by clientId too — a bulk sync pushes every client under the same
+  // scope ("dashboard") in quick succession; keying by scope alone let each call
+  // clear the previous client's timer, so only the last client was ever written.
   const timers = {}, latest = {};
   function pushScope(clientId, scope, value) {
     if (!client) return;
-    latest[scope] = value;
-    clearTimeout(timers[scope]);
-    timers[scope] = setTimeout(async () => {
+    const key = clientId + "::" + scope;
+    latest[key] = value;
+    clearTimeout(timers[key]);
+    timers[key] = setTimeout(async () => {
       try {
         const { error } = await client.from("app_state").upsert(
-          { client_id: clientId, scope, data: latest[scope], updated_at: new Date().toISOString() },
+          { client_id: clientId, scope, data: latest[key], updated_at: new Date().toISOString() },
           { onConflict: "client_id,scope" }
         );
         if (error) console.warn("SUPA push", scope, error.message);

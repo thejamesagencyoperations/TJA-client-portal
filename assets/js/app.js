@@ -667,6 +667,21 @@ function applyEngagement() {
     } catch (e) { console.warn("Supabase boot sync failed; using local data.", e); }
   }
 
+  // self-heal: a retainer must always carry its service disciplines. If a stale/older state
+  // (or a dropped sync write) leaves them empty, re-seed from the template so the Service Lines
+  // tile is never blank — then persist so the fix propagates back to Supabase.
+  (function ensureRetainerDisciplines() {
+    const ret = STATE.engagements && STATE.engagements.retainer;
+    if (!ret) return;
+    if (!Array.isArray(ret.serviceDisciplines) || !ret.serviceDisciplines.length) {
+      ret.serviceDisciplines = (typeof window.tjaSeedDisciplinesFor === "function")
+        ? window.tjaSeedDisciplinesFor(D.client.name) : [];
+      ret.burn = ret.burn || {};
+      ret.burn.contractedHours = ret.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
+      try { saveState(); } catch (e) {}
+    }
+  })();
+
   // normalize a stale/invalid selection from older sessions
   if (engMode !== "retainer" && engMode !== "project") setEngMode("retainer");
   if (selectedProjectId && !getProjects().some(p => p.id === selectedProjectId)) selectProject("");
