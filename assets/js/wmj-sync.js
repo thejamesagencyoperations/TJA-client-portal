@@ -185,6 +185,28 @@ window.WMJ_SYNC = (function () {
     return { clients: data.length, created, updated, createdClients };
   }
 
+  /* ---------- PR COVERAGE (per-client Google Sheet → retainer.prCoverage) ---------- */
+  // Team-maintained, one workbook per client (registry in client-pr-sheets.js). Read-only mirror.
+  async function syncPR() {
+    const reg = window.CLIENT_PR_SHEETS; if (!reg) return { clients: 0 };
+    let done = 0;
+    for (const id of Object.keys(reg.SHEETS)) {
+      const cfg = reg.forClient(id); if (!cfg) continue;
+      let text;
+      try { const res = await fetch(reg.csvUrl(cfg), { cache: "no-store" }); if (!res.ok) throw new Error("PR fetch " + res.status); text = await res.text(); }
+      catch (e) { console.warn("PR sync", id, e); continue; }
+      const state = loadState(id);
+      const e = state.engagements && state.engagements.retainer;
+      if (!e) continue;                                  // PR lives on the Monthly Services engagement
+      e.prCoverage = reg.parseHits(text);
+      e.prSource = "sheet";
+      e.prHits = reg.hitCount(text, e.prCoverage.length);
+      saveState(id, state);
+      done++;
+    }
+    return { clients: done };
+  }
+
   function lastSync() { try { return localStorage.getItem(LAST_KEY) || null; } catch (e) { return null; } }
 
   // auto-sync: once on load (always fresh when the page opens) + hourly while open.
@@ -201,6 +223,8 @@ window.WMJ_SYNC = (function () {
         .catch(err => { console.warn("WMJ projects sync", err); })
         .then(() => syncRetainers())
         .catch(err => { console.warn("WMJ retainers sync", err); })
+        .then(() => syncPR())
+        .catch(err => { console.warn("PR sync", err); })
         .then(() => {
           try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
           if (onDone) { try { onDone(window.__wmjProjResult || null); } catch (e) {} }
@@ -209,5 +233,5 @@ window.WMJ_SYNC = (function () {
     if (!timer) timer = setInterval(run, HOUR);
   }
 
-  return { sync, syncRetainers, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
+  return { sync, syncRetainers, syncPR, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
 })();

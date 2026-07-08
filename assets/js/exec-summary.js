@@ -382,7 +382,30 @@ window.ExecSummary = (function () {
 
   function prModule(e) {
     const list = e.prCoverage || [];
+    const sheet = e.prSource === "sheet";   // team-maintained Google Sheet → read-only mirror
     if (!list.length && !canAdmin()) return "";
+    const fmtNum = (n) => { const v = String(n == null ? "" : n).replace(/[^0-9.]/g, ""); return v ? Number(v).toLocaleString() : String(n || ""); };
+
+    if (sheet) {
+      const rows = list.map(p => `
+        <div class="pr-item">
+          <div class="pr-main">
+            <div class="pr-top"><span class="pr-outlet">${esc(p.outlet || "")}</span><span class="pr-date">${esc(p.date || "")}</span></div>
+            ${p.link ? `<a class="pr-head pr-link" href="${esc(p.link)}" target="_blank" rel="noopener">View coverage →</a>` : ""}
+          </div>
+          <div class="pr-stats">
+            ${p.impressions ? `<span class="pr-metric" title="Estimated impressions">${esc(fmtNum(p.impressions))} impressions</span>` : ""}
+            ${p.adValue ? `<span class="pr-metric pr-av" title="Ad value equivalent">${esc(String(p.adValue))} AVE</span>` : ""}
+          </div>
+        </div>`).join("");
+      const n = e.prHits != null ? e.prHits : list.length;
+      return `<div class="module">
+        <div class="module-head"><span class="module-title">${IC.pr}PR Coverage · Recent Wins</span><span class="rsvc-legend">${n} hits YTD</span></div>
+        <div class="pr-scroll">${rows || `<div class="pr-date">No coverage logged yet.</div>`}</div>
+      </div>`;
+    }
+
+    // manual (editable) coverage — original behavior for non-synced clients
     const rows = list.map((p, i) => `
       <div class="pr-item">
         <div class="pr-main">

@@ -1075,6 +1075,9 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pr-stats { grid-column: 2; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; white-space: nowrap; }
 .pr-metric { font-size: .7rem; color: var(--text-dim); font-weight: 600; }
 .pr-metric.pr-val { color: var(--good); font-size: .8rem; }
+.pr-metric.pr-av { color: var(--accent-text); }
+.pr-link { color: var(--accent-text); text-decoration: none; font-weight: 600; }
+.pr-link:hover { text-decoration: underline; }
 
 /* ---- Executive Summary kanban (2 columns + movable tiles) ---- */
 /* Executive Summary — free canvas: tiles are absolutely positioned and drag anywhere */
