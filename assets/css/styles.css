@@ -924,6 +924,18 @@ body[data-role="client"] .admin-only { display: none !important; }
 .rsvc-bar { height: 8px; border-radius: 6px; background: var(--input); overflow: hidden; }
 .rsvc-bar > span { display: block; height: 100%; border-radius: 6px; background: var(--tja-grad-h); }
 .rsvc-bar.over > span { background: var(--bad); }
+/* admin drag: circle handle to override the shown utilization %. */
+.rsvc-bar--drag { overflow: visible; position: relative; margin: 5px 0; cursor: pointer; }
+.rsvc-handle {
+  position: absolute; top: 50%; left: 0; transform: translate(-50%, -50%);
+  width: 16px; height: 16px; padding: 0; border-radius: 50%;
+  background: #fff; border: 2px solid var(--orange);
+  box-shadow: 0 1px 4px rgba(0,0,0,.28); cursor: grab; touch-action: none; z-index: 2;
+}
+.rsvc-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.12); }
+.rsvc-adj { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--orange); background: color-mix(in srgb, var(--orange) 16%, transparent);
+  padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
 .rsvc-cap { font-size: .7rem; color: var(--text-faint); }
 .burn-cond-row { display: flex; align-items: center; gap: 10px; }
 .burn-cond-row .bc-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }

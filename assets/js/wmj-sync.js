@@ -146,6 +146,7 @@ window.WMJ_SYNC = (function () {
     e.condition = e.condition || { level: "green", note: "" };
     e.milestones = e.milestones || []; e.todos = e.todos || []; e.dependencies = e.dependencies || [];
     e.kpis = e.kpis || []; e.mom = e.mom || []; e.prCoverage = e.prCoverage || []; e.serviceLines = e.serviceLines || [];
+    e.svcUtil = e.svcUtil || {};     // admin manual overrides of the shown utilization %, keyed by service-line name (preserved across sync)
     e.status = e.status || { groups: [] };
     e.projectPlan = e.projectPlan || { outcome: "", startDate: "", endDate: "", status: { level: "green", pct: 0, note: "" }, criticalPath: [], phases: [], risks: [] };
     if (typeof e.northStar !== "string") e.northStar = "";

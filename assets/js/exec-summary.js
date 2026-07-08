@@ -218,13 +218,24 @@ window.ExecSummary = (function () {
   // allocated for that line — how much of its hours are used up).
   function retainerServiceModule(e) {
     const admin = canAdmin();
-    const rows = (e.wmjServiceLines || []).map(l => {
-      const util = Math.max(0, Math.min(100, l.utilPct || 0));
-      const over = (l.utilPct || 0) > 100;
+    const ov = e.svcUtil || {};
+    const rows = (e.wmjServiceLines || []).map((l, i) => {
+      const realUtil = Math.round(l.utilPct || 0);
+      const hasOv = typeof ov[l.name] === "number";
+      const dispUtil = hasOv ? ov[l.name] : realUtil;        // what the bar shows (client-facing)
+      const fill = Math.max(0, Math.min(100, dispUtil));
+      const over = dispUtil > 100;
+      // admin cap = the real hours + real % (ground truth); client cap = the shown % only (no hours)
+      const cap = admin
+        ? `${l.billable} of ${l.allocated} hrs used · ${realUtil}%`
+        : `${dispUtil}% of hours used`;
+      const handle = admin
+        ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %${hasOv ? " · double-click to reset to actual" : ""}"></button>`
+        : "";
       return `<div class="rsvc-row">
-        <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}</span><span class="rsvc-share">${l.sharePct}%</span></div>
-        <div class="rsvc-bar${over ? " over" : ""}"><span style="width:${util}%"></span></div>
-        <div class="rsvc-cap">${admin ? `${l.billable} of ${l.allocated} hrs used · ${l.utilPct}%` : `${l.utilPct}% of hours used`}</div>
+        <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}${admin && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</span><span class="rsvc-share">${l.sharePct}%</span></div>
+        <div class="rsvc-bar${over ? " over" : ""}${admin ? " rsvc-bar--drag" : ""}"><span style="width:${fill}%"></span>${handle}</div>
+        <div class="rsvc-cap">${cap}</div>
       </div>`;
     }).join("");
     return `<div class="module">
@@ -731,6 +742,44 @@ window.ExecSummary = (function () {
       ev.preventDefault(); gaugeDragging = true; pendingEv = ev; gaugeApply();
       document.addEventListener("pointermove", gaugeMove);
       document.addEventListener("pointerup", gaugeUp);
+    });
+
+    // drag a service-line handle to adjust the shown utilization % (admin only; persists as an
+    // override keyed by line name so it survives the hourly WMJ re-sync). Double-click resets to actual.
+    let svcHandle = null, svcEng = null, svcName = null;
+    function svcPct(ev, bar) {
+      const r = bar.getBoundingClientRect();
+      return Math.max(0, Math.min(100, Math.round((ev.clientX - r.left) / r.width * 100)));
+    }
+    function svcMove(ev) {
+      if (!svcHandle) return; ev.preventDefault();
+      const bar = svcHandle.closest(".rsvc-bar"); if (!bar) return;
+      const pct = svcPct(ev, bar);
+      svcHandle.style.left = pct + "%";
+      const fillSpan = bar.querySelector("span"); if (fillSpan) fillSpan.style.width = pct + "%";
+      bar.classList.remove("over");   // drag caps at 100, never "over"
+      (svcEng.svcUtil || (svcEng.svcUtil = {}))[svcName] = pct;
+    }
+    function svcUp() {
+      if (!svcHandle) return;
+      document.removeEventListener("pointermove", svcMove);
+      document.removeEventListener("pointerup", svcUp);
+      svcHandle = null; window.DASH.saveState(); rerender();
+    }
+    s.addEventListener("pointerdown", ev => {
+      const h = ev.target.closest(".rsvc-handle"); if (!h || !canAdmin()) return;
+      ev.preventDefault();
+      svcEng = window.DASH.getEng();
+      const line = (svcEng.wmjServiceLines || [])[+h.dataset.svcutil];
+      if (!line) return;
+      svcHandle = h; svcName = line.name;
+      document.addEventListener("pointermove", svcMove);
+      document.addEventListener("pointerup", svcUp);
+    });
+    s.addEventListener("dblclick", ev => {
+      const h = ev.target.closest(".rsvc-handle"); if (!h || !canAdmin()) return;
+      const eng = window.DASH.getEng(), line = (eng.wmjServiceLines || [])[+h.dataset.svcutil];
+      if (line && eng.svcUtil && line.name in eng.svcUtil) { delete eng.svcUtil[line.name]; window.DASH.saveState(); rerender(); }
     });
 
     // structural / toggle actions
