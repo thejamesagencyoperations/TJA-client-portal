@@ -15,6 +15,7 @@ window.ExecSummary = (function () {
   const canAdmin = () => (typeof canEdit === "function" ? canEdit() : true);
   const section = () => document.querySelector('.page[data-page="exec"]');
   let viewMonthIdx = null;   // retainer MoM view (null = current)
+  let burnPreviewPct = null; // transient dial position while dragging the burn (before the distribute popup)
 
   /* ---- line icons (brand: custom vector icons + bolt motif) ---- */
   const svg = (p, o) => `<svg viewBox="0 0 24 24" fill="${o ? "currentColor" : "none"}" stroke="${o ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -99,10 +100,14 @@ window.ExecSummary = (function () {
   function syncCurrentMonth(eng) {           // mirror the live burn into the persisted month-history array
     if (!eng || !eng.burn) return;
     eng.mom = eng.mom || [];
+    // for disciplines-driven retainers, the live burn = Σ used across disciplines
+    const usedNow = (eng.serviceDisciplines && eng.serviceDisciplines.length) ? round2(retainerUsed(eng)) : eng.burn.usedHours;
+    const totalNow = retainerTotalContracted(eng);
+    eng.burn.usedHours = usedNow; eng.burn.contractedHours = totalNow;
     const cur = (eng.burn.periodLabel || "").trim().slice(0, 3);
     const last = eng.mom[eng.mom.length - 1];
-    if (last && last.month === cur) { last.usedHours = eng.burn.usedHours; last.contractedHours = eng.burn.contractedHours; }
-    else eng.mom.push({ month: cur, usedHours: eng.burn.usedHours, contractedHours: eng.burn.contractedHours });
+    if (last && last.month === cur) { last.usedHours = usedNow; last.contractedHours = totalNow; }
+    else eng.mom.push({ month: cur, usedHours: usedNow, contractedHours: totalNow });
   }
   function nextMonthLabel(periodLabel) {
     const parts = (periodLabel || "").trim().split(/\s+/);
@@ -145,13 +150,13 @@ window.ExecSummary = (function () {
     // retainer speedometer. Contracted hours = sum of the disciplines; hours used come from the
     // WMJ timesheet. Admins can DRAG the dial to override the shown total % for a presentation;
     // the real hours stay in the subtext, and "Reset to actuals" (Service Lines) clears it.
-    const wmj = e.source === "wmj";
     const b = (viewMonthIdx == null) ? e.burn : e.mom[viewMonthIdx];
-    const used = (viewMonthIdx == null) ? round2(b.usedHours) : b.usedHours;
     const total = (viewMonthIdx == null) ? retainerTotalContracted(e) : b.contractedHours;
+    const used = (viewMonthIdx == null) ? round2(retainerUsed(e)) : b.usedHours;   // burn = SUM of the disciplines' used hrs
     const realPct = total > 0 ? Math.round(used / total * 100) : 0;
-    const hasOv = viewMonthIdx == null && e.burn && e.burn.pctOverride != null;
-    const pct = hasOv ? e.burn.pctOverride : realPct;
+    const hasOv = viewMonthIdx == null && !!(e.svcUtilOverride && Object.keys(e.svcUtilOverride).length);
+    const pct = (burnPreviewPct != null && viewMonthIdx == null) ? burnPreviewPct : realPct;   // needle follows the drag
+    const actualUsed = round2(retainerActualUsed(e));
     const mom = (e.mom || []).map((m, i) => {
       const active = (viewMonthIdx == null) ? (i === e.mom.length - 1) : (i === viewMonthIdx);
       const mp = m.contractedHours > 0 ? Math.round(m.usedHours / m.contractedHours * 100) : 0;
@@ -168,8 +173,8 @@ window.ExecSummary = (function () {
         <div class="burn-readout">
           <div class="big">${bigPct}${canAdmin() && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</div>
           ${canAdmin()
-            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${realPct}%` : ""}</div>
-               <div class="burn-hint">${wmj ? "hours used come from the timesheet · drag the dial to adjust the shown %" : "drag the dial or edit the % to set burn"}</div>`
+            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>
+               <div class="burn-hint">drag the dial (or edit the %) to set the total — you'll pick which disciplines absorb it</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
@@ -247,6 +252,22 @@ window.ExecSummary = (function () {
     (e.wmjServiceLines || []).forEach(l => { const k = canon(l.name); map[k] = (map[k] || 0) + (+l.billable || 0); });
     return map;
   }
+  // effective USED hours for a discipline = manual override (% of contracted) if set, else WMJ actual.
+  // The retainer burn is the SUM of these, so a slider move flows straight into the burn (linked),
+  // and the burn dial distributes back into the disciplines via the popup.
+  function discUsed(e, d, actMap) {
+    const act = (actMap || actualByDiscipline(e))[canon(d.name)] || 0;
+    const ov = (e.svcUtilOverride || {})[d.name];
+    return (typeof ov === "number") ? (ov / 100 * (+d.contracted || 0)) : act;
+  }
+  function retainerUsed(e) {
+    const m = actualByDiscipline(e);
+    return (e.serviceDisciplines || []).reduce((s, d) => s + discUsed(e, d, m), 0);
+  }
+  function retainerActualUsed(e) {   // the true WMJ used total (ignoring overrides) — for the "actual" reference
+    const m = actualByDiscipline(e);
+    return (e.serviceDisciplines || []).reduce((s, d) => s + (m[canon(d.name)] || 0), 0);
+  }
   function retainerServiceModule(e) {
     const admin = canAdmin();
     const disc = Array.isArray(e.serviceDisciplines) ? e.serviceDisciplines : [];
@@ -270,7 +291,7 @@ window.ExecSummary = (function () {
       const nameCell = admin ? ed(d.name, "serviceDisciplines." + i + ".name") : esc(d.name);
       // admin caption = the REAL actual/contracted + real % (ground truth); client sees only the shown %
       const hrsCell = admin
-        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="0.01" title="Contracted hours / month"> hrs · ${Math.round(realUtil)}%`
+        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs · ${Math.round(realUtil)}%`
         : `${Math.round(dispUtil)}% of hours used`;
       const handle = admin ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %"></button>` : "";
       return `<div class="rsvc-row">
@@ -282,15 +303,15 @@ window.ExecSummary = (function () {
         <div class="rsvc-cap">${hrsCell}</div>
       </div>`;
     }).join("");
-    const anyOv = (e.burn && e.burn.pctOverride != null) || Object.keys(ov).length > 0;
-    const reset = (admin && anyOv)
-      ? `<button class="rsvc-reset" data-resetactuals title="Clear the manual % overrides and show the real actuals">↺ Reset to actuals</button>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span class="rsvc-legend">% of retainer</span></div>
       <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}</div>
-      ${reset}
       ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
     </div>`;
+  }
+  // any manual % override active (service-line sliders)? → show the Reset-to-actuals control
+  function hasActualsOverride(e) {
+    return e && e.type === "retainer" && e.svcUtilOverride && Object.keys(e.svcUtilOverride).length > 0;
   }
 
   function serviceModule(e) {
@@ -472,6 +493,7 @@ window.ExecSummary = (function () {
   // projects. PROJECT_LAYOUT_V forces existing project layouts to re-adopt the
   // template when bumped (without touching monthly-services layouts).
   const PROJECT_LAYOUT_V = 3;   // bump → all projects re-adopt the current template (RCS), locked
+  const RETAINER_LAYOUT_V = 2;  // bump → all retainers re-adopt the reference layout (A New Leaf)
   const PROJECT_HIDDEN = ["pr", "kpis"];
   const DEFAULT_PROJECT_FREE = (function () {
     const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
@@ -485,16 +507,18 @@ window.ExecSummary = (function () {
       lay.v = LAYOUT_V; lay.pv = PROJECT_LAYOUT_V;
       return lay;
     }
-    return { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
+    // retainers adopt the reference layout (A New Leaf) so every client matches it
+    const ref = (window.TJA_STORE && window.TJA_STORE.referenceRetainerLayout) ? window.TJA_STORE.referenceRetainerLayout() : null;
+    const lay = ref || { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
+    lay.v = LAYOUT_V; lay.rv = RETAINER_LAYOUT_V;
+    return lay;
   }
   function getLayout(e) {
     const isProj = e.type === "project";
-    const stale = !e.layout || e.layout.v !== LAYOUT_V || (isProj && e.layout.pv !== PROJECT_LAYOUT_V);
-    if (stale) {
-      const prevHidden = (e.layout && Array.isArray(e.layout.hidden)) ? e.layout.hidden.slice() : null;
-      e.layout = defaultLayout(e);
-      if (!isProj && prevHidden) e.layout.hidden = prevHidden;   // projects get the forced hidden set (pr+kpis)
-    }
+    const stale = !e.layout || e.layout.v !== LAYOUT_V
+      || (isProj && e.layout.pv !== PROJECT_LAYOUT_V)
+      || (!isProj && e.layout.rv !== RETAINER_LAYOUT_V);
+    if (stale) e.layout = defaultLayout(e);
     const L = e.layout;
     if (!L.free || typeof L.free !== "object") L.free = {};
     if (!Array.isArray(L.hidden)) L.hidden = [];
@@ -531,8 +555,10 @@ window.ExecSummary = (function () {
     }).join("");
     const resetBtn = (canAdmin() && !locked && e.type !== "project")
       ? `<button class="exec-reset-btn" data-tilereset title="Reset tiles to the default monthly-services layout">↺ Reset layout</button>` : "";
+    const actualsBtn = (canAdmin() && hasActualsOverride(e))
+      ? `<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>` : "";
     const lockBtn = canAdmin()
-      ? `<div class="exec-controls">${resetBtn}<button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
+      ? `<div class="exec-controls">${actualsBtn}${resetBtn}<button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
       : "";
     const hiddenRow = (canAdmin() && !locked && lay.hidden.length)
       ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
@@ -548,6 +574,53 @@ window.ExecSummary = (function () {
     const s = section(); if (!s) return;
     s.innerHTML = render(window.DASH.getEng());
     ensurePositions(); setupFreeDrag(); fitCanvas();
+  }
+
+  /* ---- burn → disciplines distribution popup ----
+     When an admin changes the total burn, ask which disciplines absorb the change; the delta
+     is split evenly across the checked ones (writes each one's shown-% override). */
+  function openBurnPopup(targetPct) {
+    const eng = window.DASH.getEng();
+    const disc = eng.serviceDisciplines || [];
+    if (!disc.length) { burnPreviewPct = null; rerender(); return; }
+    const total = retainerTotalContracted(eng);
+    const actMap = actualByDiscipline(eng);
+    const currentUsed = round2(retainerUsed(eng));
+    const targetUsed = round2(Math.max(0, Math.min(100, targetPct)) / 100 * total);
+    const delta = round2(targetUsed - currentUsed);
+    const old = document.getElementById("burnPop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "burnPop"; ov.className = "burn-pop-overlay";
+    const rowsHtml = disc.map((d, i) => {
+      const used = round2(discUsed(eng, d, actMap));
+      return `<label class="bp-row"><input type="checkbox" class="bp-ck" data-i="${i}" checked>
+        <span class="bp-name">${esc(d.name)}</span><span class="bp-cur">${used} / ${(+d.contracted || 0)} hrs</span></label>`;
+    }).join("");
+    ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Adjust retainer burn</div>
+      <p class="bp-lead">Total used <b>${currentUsed}</b> → <b>${targetUsed}</b> hrs (<b>${delta >= 0 ? "+" : ""}${delta}</b> hr${Math.abs(delta) === 1 ? "" : "s"}). Choose which disciplines absorb it — the change is split evenly across the ones you check.</p>
+      <div class="bp-rows">${rowsHtml}</div>
+      <div class="bp-actions"><button type="button" class="btn btn-ghost" data-bpcancel>Cancel</button><button type="button" class="btn btn-primary" data-bpapply>Apply</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = (commit) => {
+      if (commit) {
+        const sel = [...ov.querySelectorAll(".bp-ck:checked")].map(c => +c.dataset.i);
+        const targets = sel.length ? sel : disc.map((_, i) => i);
+        const per = delta / targets.length;
+        eng.svcUtilOverride = eng.svcUtilOverride || {};
+        targets.forEach(i => {
+          const d = disc[i], c = +d.contracted || 0;
+          const newUsed = Math.max(0, round2(discUsed(eng, d, actMap) + per));
+          eng.svcUtilOverride[d.name] = c > 0 ? Math.round(newUsed / c * 100) : 0;
+        });
+        window.DASH.saveState();
+      }
+      burnPreviewPct = null; ov.remove(); rerender();
+    };
+    ov.querySelector("[data-bpcancel]").addEventListener("click", () => close(false));
+    ov.querySelector("[data-bpapply]").addEventListener("click", () => close(true));
+    ov.addEventListener("click", e => { if (e.target === ov) close(false); });
   }
 
   /* ---- tile remove / restore ---- */
@@ -786,6 +859,7 @@ window.ExecSummary = (function () {
       if (bp) {
         let pct = parseFloat(bp.textContent.replace(/[^0-9.]/g, "")); pct = isNaN(pct) ? 0 : Math.max(0, Math.min(100, pct));
         const eng = window.DASH.getEng();
+        if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) { openBurnPopup(pct); return; }
         setBurnPct(eng, pct);
         viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return;
       }
@@ -812,16 +886,17 @@ window.ExecSummary = (function () {
     function gaugeApply() {
       raf = null; const ev = pendingEv; if (!ev) return;
       const pct = gaugePct(ev); if (pct == null) return;
-      const eng = window.DASH.getEng();
-      setBurnPct(eng, pct);
-      viewMonthIdx = null; rerender();
+      burnPreviewPct = Math.max(0, Math.min(100, Math.round(pct)));   // move the needle only; commit via popup
+      rerender();
     }
     function gaugeMove(ev) { ev.preventDefault(); pendingEv = ev; if (!raf) raf = requestAnimationFrame(gaugeApply); }
     function gaugeUp() {
       if (!gaugeDragging) return; gaugeDragging = false;
       document.removeEventListener("pointermove", gaugeMove);
       document.removeEventListener("pointerup", gaugeUp);
-      syncCurrentMonth(window.DASH.getEng()); window.DASH.saveState();
+      const eng = window.DASH.getEng();
+      if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) openBurnPopup(burnPreviewPct);   // distribute to disciplines
+      else { setBurnPct(eng, burnPreviewPct); burnPreviewPct = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); }
     }
     s.addEventListener("pointerdown", ev => {
       if (!canAdmin() || !ev.target.closest(".gauge-drag")) return;
@@ -881,7 +956,7 @@ window.ExecSummary = (function () {
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
 
-      // "Reset to actuals" — clear the manual burn % + service-line overrides
+      // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
       if (ra && canAdmin()) { delete eng.svcUtilOverride; if (eng.burn) delete eng.burn.pctOverride; window.DASH.saveState(); rerender(); return; }
 

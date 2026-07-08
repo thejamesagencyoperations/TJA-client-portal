@@ -109,7 +109,7 @@ window.TJA_STORE = (function () {
   }
 
   // ----- reference layout (copy the team's Celtic monthly-services layout) -----
-  const REFERENCE_ID = "celtic-elevator";
+  const REFERENCE_ID = "a-new-leaf";   // the arranged reference retainer layout every client adopts
   const BAKED_H = { burn: 525, service: 474, milestones: 284, todos: 186, dependencies: 176, kpis: 185, pr: 558 };
   // Celtic's saved layout stores x/y/w but lets height follow content. Give every
   // tile an explicit height so a (blank) new client's boxes are the SAME SIZE:
