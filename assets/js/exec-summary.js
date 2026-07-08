@@ -142,20 +142,23 @@ window.ExecSummary = (function () {
         ${conditionInline(e)}
       </div>`;
     }
-    // retainer speedometer. Contracted hours = sum of the disciplines (set below); hours used
-    // come from the WMJ timesheet. So for a WMJ retainer the dial isn't hand-editable.
+    // retainer speedometer. Contracted hours = sum of the disciplines; hours used come from the
+    // WMJ timesheet. Admins can DRAG the dial to override the shown total % for a presentation;
+    // the real hours stay in the subtext, and "Reset to actuals" (Service Lines) clears it.
     const wmj = e.source === "wmj";
     const b = (viewMonthIdx == null) ? e.burn : e.mom[viewMonthIdx];
     const used = (viewMonthIdx == null) ? round2(b.usedHours) : b.usedHours;
     const total = (viewMonthIdx == null) ? retainerTotalContracted(e) : b.contractedHours;
-    const pct = total > 0 ? Math.round(used / total * 100) : 0;
+    const realPct = total > 0 ? Math.round(used / total * 100) : 0;
+    const hasOv = viewMonthIdx == null && e.burn && e.burn.pctOverride != null;
+    const pct = hasOv ? e.burn.pctOverride : realPct;
     const mom = (e.mom || []).map((m, i) => {
       const active = (viewMonthIdx == null) ? (i === e.mom.length - 1) : (i === viewMonthIdx);
       const mp = m.contractedHours > 0 ? Math.round(m.usedHours / m.contractedHours * 100) : 0;
       return `<div class="mom-chip ${active ? "active" : ""}" data-mom="${i}" title="View ${esc(m.month)}"><div class="m">${esc(m.month)}</div><div class="v">${mp}%</div></div>`;
     }).join("");
-    const interactive = canAdmin() && viewMonthIdx == null && !wmj;
-    const bigPct = (canAdmin() && !wmj)
+    const interactive = canAdmin() && viewMonthIdx == null;
+    const bigPct = canAdmin()
       ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
       : `${pct}%`;
     return `<div class="module">
@@ -163,10 +166,10 @@ window.ExecSummary = (function () {
       <div class="burn-wrap">
         ${gauge(pct, interactive)}
         <div class="burn-readout">
-          <div class="big">${bigPct}</div>
+          <div class="big">${bigPct}${canAdmin() && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</div>
           ${canAdmin()
-            ? `<div class="sub">${used} of ${total} hrs used</div>
-               <div class="burn-hint">${wmj ? "hours used come from the timesheet · set contracted hours per discipline below" : "drag the dial or edit the % to set burn"}</div>`
+            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${realPct}%` : ""}</div>
+               <div class="burn-hint">${wmj ? "hours used come from the timesheet · drag the dial to adjust the shown %" : "drag the dial or edit the % to set burn"}</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
@@ -230,6 +233,14 @@ window.ExecSummary = (function () {
   }
   // keep the burn denominator in step with the disciplines (total contracted = their sum)
   function syncContracted(e) { e.burn = e.burn || {}; e.burn.contractedHours = retainerTotalContracted(e); }
+  // set the shown burn %: WMJ retainers store a manual OVERRIDE (real used hrs stay from the
+  // timesheet, cleared by "Reset to actuals"); manual retainers set used hours directly.
+  function setBurnPct(e, pct) {
+    e.burn = e.burn || {};
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    if (e.source === "wmj") e.burn.pctOverride = pct;
+    else e.burn.usedHours = Math.round(pct / 100 * (e.burn.contractedHours || 0));
+  }
   // actual billable hours worked per discipline, from the WMJ timesheet (matched by canon key)
   function actualByDiscipline(e) {
     const map = {};
@@ -241,34 +252,43 @@ window.ExecSummary = (function () {
     const disc = Array.isArray(e.serviceDisciplines) ? e.serviceDisciplines : [];
     const actual = actualByDiscipline(e);
     const total = retainerTotalContracted(e);
+    const ov = e.svcUtilOverride || {};   // admin manual % overrides, keyed by discipline name
     const rows = disc.map((d, i) => {
       const contracted = +d.contracted || 0;
       const act = actual[canon(d.name)] || 0;
       const share = total > 0 ? Math.round(contracted / total * 100) : 0;
-      const util = contracted > 0 ? (act / contracted * 100) : (act > 0 ? 999 : 0);
-      const fill = Math.max(0, Math.min(100, util));
-      // status: 0 hrs → not started; >0 & <100% → in progress; ≥100% → completed;
-      // >120% (20% past the budget) → the completed chip turns vibrant red "Over"
+      const realUtil = contracted > 0 ? (act / contracted * 100) : (act > 0 ? 999 : 0);
+      const hasOv = typeof ov[d.name] === "number";
+      const dispUtil = hasOv ? ov[d.name] : realUtil;   // the bar/status follow the shown (maybe overridden) %
+      const fill = Math.max(0, Math.min(100, dispUtil));
+      // status: 0% → not started; >0 & <100% → in progress; ≥100% → completed;
+      // >120% (20% past budget) → the completed chip turns vibrant red "Over"
       let st = "not-started", lbl = "Not started";
-      if (act > 0 && util > 120) { st = "over"; lbl = "Over"; }
-      else if (act > 0 && util >= 100) { st = "complete"; lbl = "Completed"; }
-      else if (act > 0) { st = "in-progress"; lbl = "In progress"; }
+      if (dispUtil > 120) { st = "over"; lbl = "Over"; }
+      else if (dispUtil >= 100) { st = "complete"; lbl = "Completed"; }
+      else if (dispUtil > 0) { st = "in-progress"; lbl = "In progress"; }
       const nameCell = admin ? ed(d.name, "serviceDisciplines." + i + ".name") : esc(d.name);
+      // admin caption = the REAL actual/contracted + real % (ground truth); client sees only the shown %
       const hrsCell = admin
-        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="1" title="Contracted hours / month"> hrs · ${Math.round(util)}%`
-        : `${Math.round(util)}% of hours used`;
+        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="0.01" title="Contracted hours / month"> hrs · ${Math.round(realUtil)}%`
+        : `${Math.round(dispUtil)}% of hours used`;
+      const handle = admin ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %"></button>` : "";
       return `<div class="rsvc-row">
         <div class="rsvc-top">
-          <span class="rsvc-name">${nameCell}</span>
+          <span class="rsvc-name">${nameCell}${admin && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</span>
           <span class="rsvc-right"><span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span>${admin ? listDel("serviceDisciplines", i) : ""}</span>
         </div>
-        <div class="rsvc-bar${st === "over" ? " over" : ""}"><span style="width:${fill}%"></span></div>
+        <div class="rsvc-bar${st === "over" ? " over" : ""}${admin ? " rsvc-bar--drag" : ""}"><span style="width:${fill}%"></span>${handle}</div>
         <div class="rsvc-cap">${hrsCell}</div>
       </div>`;
     }).join("");
+    const anyOv = (e.burn && e.burn.pctOverride != null) || Object.keys(ov).length > 0;
+    const reset = (admin && anyOv)
+      ? `<button class="rsvc-reset" data-resetactuals title="Clear the manual % overrides and show the real actuals">↺ Reset to actuals</button>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span class="rsvc-legend">% of retainer</span></div>
       <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}</div>
+      ${reset}
       ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
     </div>`;
   }
@@ -766,7 +786,7 @@ window.ExecSummary = (function () {
       if (bp) {
         let pct = parseFloat(bp.textContent.replace(/[^0-9.]/g, "")); pct = isNaN(pct) ? 0 : Math.max(0, Math.min(100, pct));
         const eng = window.DASH.getEng();
-        eng.burn.usedHours = Math.round(pct / 100 * eng.burn.contractedHours);
+        setBurnPct(eng, pct);
         viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return;
       }
       const f = e.target.closest("[data-path]"); if (!f) return;
@@ -793,7 +813,7 @@ window.ExecSummary = (function () {
       raf = null; const ev = pendingEv; if (!ev) return;
       const pct = gaugePct(ev); if (pct == null) return;
       const eng = window.DASH.getEng();
-      eng.burn.usedHours = Math.round(pct / 100 * eng.burn.contractedHours);
+      setBurnPct(eng, pct);
       viewMonthIdx = null; rerender();
     }
     function gaugeMove(ev) { ev.preventDefault(); pendingEv = ev; if (!raf) raf = requestAnimationFrame(gaugeApply); }
@@ -808,6 +828,34 @@ window.ExecSummary = (function () {
       ev.preventDefault(); gaugeDragging = true; pendingEv = ev; gaugeApply();
       document.addEventListener("pointermove", gaugeMove);
       document.addEventListener("pointerup", gaugeUp);
+    });
+
+    // drag a service-discipline slider (admin) → override the shown utilization % for that line.
+    // Persists as e.svcUtilOverride[name]; "Reset to actuals" clears it. Real hours stay in the cap.
+    let svcHandle = null, svcName = null;
+    function svcMove(ev) {
+      if (!svcHandle) return; ev.preventDefault();
+      const bar = svcHandle.closest(".rsvc-bar"); if (!bar) return;
+      const r = bar.getBoundingClientRect();
+      const pct = Math.max(0, Math.min(100, Math.round((ev.clientX - r.left) / r.width * 100)));
+      const eng = window.DASH.getEng();
+      (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = pct;
+      svcHandle.style.left = pct + "%";
+      const fillSpan = bar.querySelector("span"); if (fillSpan) fillSpan.style.width = pct + "%";
+    }
+    function svcUp() {
+      if (!svcHandle) return; svcHandle = null;
+      document.removeEventListener("pointermove", svcMove);
+      document.removeEventListener("pointerup", svcUp);
+      window.DASH.saveState(); rerender();
+    }
+    s.addEventListener("pointerdown", ev => {
+      const h = ev.target.closest(".rsvc-handle"); if (!h || !canAdmin()) return;
+      ev.preventDefault();
+      const line = (window.DASH.getEng().serviceDisciplines || [])[+h.dataset.svcutil]; if (!line) return;
+      svcHandle = h; svcName = line.name;
+      document.addEventListener("pointermove", svcMove);
+      document.addEventListener("pointerup", svcUp);
     });
 
     // edit a discipline's monthly CONTRACTED hours (admin). Recomputes the total contracted
@@ -832,6 +880,10 @@ window.ExecSummary = (function () {
       const trs = e.target.closest("[data-tilereset]"); if (trs && canAdmin()) { resetLayout(); return; }
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
+
+      // "Reset to actuals" — clear the manual burn % + service-line overrides
+      const ra = e.target.closest("[data-resetactuals]");
+      if (ra && canAdmin()) { delete eng.svcUtilOverride; if (eng.burn) delete eng.burn.pctOverride; window.DASH.saveState(); rerender(); return; }
 
       const add = e.target.closest("[data-listadd]");
       if (add) { const k = add.dataset.listadd; (eng[k] || (eng[k] = [])).push(defaults[k]()); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }

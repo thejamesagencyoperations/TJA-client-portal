@@ -682,6 +682,28 @@ function applyEngagement() {
     }
   })();
 
+  // Refresh PR coverage for THIS client on load. The dashboard doesn't run the full WMJ poll
+  // (only the Clients page does), so pull the team's PR sheet directly here — otherwise PR only
+  // shows after a Clients-page visit. Fire-and-forget; repaint the summary when it lands.
+  (function refreshPRForCurrent() {
+    try {
+      const reg = window.CLIENT_PR_SHEETS, cfg = reg && reg.forClient(clientId());
+      const ret = STATE.engagements && STATE.engagements.retainer;
+      if (!cfg || !ret) return;
+      fetch(reg.csvUrl(cfg), { cache: "no-store" })
+        .then(r => (r.ok ? r.text() : null))
+        .then(text => {
+          if (!text) return;
+          ret.prCoverage = reg.parseHits(text);
+          ret.prSource = "sheet";
+          ret.prHits = reg.hitCount(text, ret.prCoverage.length);
+          saveState();
+          if (currentPage() === "exec") repaint("exec");
+        })
+        .catch(() => {});
+    } catch (e) {}
+  })();
+
   // normalize a stale/invalid selection from older sessions
   if (engMode !== "retainer" && engMode !== "project") setEngMode("retainer");
   if (selectedProjectId && !getProjects().some(p => p.id === selectedProjectId)) selectProject("");

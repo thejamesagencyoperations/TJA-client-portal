@@ -946,6 +946,17 @@ body[data-role="client"] .admin-only { display: none !important; }
 .rsvc-bar { height: 8px; border-radius: 6px; background: var(--input); overflow: hidden; }
 .rsvc-bar > span { display: block; height: 100%; border-radius: 6px; background: var(--tja-grad-h); }
 .rsvc-bar.over > span { background: var(--bad); }
+/* admin drag slider: circle handle to override the shown utilization % */
+.rsvc-bar--drag { overflow: visible; position: relative; margin: 5px 0; cursor: pointer; }
+.rsvc-handle { position: absolute; top: 50%; left: 0; transform: translate(-50%, -50%);
+  width: 16px; height: 16px; padding: 0; border-radius: 50%; background: #fff; border: 2px solid var(--orange);
+  box-shadow: 0 1px 4px rgba(0,0,0,.28); cursor: grab; touch-action: none; z-index: 2; }
+.rsvc-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.12); }
+.rsvc-adj { font-size: .58rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--orange);
+  background: rgba(246,142,33,.16); padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+.rsvc-reset { margin-top: 12px; font: inherit; font-size: .74rem; font-weight: 600; color: var(--accent-text);
+  background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 6px 11px; cursor: pointer; }
+.rsvc-reset:hover { border-color: var(--orange); }
 /* auto status chip: not started → in progress → completed; completed flips to vibrant red "Over" past 120% */
 .rsvc-status { font-size: .56rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
 .rsvc-status.is-not-started { background: var(--input); color: var(--text-faint); }
@@ -953,8 +964,8 @@ body[data-role="client"] .admin-only { display: none !important; }
 .rsvc-status.is-complete    { background: rgba(46,160,110,.18); color: #2ea06e; }
 .rsvc-status.is-over        { background: #e5322b; color: #fff; }
 /* editable contracted-hours input inside the admin caption */
-.rsvc-hrs { width: 46px; padding: 1px 5px; margin: 0 1px; font: inherit; font-size: .7rem; font-weight: 700;
-  color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 5px; text-align: center; }
+.rsvc-hrs { width: 64px; padding: 1px 4px 1px 7px; margin: 0 2px; font: inherit; font-size: .7rem; font-weight: 700;
+  color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 5px; text-align: left; }
 .rsvc-hrs:focus { outline: none; border-color: var(--orange); }
 .rsvc-hrs::-webkit-inner-spin-button { opacity: .5; }
 .rsvc-cap { font-size: .7rem; color: var(--text-faint); display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
