@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=170">
+<link rel="stylesheet" href="assets/css/styles.css?v=171">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -83,6 +83,12 @@
           </div>
         </div>
       </div>
+      <div class="cl-svc-setup" id="clSvcSetup" style="display:none">
+        <div class="cl-login-head">Monthly Services — contracted hours <span class="cl-svc-total">Total <b id="clSvcTotal">0</b> hrs/mo</span></div>
+        <p class="cl-svc-note">Set each discipline's monthly contracted hours. Actual hours worked come from the WMJ timesheet and track against these. All of it stays editable later in the workspace.</p>
+        <div class="cl-svc-rows" id="clSvcRows"></div>
+        <button type="button" class="cl-svc-add" id="clSvcAdd">＋ Add discipline</button>
+      </div>
       <div class="cl-err" id="clErr"></div>
       <div class="cl-actions">
         <button type="button" class="btn btn-ghost" id="clCancel2">Cancel</button>
@@ -110,21 +116,21 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=170"></script>
-<script src="assets/js/supabase-sync.js?v=170"></script>
-<script src="assets/js/auth.js?v=170"></script>
+<script src="assets/js/supabase-config.js?v=171"></script>
+<script src="assets/js/supabase-sync.js?v=171"></script>
+<script src="assets/js/auth.js?v=171"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=170"></script>
-<script src="assets/js/client-template.js?v=170"></script>
-<script src="assets/js/client-store.js?v=170"></script>
-<script src="assets/js/wmj-transform.js?v=170"></script>
-<script src="assets/js/retainer-transform.js?v=170"></script>
-<script src="assets/js/client-logos.js?v=170"></script>
-<script src="assets/js/wmj-sync.js?v=170"></script>
+<script src="assets/js/clients.js?v=171"></script>
+<script src="assets/js/client-template.js?v=171"></script>
+<script src="assets/js/client-store.js?v=171"></script>
+<script src="assets/js/wmj-transform.js?v=171"></script>
+<script src="assets/js/retainer-transform.js?v=171"></script>
+<script src="assets/js/client-logos.js?v=171"></script>
+<script src="assets/js/wmj-sync.js?v=171"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -255,8 +261,38 @@
     logoInitials: document.getElementById("clLogoInitials"), logoClear: document.getElementById("clLogoClear"),
     email: document.getElementById("clEmail"), password: document.getElementById("clPassword"),
     err: document.getElementById("clErr"), title: document.getElementById("clModalTitle"), save: document.getElementById("clSave"),
+    svcSetup: document.getElementById("clSvcSetup"), svcRows: document.getElementById("clSvcRows"),
+    svcTotal: document.getElementById("clSvcTotal"), svcAdd: document.getElementById("clSvcAdd"),
   };
   let editingId = null, logoData = "";
+
+  /* ---- Monthly-Services disciplines (contracted hours) ---- */
+  let discRows = [];   // [{name, contracted}]
+  function renderSvcRows() {
+    f.svcRows.innerHTML = discRows.map((d, i) => `
+      <div class="cl-svc-row" data-i="${i}">
+        <input type="text" class="cl-svc-name" data-disc-name="${i}" value="${esc(d.name)}" placeholder="Discipline">
+        <input type="number" class="cl-svc-hrs" data-disc-hrs="${i}" value="${d.contracted}" min="0" step="1" placeholder="0">
+        <span class="cl-svc-unit">hrs</span>
+        <button type="button" class="cl-svc-del" data-disc-del="${i}" title="Remove">✕</button>
+      </div>`).join("");
+    f.svcTotal.textContent = discRows.reduce((s, d) => s + (+d.contracted || 0), 0);
+  }
+  function toggleSvcSetup() {
+    const show = !editingId && f.kind.value !== "project";
+    f.svcSetup.style.display = show ? "" : "none";
+  }
+  f.svcRows.addEventListener("input", e => {
+    const n = e.target.closest("[data-disc-name]"), h = e.target.closest("[data-disc-hrs]");
+    if (n) discRows[+n.dataset.discName].name = n.value;
+    if (h) { discRows[+h.dataset.discHrs].contracted = Math.max(0, parseFloat(h.value) || 0); f.svcTotal.textContent = discRows.reduce((s, d) => s + (+d.contracted || 0), 0); }
+  });
+  f.svcRows.addEventListener("click", e => {
+    const del = e.target.closest("[data-disc-del]"); if (!del) return;
+    discRows.splice(+del.dataset.discDel, 1); renderSvcRows();
+  });
+  f.svcAdd.addEventListener("click", () => { discRows.push({ name: "New discipline", contracted: 0 }); renderSvcRows(); });
+  f.kind.addEventListener("change", toggleSvcSetup);
 
   function setLogoPreview() {
     if (logoData) { f.logoPrev.innerHTML = `<img src="${esc(logoData)}" alt="">`; f.logoClear.style.display = ""; }
@@ -276,6 +312,8 @@
     f.password.value = c && c.login ? (c.login.password || "") : "";
     logoData = c && c.logo ? c.logo : "";
     setLogoPreview();
+    discRows = (window.tjaDefaultDisciplines ? window.tjaDefaultDisciplines() : []);   // start from the standard set (add mode)
+    renderSvcRows(); toggleSvcSetup();
     ov.style.display = "flex"; setTimeout(() => f.name.focus(), 30);
   }
   function closeModal() { ov.style.display = "none"; }
@@ -312,6 +350,22 @@
     }
     const entry = window.TJA_STORE.add({ name, initials, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login });
     window.TJA_STORE.seedWorkspace(entry);
+    // fold the admin-entered contracted hours into the new client's retainer engagement
+    if (f.kind.value !== "project") {
+      try {
+        const key = "tja_dashboard_" + entry.id;
+        const st = JSON.parse(localStorage.getItem(key) || "{}");
+        if (st.engagements && st.engagements.retainer) {
+          const disc = discRows.map(d => ({ name: (d.name || "").trim() || "Discipline", contracted: Math.max(0, +d.contracted || 0) }))
+                               .filter(d => d.name);
+          st.engagements.retainer.serviceDisciplines = disc;
+          st.engagements.retainer.burn = st.engagements.retainer.burn || {};
+          st.engagements.retainer.burn.contractedHours = disc.reduce((s, d) => s + d.contracted, 0);
+          localStorage.setItem(key, JSON.stringify(st));
+          if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(entry.id, "dashboard", st);
+        }
+      } catch (err) { console.warn("seed disciplines", err); }
+    }
     closeModal(); renderGrid();
     showDone(entry);
   });

@@ -138,15 +138,19 @@ window.WMJ_SYNC = (function () {
     const e = eng.retainer || (eng.retainer = {});
     e.type = "retainer"; e.label = e.label || "Retainer"; e.name = e.name || (rc.wmjName + " — Retainer");
     e.source = "wmj";
-    e.wmjServiceLines = rc.serviceLines;                     // [{name, allocated, billable, sharePct, utilPct}]
+    e.wmjServiceLines = rc.serviceLines;                     // WMJ ACTUALS by dept [{name(dept), billable, ...}]
     e.burn = e.burn || {};
-    e.burn.usedHours = rc.totalBillable;                     // billable hours worked
-    e.burn.contractedHours = rc.totalAllocated;              // allocated hours (denominator)
+    e.burn.usedHours = rc.totalBillable;                     // actual billable hours worked (WMJ owns this)
+    // CONTRACTED hours are MANUAL now (admin-set per discipline). Seed the disciplines the
+    // first time; the total contracted = sum of the disciplines. Never overwrite once set.
+    if (!Array.isArray(e.serviceDisciplines) || !e.serviceDisciplines.length) {
+      e.serviceDisciplines = (window.tjaSeedDisciplinesFor ? window.tjaSeedDisciplinesFor(rc.wmjName) : []);
+    }
+    e.burn.contractedHours = e.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
     if (e.burn.periodLabel == null) e.burn.periodLabel = "";
     e.condition = e.condition || { level: "green", note: "" };
     e.milestones = e.milestones || []; e.todos = e.todos || []; e.dependencies = e.dependencies || [];
     e.kpis = e.kpis || []; e.mom = e.mom || []; e.prCoverage = e.prCoverage || []; e.serviceLines = e.serviceLines || [];
-    e.svcUtil = e.svcUtil || {};     // admin manual overrides of the shown utilization %, keyed by service-line name (preserved across sync)
     e.status = e.status || { groups: [] };
     e.projectPlan = e.projectPlan || { outcome: "", startDate: "", endDate: "", status: { level: "green", pct: 0, note: "" }, criticalPath: [], phases: [], risks: [] };
     if (typeof e.northStar !== "string") e.northStar = "";

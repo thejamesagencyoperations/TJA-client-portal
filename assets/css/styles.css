@@ -761,6 +761,25 @@ body[data-role="client"] .admin-only { display: none !important; }
 .cl-field-2 > .cl-field:not(.cl-field-sm) { flex: 1; }
 .cl-err { color: var(--bad); font-size: .78rem; min-height: 1em; margin: 10px 0 0; }
 .cl-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+/* Monthly-Services discipline setup (contracted hours) */
+.cl-svc-setup { margin-top: 6px; }
+.cl-svc-total { float: right; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text-dim); }
+.cl-svc-total b { color: var(--accent-text); font-weight: 800; }
+.cl-svc-note { font-size: .72rem; color: var(--text-faint); margin: 8px 0 10px; line-height: 1.45; }
+.cl-svc-rows { display: flex; flex-direction: column; gap: 8px; }
+.cl-svc-row { display: flex; align-items: center; gap: 8px; }
+.cl-svc-name { flex: 1; font: inherit; font-size: .86rem; padding: 8px 10px; border-radius: 8px;
+  background: var(--input); border: 1px solid var(--border); color: var(--text); }
+.cl-svc-hrs { width: 68px; flex: none; font: inherit; font-size: .86rem; padding: 8px 8px; border-radius: 8px;
+  background: var(--input); border: 1px solid var(--border); color: var(--text); text-align: center; }
+.cl-svc-name:focus, .cl-svc-hrs:focus { outline: none; border-color: var(--orange); }
+.cl-svc-unit { font-size: .72rem; color: var(--text-faint); flex: none; }
+.cl-svc-del { flex: none; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-faint); cursor: pointer; font-size: .8rem; }
+.cl-svc-del:hover { border-color: var(--bad); color: var(--bad); }
+.cl-svc-add { margin-top: 10px; font: inherit; font-size: .78rem; font-weight: 600; color: var(--accent-text);
+  background: transparent; border: 1px dashed var(--border); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.cl-svc-add:hover { border-color: var(--orange); }
 .cl-done-lead { font-size: .9rem; color: var(--text-dim); margin: 2px 0 14px; line-height: 1.5; }
 .cl-creds { display: flex; flex-direction: column; gap: 8px; background: var(--input); border: 1px solid var(--line);
   border-radius: 10px; padding: 12px 14px; }
@@ -921,22 +940,22 @@ body[data-role="client"] .admin-only { display: none !important; }
 .rsvc-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .rsvc-name { font-size: .86rem; font-weight: 600; color: var(--text); }
 .rsvc-share { font-size: .82rem; font-weight: 800; color: var(--accent-text); flex: none; }
+.rsvc-right { display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .rsvc-bar { height: 8px; border-radius: 6px; background: var(--input); overflow: hidden; }
 .rsvc-bar > span { display: block; height: 100%; border-radius: 6px; background: var(--tja-grad-h); }
 .rsvc-bar.over > span { background: var(--bad); }
-/* admin drag: circle handle to override the shown utilization %. */
-.rsvc-bar--drag { overflow: visible; position: relative; margin: 5px 0; cursor: pointer; }
-.rsvc-handle {
-  position: absolute; top: 50%; left: 0; transform: translate(-50%, -50%);
-  width: 16px; height: 16px; padding: 0; border-radius: 50%;
-  background: #fff; border: 2px solid var(--orange);
-  box-shadow: 0 1px 4px rgba(0,0,0,.28); cursor: grab; touch-action: none; z-index: 2;
-}
-.rsvc-handle:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.12); }
-.rsvc-adj { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
-  color: var(--orange); background: color-mix(in srgb, var(--orange) 16%, transparent);
-  padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
-.rsvc-cap { font-size: .7rem; color: var(--text-faint); }
+/* auto status chip: not started → in progress → completed; completed flips to vibrant red "Over" past 120% */
+.rsvc-status { font-size: .56rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+.rsvc-status.is-not-started { background: var(--input); color: var(--text-faint); }
+.rsvc-status.is-in-progress { background: rgba(246,142,33,.16); color: var(--accent-text); }
+.rsvc-status.is-complete    { background: rgba(46,160,110,.18); color: #2ea06e; }
+.rsvc-status.is-over        { background: #e5322b; color: #fff; }
+/* editable contracted-hours input inside the admin caption */
+.rsvc-hrs { width: 46px; padding: 1px 5px; margin: 0 1px; font: inherit; font-size: .7rem; font-weight: 700;
+  color: var(--text); background: var(--input); border: 1px solid var(--border); border-radius: 5px; text-align: center; }
+.rsvc-hrs:focus { outline: none; border-color: var(--orange); }
+.rsvc-hrs::-webkit-inner-spin-button { opacity: .5; }
+.rsvc-cap { font-size: .7rem; color: var(--text-faint); display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
 .burn-cond-row { display: flex; align-items: center; gap: 10px; }
 .burn-cond-row .bc-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
 .burn-cond-row .bc-label svg { width: 14px; height: 14px; color: var(--orange); }

@@ -29,6 +29,39 @@
     } catch { return ""; }
   }
 
+  // The standard monthly-services disciplines. Each carries an admin-set monthly
+  // CONTRACTED-hours budget; actual hours worked come from the WMJ timesheet, matched
+  // to a discipline via canonDiscipline() below.
+  const STANDARD_DISCIPLINES = ["Public Relations", "Strategic Oversight", "Creative", "Paid Media"];
+  function defaultDisciplines() { return STANDARD_DISCIPLINES.map(n => ({ name: n, contracted: 0 })); }
+
+  // Per-client seed budgets, applied the first time a retainer is set up (if the admin
+  // hasn't entered its own). Keyed by normalized client name. A New Leaf is the template.
+  const SEED_DISCIPLINES = {
+    anewleaf: [
+      { name: "Public Relations", contracted: 30 },
+      { name: "Strategic Oversight", contracted: 31 },
+      { name: "Creative", contracted: 33 },
+      { name: "Paid Media", contracted: 6 },
+    ],
+  };
+  function seedDisciplinesFor(name) {
+    const key = String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    return (SEED_DISCIPLINES[key] || defaultDisciplines()).map(d => ({ name: d.name, contracted: d.contracted }));
+  }
+
+  // Canonical bucket key — maps BOTH an admin discipline name AND a WMJ User_Department to
+  // the same slot, so actual billable hours land under the right discipline.
+  function canonDiscipline(s) {
+    s = String(s || "").toLowerCase();
+    if (/public relation|(^|[^a-z])pr([^a-z]|$)/.test(s)) return "pr";
+    if (/paid media|(^|[^a-z])media/.test(s)) return "media";
+    if (/creativ|design/.test(s)) return "creative";
+    if (/web|develop|coding/.test(s)) return "web";
+    if (/strateg|oversight|account|client service|management|leadership|project manage/.test(s)) return "oversight";
+    return s.replace(/[^a-z0-9]/g, "");
+  }
+
   function blankRetainer(name) {
     return {
       type: "retainer",
@@ -38,6 +71,7 @@
       dueDate: "",
       burn: { usedHours: 0, contractedHours: 0, periodLabel: currentMonthLabel() },
       condition: { level: "green", note: "" },
+      serviceDisciplines: seedDisciplinesFor(name),
       serviceLines: [],
       mom: [],
       milestones: [],
@@ -100,4 +134,8 @@
   window.makeClientData = makeClientData;
   window.tjaInitialsFrom = initialsFrom;
   window.tjaSlugify = slugify;
+  window.tjaStandardDisciplines = STANDARD_DISCIPLINES;
+  window.tjaDefaultDisciplines = defaultDisciplines;
+  window.tjaSeedDisciplinesFor = seedDisciplinesFor;
+  window.tjaCanonDiscipline = canonDiscipline;
 })();

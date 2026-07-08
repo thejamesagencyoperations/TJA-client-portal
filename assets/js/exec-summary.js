@@ -142,16 +142,20 @@ window.ExecSummary = (function () {
         ${conditionInline(e)}
       </div>`;
     }
-    // retainer speedometer
+    // retainer speedometer. Contracted hours = sum of the disciplines (set below); hours used
+    // come from the WMJ timesheet. So for a WMJ retainer the dial isn't hand-editable.
+    const wmj = e.source === "wmj";
     const b = (viewMonthIdx == null) ? e.burn : e.mom[viewMonthIdx];
-    const used = b.usedHours, total = b.contractedHours, pct = total > 0 ? Math.round(used / total * 100) : 0;
+    const used = (viewMonthIdx == null) ? round2(b.usedHours) : b.usedHours;
+    const total = (viewMonthIdx == null) ? retainerTotalContracted(e) : b.contractedHours;
+    const pct = total > 0 ? Math.round(used / total * 100) : 0;
     const mom = (e.mom || []).map((m, i) => {
       const active = (viewMonthIdx == null) ? (i === e.mom.length - 1) : (i === viewMonthIdx);
       const mp = m.contractedHours > 0 ? Math.round(m.usedHours / m.contractedHours * 100) : 0;
       return `<div class="mom-chip ${active ? "active" : ""}" data-mom="${i}" title="View ${esc(m.month)}"><div class="m">${esc(m.month)}</div><div class="v">${mp}%</div></div>`;
     }).join("");
-    const interactive = canAdmin() && viewMonthIdx == null;
-    const bigPct = canAdmin()
+    const interactive = canAdmin() && viewMonthIdx == null && !wmj;
+    const bigPct = (canAdmin() && !wmj)
       ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
       : `${pct}%`;
     return `<div class="module">
@@ -161,9 +165,9 @@ window.ExecSummary = (function () {
         <div class="burn-readout">
           <div class="big">${bigPct}</div>
           ${canAdmin()
-            ? `<div class="sub">${used} of ${ed(total, "burn.contractedHours", { num: true, rerender: true })} hrs used</div>
-               <div class="burn-hint">drag the dial or edit the % to set burn</div>`
-            : `<div class="sub">${used} of ${total} hrs used</div>`}
+            ? `<div class="sub">${used} of ${total} hrs used</div>
+               <div class="burn-hint">${wmj ? "hours used come from the timesheet · set contracted hours per discipline below" : "drag the dial or edit the % to set burn"}</div>`
+            : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
       ${mom ? `<div class="mom-strip">${mom}</div>` : ""}
@@ -216,31 +220,56 @@ window.ExecSummary = (function () {
   // Retainer service lines fed from WMJ: name = User_Department, a share-of-retainer
   // % (allocated ÷ total allocated, sums to 100) and a utilization bar (billable ÷
   // allocated for that line — how much of its hours are used up).
+  const canon = (s) => (window.tjaCanonDiscipline ? window.tjaCanonDiscipline(s) : String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const round2 = (n) => Math.round((+n || 0) * 100) / 100;
+  // total monthly contracted hours = sum of the disciplines' budgets (single source of truth)
+  function retainerTotalContracted(e) {
+    const d = e.serviceDisciplines;
+    if (Array.isArray(d) && d.length) return d.reduce((s, x) => s + (+x.contracted || 0), 0);
+    return (e.burn && +e.burn.contractedHours) || 0;
+  }
+  // keep the burn denominator in step with the disciplines (total contracted = their sum)
+  function syncContracted(e) { e.burn = e.burn || {}; e.burn.contractedHours = retainerTotalContracted(e); }
+  // actual billable hours worked per discipline, from the WMJ timesheet (matched by canon key)
+  function actualByDiscipline(e) {
+    const map = {};
+    (e.wmjServiceLines || []).forEach(l => { const k = canon(l.name); map[k] = (map[k] || 0) + (+l.billable || 0); });
+    return map;
+  }
   function retainerServiceModule(e) {
     const admin = canAdmin();
-    const ov = e.svcUtil || {};
-    const rows = (e.wmjServiceLines || []).map((l, i) => {
-      const realUtil = Math.round(l.utilPct || 0);
-      const hasOv = typeof ov[l.name] === "number";
-      const dispUtil = hasOv ? ov[l.name] : realUtil;        // what the bar shows (client-facing)
-      const fill = Math.max(0, Math.min(100, dispUtil));
-      const over = dispUtil > 100;
-      // admin cap = the real hours + real % (ground truth); client cap = the shown % only (no hours)
-      const cap = admin
-        ? `${l.billable} of ${l.allocated} hrs used · ${realUtil}%`
-        : `${dispUtil}% of hours used`;
-      const handle = admin
-        ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %${hasOv ? " · double-click to reset to actual" : ""}"></button>`
-        : "";
+    const disc = Array.isArray(e.serviceDisciplines) ? e.serviceDisciplines : [];
+    const actual = actualByDiscipline(e);
+    const total = retainerTotalContracted(e);
+    const rows = disc.map((d, i) => {
+      const contracted = +d.contracted || 0;
+      const act = actual[canon(d.name)] || 0;
+      const share = total > 0 ? Math.round(contracted / total * 100) : 0;
+      const util = contracted > 0 ? (act / contracted * 100) : (act > 0 ? 999 : 0);
+      const fill = Math.max(0, Math.min(100, util));
+      // status: 0 hrs → not started; >0 & <100% → in progress; ≥100% → completed;
+      // >120% (20% past the budget) → the completed chip turns vibrant red "Over"
+      let st = "not-started", lbl = "Not started";
+      if (act > 0 && util > 120) { st = "over"; lbl = "Over"; }
+      else if (act > 0 && util >= 100) { st = "complete"; lbl = "Completed"; }
+      else if (act > 0) { st = "in-progress"; lbl = "In progress"; }
+      const nameCell = admin ? ed(d.name, "serviceDisciplines." + i + ".name") : esc(d.name);
+      const hrsCell = admin
+        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="1" title="Contracted hours / month"> hrs · ${Math.round(util)}%`
+        : `${Math.round(util)}% of hours used`;
       return `<div class="rsvc-row">
-        <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}${admin && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</span><span class="rsvc-share">${l.sharePct}%</span></div>
-        <div class="rsvc-bar${over ? " over" : ""}${admin ? " rsvc-bar--drag" : ""}"><span style="width:${fill}%"></span>${handle}</div>
-        <div class="rsvc-cap">${cap}</div>
+        <div class="rsvc-top">
+          <span class="rsvc-name">${nameCell}</span>
+          <span class="rsvc-right"><span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span>${admin ? listDel("serviceDisciplines", i) : ""}</span>
+        </div>
+        <div class="rsvc-bar${st === "over" ? " over" : ""}"><span style="width:${fill}%"></span></div>
+        <div class="rsvc-cap">${hrsCell}</div>
       </div>`;
     }).join("");
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span class="rsvc-legend">% of retainer</span></div>
-      <div class="rsvc-list">${rows || `<div class="pr-date">No service-line data yet.</div>`}</div>
+      <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}</div>
+      ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
     </div>`;
   }
 
@@ -654,6 +683,7 @@ window.ExecSummary = (function () {
 
   /* ---- wiring (delegated, attached once) ---- */
   const defaults = {
+    serviceDisciplines: () => ({ name: "New discipline", contracted: 0 }),
     serviceLines: () => ({ name: "New service line", allocationPct: 0, status: "not-started" }),
     milestones: () => ({ label: "New milestone", date: "", done: false }),
     todos: () => ({ text: "New to-do", owner: "Client" }),
@@ -755,42 +785,14 @@ window.ExecSummary = (function () {
       document.addEventListener("pointerup", gaugeUp);
     });
 
-    // drag a service-line handle to adjust the shown utilization % (admin only; persists as an
-    // override keyed by line name so it survives the hourly WMJ re-sync). Double-click resets to actual.
-    let svcHandle = null, svcEng = null, svcName = null;
-    function svcPct(ev, bar) {
-      const r = bar.getBoundingClientRect();
-      return Math.max(0, Math.min(100, Math.round((ev.clientX - r.left) / r.width * 100)));
-    }
-    function svcMove(ev) {
-      if (!svcHandle) return; ev.preventDefault();
-      const bar = svcHandle.closest(".rsvc-bar"); if (!bar) return;
-      const pct = svcPct(ev, bar);
-      svcHandle.style.left = pct + "%";
-      const fillSpan = bar.querySelector("span"); if (fillSpan) fillSpan.style.width = pct + "%";
-      bar.classList.remove("over");   // drag caps at 100, never "over"
-      (svcEng.svcUtil || (svcEng.svcUtil = {}))[svcName] = pct;
-    }
-    function svcUp() {
-      if (!svcHandle) return;
-      document.removeEventListener("pointermove", svcMove);
-      document.removeEventListener("pointerup", svcUp);
-      svcHandle = null; window.DASH.saveState(); rerender();
-    }
-    s.addEventListener("pointerdown", ev => {
-      const h = ev.target.closest(".rsvc-handle"); if (!h || !canAdmin()) return;
-      ev.preventDefault();
-      svcEng = window.DASH.getEng();
-      const line = (svcEng.wmjServiceLines || [])[+h.dataset.svcutil];
-      if (!line) return;
-      svcHandle = h; svcName = line.name;
-      document.addEventListener("pointermove", svcMove);
-      document.addEventListener("pointerup", svcUp);
-    });
-    s.addEventListener("dblclick", ev => {
-      const h = ev.target.closest(".rsvc-handle"); if (!h || !canAdmin()) return;
-      const eng = window.DASH.getEng(), line = (eng.wmjServiceLines || [])[+h.dataset.svcutil];
-      if (line && eng.svcUtil && line.name in eng.svcUtil) { delete eng.svcUtil[line.name]; window.DASH.saveState(); rerender(); }
+    // edit a discipline's monthly CONTRACTED hours (admin). Recomputes the total contracted
+    // (= sum of disciplines) so the burn denominator + every share % update live.
+    s.addEventListener("change", ev => {
+      const hi = ev.target.closest("[data-dischrs]"); if (!hi || !canAdmin()) return;
+      const eng = window.DASH.getEng(), d = (eng.serviceDisciplines || [])[+hi.dataset.dischrs]; if (!d) return;
+      d.contracted = Math.max(0, parseFloat(hi.value) || 0);
+      syncContracted(eng);
+      window.DASH.saveState(); rerender();
     });
 
     // structural / toggle actions
@@ -807,10 +809,10 @@ window.ExecSummary = (function () {
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
 
       const add = e.target.closest("[data-listadd]");
-      if (add) { eng[add.dataset.listadd].push(defaults[add.dataset.listadd]()); window.DASH.saveState(); rerender(); return; }
+      if (add) { const k = add.dataset.listadd; (eng[k] || (eng[k] = [])).push(defaults[k]()); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
 
       const del = e.target.closest("[data-listdel]");
-      if (del) { eng[del.dataset.listdel].splice(+del.dataset.idx, 1); window.DASH.saveState(); rerender(); return; }
+      if (del) { const k = del.dataset.listdel; (eng[k] || []).splice(+del.dataset.idx, 1); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
 
       const cond = e.target.closest("[data-cond]");
       if (cond && canAdmin()) { eng.condition.level = cond.dataset.cond; window.DASH.saveState(); rerender(); return; }
