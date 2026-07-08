@@ -269,6 +269,7 @@ a { color: inherit; text-decoration: none; }
   display: grid; place-items: center;
   font-weight: 800; color: #111; font-size: .9rem; overflow: hidden;
 }
+.client-avatar.avatar-code-lg { font-size: .62rem; letter-spacing: -.02em; }   /* 4–6 char client codes */
 .client-avatar.has-logo { background: transparent; border-radius: 50%; }
 .client-avatar img, .exec-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .client-id-text { min-width: 0; max-width: 52vw; }
@@ -720,6 +721,7 @@ body[data-role="client"] .admin-only { display: none !important; }
 .client-tile-logo { width: 40px; height: 40px; border-radius: 9px; overflow: hidden; flex: none;
   background: var(--input); display: grid; place-items: center; font-weight: 800; font-size: .82rem; color: var(--accent-text); }
 .client-tile-logo img { width: 100%; height: 100%; object-fit: contain; }
+.client-tile-logo.tile-code-lg { font-size: .6rem; letter-spacing: -.02em; }   /* 4–6 char client codes */
 .client-tile .proj-tile-name { font-size: 1.05rem; }
 .client-tile { min-height: 132px; position: relative; }
 /* per-tile edit/delete actions (admin) */

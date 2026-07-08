@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=171">
+<link rel="stylesheet" href="assets/css/styles.css?v=172">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -63,8 +63,8 @@
           <label class="cl-field"><span>Client name <em>*</em></span>
             <input type="text" id="clName" placeholder="e.g. Acme Manufacturing" required></label>
           <div class="cl-field-2">
-            <label class="cl-field cl-field-sm"><span>Initials</span>
-              <input type="text" id="clInitials" maxlength="3" placeholder="AM"></label>
+            <label class="cl-field cl-field-sm"><span>Client code</span>
+              <input type="text" id="clInitials" maxlength="6" placeholder="ANL" title="WMJ client code (auto-filled from Workamajig; matches the Campaign_Name prefix)"></label>
             <label class="cl-field"><span>Tagline</span>
               <input type="text" id="clTagline" placeholder="e.g. Industrial equipment · Phoenix"></label>
           </div>
@@ -116,21 +116,21 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=171"></script>
-<script src="assets/js/supabase-sync.js?v=171"></script>
-<script src="assets/js/auth.js?v=171"></script>
+<script src="assets/js/supabase-config.js?v=172"></script>
+<script src="assets/js/supabase-sync.js?v=172"></script>
+<script src="assets/js/auth.js?v=172"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=171"></script>
-<script src="assets/js/client-template.js?v=171"></script>
-<script src="assets/js/client-store.js?v=171"></script>
-<script src="assets/js/wmj-transform.js?v=171"></script>
-<script src="assets/js/retainer-transform.js?v=171"></script>
-<script src="assets/js/client-logos.js?v=171"></script>
-<script src="assets/js/wmj-sync.js?v=171"></script>
+<script src="assets/js/clients.js?v=172"></script>
+<script src="assets/js/client-template.js?v=172"></script>
+<script src="assets/js/client-store.js?v=172"></script>
+<script src="assets/js/wmj-transform.js?v=172"></script>
+<script src="assets/js/retainer-transform.js?v=172"></script>
+<script src="assets/js/client-logos.js?v=172"></script>
+<script src="assets/js/wmj-sync.js?v=172"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -181,7 +181,7 @@
           ${c.builtin ? "" : `<button class="ct-act ct-del" data-del="${esc(c.id)}" title="Delete workspace">🗑</button>`}
         </div>
         <div class="client-tile-head">
-          <span class="client-tile-logo">${c.logo ? `<img src="${esc(c.logo)}" alt="${esc(c.name)}">` : esc(c.initials || "?")}</span>
+          <span class="client-tile-logo${!c.logo && (c.code || c.initials || "").length >= 4 ? " tile-code-lg" : ""}">${c.logo ? `<img src="${esc(c.logo)}" alt="${esc(c.name)}">` : esc(c.code || c.initials || "?")}</span>
           <span class="proj-tile-name">${esc(c.name)}</span>
         </div>
         ${c.tagline ? `<div class="proj-tile-sub">${esc(c.tagline)}</div>` : ""}
@@ -304,7 +304,7 @@
     f.title.textContent = id ? "Edit client" : "Add client";
     f.save.textContent = id ? "Save changes" : "Create workspace";
     f.name.value = c ? c.name : "";
-    f.initials.value = c ? (c.initials || "") : "";
+    f.initials.value = c ? (c.code || c.initials || "") : "";
     f.tagline.value = c ? (c.tagline || "") : "";
     f.kind.value = c ? (c.kind || "retainer") : "retainer";
     f.kind.disabled = !!id;   // engagement mix is set at creation; managed in the workspace afterward
@@ -341,14 +341,15 @@
     // login email must be unique across clients (it's how a client signs in)
     const clash = window.TJA_STORE.list().find(c => c.id !== editingId && c.login && (c.login.email || "").toLowerCase() === email);
     if (clash) { f.err.textContent = `That email is already used by “${clash.name}”.`; return; }
-    const initials = (f.initials.value || window.tjaInitialsFrom(name)).trim().toUpperCase().slice(0, 3);
+    const code = f.initials.value.trim();   // the "Client code" field
+    const initials = window.tjaInitialsFrom(name).trim().toUpperCase().slice(0, 3);   // kept as a fallback
     const login = { email, password };
     if (editingId) {
-      window.TJA_STORE.update(editingId, { name, initials, tagline: f.tagline.value.trim(), logo: logoData, login });
+      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, login });
       closeModal(); renderGrid();
       return;
     }
-    const entry = window.TJA_STORE.add({ name, initials, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login });
+    const entry = window.TJA_STORE.add({ name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login });
     window.TJA_STORE.seedWorkspace(entry);
     // fold the admin-entered contracted hours into the new client's retainer engagement
     if (f.kind.value !== "project") {

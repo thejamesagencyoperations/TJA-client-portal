@@ -37,6 +37,8 @@
   }
 
   function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+  // WMJ client code = the leading token of Campaign_Name (e.g. "ANL 2026 Retainer" → "ANL")
+  function leadCode(campaign) { return String(campaign || "").trim().split(/\s+/)[0] || ""; }
   function num(s) { const v = parseFloat(s); return isFinite(v) ? v : 0; }
   function isNonBillable(r) {
     const cm = (r.Campaign_Name || "").toLowerCase(), cl = (r.Client_Name || "").toLowerCase();
@@ -49,8 +51,9 @@
     const clients = new Map();
     bill.forEach(r => {
       const key = normName(r.Client_Name);
-      if (!clients.has(key)) clients.set(key, { wmjName: r.Client_Name.trim(), normName: key, depts: new Map() });
+      if (!clients.has(key)) clients.set(key, { wmjName: r.Client_Name.trim(), normName: key, code: leadCode(r.Campaign_Name), depts: new Map() });
       const C = clients.get(key);
+      if (!C.code) C.code = leadCode(r.Campaign_Name);
       const dept = (r.User_Department || "Other").trim() || "Other";
       if (!C.depts.has(dept)) C.depts.set(dept, new Map());
       const T = C.depts.get(dept);
@@ -79,7 +82,7 @@
         l.utilPct = l.allocated > 0 ? Math.round(l.billable / l.allocated * 100) : 0;
       });
       lines.sort((a, b) => b.allocated - a.allocated);
-      out.push({ wmjName: C.wmjName, normName: C.normName, serviceLines: lines, totalAllocated, totalBillable });
+      out.push({ wmjName: C.wmjName, normName: C.normName, code: C.code || "", serviceLines: lines, totalAllocated, totalBillable });
     });
     out.sort((a, b) => a.wmjName.localeCompare(b.wmjName));
     return out;

@@ -617,8 +617,11 @@ function applyEngagement() {
 /* ---------- boot ---------- */
 (async function init() {
   const av = el("#clientAvatar");
+  // prefer the WMJ client code (from the store entry) over auto-initials for the avatar
+  let clientCode = D.client.code || "";
+  try { const m = (typeof getSession === "function" && window.TJA_STORE) ? window.TJA_STORE.get(getSession().client) : null; if (m && m.code) clientCode = m.code; } catch (e) {}
   if (D.client.logo) { av.innerHTML = `<img src="${D.client.logo}" alt="${esc(D.client.name)}">`; av.classList.add("has-logo"); }
-  else av.textContent = D.client.initials;
+  else { const label = clientCode || D.client.initials || "?"; av.textContent = label; if (label.length >= 4) av.classList.add("avatar-code-lg"); }
   el("#clientName").textContent = D.client.name;
   document.title = `${D.client.name} · TJA Portal`;
 

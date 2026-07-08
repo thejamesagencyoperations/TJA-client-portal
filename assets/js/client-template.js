@@ -121,7 +121,7 @@
     const logo = meta.logo || "";
     const kind = meta.kind || "retainer";
     const data = {
-      client: { name: name, initials: initials, logo: logo },
+      client: { name: name, initials: initials, code: (meta.code || "").trim(), logo: logo },
       files: [],
       engagements: { retainer: blankRetainer(name), projects: [] },
     };

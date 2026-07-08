@@ -108,9 +108,10 @@
     bill.forEach(r => {
       const cl = r.Client_Name.trim();
       const key = normName(cl);
-      if (!clients.has(key)) clients.set(key, { wmjName: cl, normName: key, _camps: new Map() });
+      if (!clients.has(key)) clients.set(key, { wmjName: cl, normName: key, code: "", _camps: new Map() });
       const C = clients.get(key);
       const cm = r.Campaign_Name.trim();
+      if (!C.code) C.code = cm.split(/\s+/)[0] || "";   // client code = leading token of Campaign_Name
       if (!C._camps.has(cm)) C._camps.set(cm, new Map());
       const P = C._camps.get(cm);
       const pn = r.Project_Name.trim() || "General";
@@ -211,7 +212,7 @@
         const ae = Math.max(0, ...a.tasks.map(t => t.endKey || 0)), be = Math.max(0, ...b.tasks.map(t => t.endKey || 0));
         return be - ae;
       });
-      out.push({ wmjName: C.wmjName, normName: C.normName, projects });
+      out.push({ wmjName: C.wmjName, normName: C.normName, code: C.code || "", projects });
     });
 
     out.sort((a, b) => a.wmjName.localeCompare(b.wmjName));

@@ -72,6 +72,7 @@ window.TJA_STORE = (function () {
       id,
       name,
       initials: (meta.initials || window.tjaInitialsFrom(name)).trim().slice(0, 3).toUpperCase(),
+      code: (meta.code || "").trim(),   // WMJ client code (leading token of Campaign_Name); shown instead of initials
       logo: meta.logo || "",
       tagline: meta.tagline || "",
       engagements: meta.engagements || (meta.kind === "both" ? "Monthly Services · 1 project"
@@ -176,7 +177,7 @@ window.TJA_STORE = (function () {
   // write the initial blank workspace for a freshly-added client so the
   // dashboard's loadState() finds it (instead of falling back to a seed)
   function seedWorkspace(entry) {
-    const data = window.makeClientData({ name: entry.name, initials: entry.initials, logo: entry.logo, kind: entry.kind });
+    const data = window.makeClientData({ name: entry.name, initials: entry.initials, code: entry.code, logo: entry.logo, kind: entry.kind });
     const refLay = referenceRetainerLayout();
     if (refLay && data.engagements.retainer) data.engagements.retainer.layout = refLay;
     const projLay = referenceProjectLayout();
