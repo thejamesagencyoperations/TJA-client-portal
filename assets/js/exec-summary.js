@@ -293,8 +293,19 @@ window.ExecSummary = (function () {
     const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
     return `rgba(${r},${g},${b},${a})`;
   }
+  /* ---- client accent colour, auto-matched to the logo ----
+     Dominant brand colour is precomputed per client in client-logos.js (COLORS map),
+     because the colourful icon services don't send CORS headers so a browser canvas
+     can't sample them at runtime. Used as the DEFAULT "Client" to-do colour; an admin
+     colour override (e.todoClientColor) always wins. */
+  function logoAccent() {
+    try {
+      const name = window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name;
+      return (window.CLIENT_LOGOS && name) ? window.CLIENT_LOGOS.logoColorFor(name) : null;
+    } catch (e) { return null; }
+  }
   function todosModule(e) {
-    const cc = e.todoClientColor || "#6aa6ff";   // TJA tasks are always orange; Client task colour is configurable
+    const cc = e.todoClientColor || logoAccent() || "#6aa6ff";   // TJA = always orange; Client = logo colour (admin can override)
     const tag = (t, i) => {
       const style = t.owner === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
       return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>`;

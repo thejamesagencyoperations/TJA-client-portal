@@ -44,9 +44,47 @@ window.CLIENT_LOGOS = (function () {
     vixxofacilitysolutions: "vixxo.com",
     woodpartnersgoldwater: "woodpartners.com",
   };
+  // Dominant brand colour sampled from each client's real logo (the vivid, non-white/grey
+  // pixel that carries the most weight). Precomputed from the logos above because the colourful
+  // icon services (DuckDuckGo/Google) don't send CORS headers, so a browser canvas can't read
+  // their pixels at runtime. Used as the DEFAULT "Client" colour for To-Do tags; an admin colour
+  // override always wins. null = logo was monochrome/greyscale → falls back to the default blue.
+  const COLORS = {
+    anewleaf: "#b6d03b",
+    arizonadepartmentofchildsafety: "#cb6c21",
+    arizonadepartmentofhealthservices: "#369992",
+    azhumanesociety: "#f17132",
+    cityofscottsdale: "#0376bb",
+    customcontrolsofarizona: "#86b1fb",
+    dellshireresort: "#6d0013",
+    donornetworkofarizona: "#aec58a",
+    foxrestaurantconcepts: null,
+    greenlightcommunitiesllc: "#17a36d",
+    healthcareoutcomeperformancecompany: null,
+    hotelvalleyho: "#ef862e",
+    hughlytlepoliticalbrand: "#e15d26",
+    innerbloomdarkretreats: null,
+    jojocoffeehousebreakfastbrunch: "#9aa9cd",
+    maricopacountyfair: "#1368b2",
+    mountainshadows: "#b89930",
+    phoenixchildrenshospital: "#f91e26",
+    professionalpipingsystemsllc: null,
+    rcsinc: "#fa0202",
+    restorationhq: "#d95931",
+    saddleback: "#d25e33",
+    sagehospitalitygroup: "#ea7b58",
+    saltriverproject: "#39639c",
+    santanbrewing: "#ee3224",
+    sellahomes: null,
+    subzerogroupsouthwest: "#bdd02c",
+    usapickleball: "#12324c",
+    vixxofacilitysolutions: null,
+    woodpartnersgoldwater: null,
+  };
   function norm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
   function domainFor(name) { return DOMAINS[norm(name)] || null; }
+  function logoColorFor(name) { return COLORS[norm(name)] || null; }
   // DuckDuckGo's icon service: fast, cached, reliable, and higher-res than most.
   function logoUrlFor(name) { const d = domainFor(name); return d ? "https://icons.duckduckgo.com/ip3/" + d + ".ico" : ""; }
-  return { DOMAINS, domainFor, logoUrlFor };
+  return { DOMAINS, COLORS, domainFor, logoColorFor, logoUrlFor };
 })();

@@ -1028,7 +1028,7 @@ body[data-role="client"] .admin-only { display: none !important; }
 .tile-list { display: flex; flex-direction: column; gap: 9px; }
 .tile-item { display: flex; align-items: flex-start; gap: 9px; font-size: .84rem; }
 .tile-item .owner-tag { font-size: .58rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; flex: none; margin-top: 1px; }
-.owner-tag.tja { background: rgba(246,142,33,.16); color: var(--accent-text); }   /* TJA = always TJA orange */
+.owner-tag.tja { background: rgba(246,142,33,.18); color: var(--orange); }   /* TJA = always TJA orange (#F68E21), not the muted accent-text */
 .owner-tag.client { background: rgba(106,166,255,.16); color: #6aa6ff; }          /* Client = configurable (admin overrides inline) */
 .todo-colorpick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
   font-size: .58rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--text-faint); }
