@@ -177,12 +177,20 @@ window.WMJ_SYNC = (function () {
   // onDone(result) fires after each successful sync so the UI can re-render.
   let timer = null;
   function startAuto(onDone) {
-    const run = () => Promise.allSettled([sync(), syncRetainers()]).then(res => {
-      if (res[0].status === "rejected") console.warn("WMJ projects sync", res[0].reason);
-      if (res[1].status === "rejected") console.warn("WMJ retainers sync", res[1].reason);
-      try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
-      if (onDone) { try { onDone(res[0].value || null); } catch (e) {} }
-    });
+    // Sequential on purpose: projects first, then retainers. A client can appear in
+    // BOTH sheets; each sync loadState→saveState the whole client doc. Running them
+    // sequentially guarantees the retainer write lands last for shared clients, so the
+    // projects write can never clobber the retainer's wmjServiceLines with a stale copy.
+    const run = () =>
+      sync()
+        .then(pv => { window.__wmjProjResult = pv; })
+        .catch(err => { console.warn("WMJ projects sync", err); })
+        .then(() => syncRetainers())
+        .catch(err => { console.warn("WMJ retainers sync", err); })
+        .then(() => {
+          try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
+          if (onDone) { try { onDone(window.__wmjProjResult || null); } catch (e) {} }
+        });
     run();
     if (!timer) timer = setInterval(run, HOUR);
   }

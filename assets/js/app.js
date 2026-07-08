@@ -566,11 +566,42 @@ function applyRole() {
 }
 
 /* ---------- engagement toggle (Monthly Services ⇄ Projects) ---------- */
+/* Does this client actually have Monthly-Services (retainer) data worth showing? */
+function retainerHasData() {
+  const r = STATE.engagements.retainer;
+  if (!r) return false;
+  return r.source === "wmj"
+    || (Array.isArray(r.wmjServiceLines) && r.wmjServiceLines.length > 0)
+    || (r.burn && Number(r.burn.contractedHours) > 0)
+    || (Array.isArray(r.serviceLines) && r.serviceLines.length > 0)
+    || (Array.isArray(r.milestones) && r.milestones.length > 0)
+    || (Array.isArray(r.todos) && r.todos.length > 0)
+    || (r.northStar && String(r.northStar).trim() !== "");
+}
+
 function applyEngagement() {
   const tog = el("#engToggle");
-  tog.innerHTML =
-    `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-engmode="retainer">Monthly Services</button>` +
-    `<button class="eng-seg ${!isRetainer() ? "active" : ""}" data-engmode="project">Projects</button>`;
+  // Admins (real, not previewing) always see both toggles so they can set either up.
+  // Clients only see an engagement that actually has data — no empty Monthly Services / Projects.
+  const adminRole = (typeof effectiveRole === "function") ? effectiveRole() === "admin" : true;
+  const hasRet = adminRole || retainerHasData();
+  const hasProj = adminRole || getProjects().length > 0;
+
+  // Don't strand a client on an engagement that has no data.
+  if (!hasRet && isRetainer()) {
+    setEngMode("project");
+    const ps = getProjects();
+    if (ps.length === 1 && !selectedProject()) selectProject(ps[0].id);
+  } else if (!hasProj && !isRetainer()) {
+    setEngMode("retainer");
+  }
+
+  let segs = "";
+  if (hasRet) segs += `<button class="eng-seg ${isRetainer() ? "active" : ""}" data-engmode="retainer">Monthly Services</button>`;
+  if (hasProj) segs += `<button class="eng-seg ${!isRetainer() ? "active" : ""}" data-engmode="project">Projects</button>`;
+  tog.innerHTML = segs;
+  // Nothing to switch between (single engagement in client view) → hide the toggle entirely.
+  tog.style.display = (hasRet && hasProj) ? "" : "none";
   // topbar identity: client name (set once) + engagement label. North Star now lives in its own
   // full-width banner at the top of the Executive Summary (see exec-summary.js northStarBanner).
   const eng = getEng();
