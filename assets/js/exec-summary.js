@@ -749,30 +749,34 @@ window.ExecSummary = (function () {
   // scale the whole tile canvas down to fit narrower windows so the right-hand
   // tiles are never cut off / forced into horizontal scroll (arrangement preserved)
   function fitCanvas() {
+    // UNIFORM PROPORTIONAL SCALING: the layout is a fixed design canvas (built at ~1633px wide);
+    // scale the WHOLE canvas — tiles, gaps, and text together — so it exactly fills the content
+    // width on every screen. Ratios/spacing/layout are identical everywhere (like a slide deck):
+    // Cameron's screen ≈ 1:1, smaller laptops scale down, wider monitors scale up.
+    // Phones (≤760px) use the stacked single-column mode instead.
     const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
-    if (!canvas.clientWidth) return;   // page hidden (another tab active) — measuring now would corrupt the fit
+    const wrap = canvas.parentElement;
+    const avail = (wrap && wrap.clientWidth) || canvas.clientWidth;
+    if (!avail) return;   // page hidden (another tab active) — measuring now would corrupt the fit
     const stacked = window.innerWidth <= 760;
-    // Horizontal stretch-to-fill: widen columns (x and w scale; heights + font size unchanged)
-    // so the grid's right edge always meets the North Star banner's right edge on any screen.
     const lay = getLayout(window.DASH.getEng());
-    let baseR = 0; Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); });
-    const avail = canvas.clientWidth || baseR;
-    // stretch only while locked — during an editing session tiles use raw coordinates so
-    // drag/resize persist exactly what's on screen (no double-scaling)
-    const fx = (!stacked && baseR > 0 && lay.locked) ? Math.max(1, avail / baseR) : 1;
+    // pin tiles at their base (design) coordinates — idempotent, clears any stale inline styles
     canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
       const p = lay.free[t.dataset.key]; if (!p) return;
-      t.style.left = Math.round(p.x * fx) + "px";
-      t.style.width = Math.round(p.w * fx) + "px";
+      t.style.left = p.x + "px"; t.style.width = p.w + "px";
     });
-    const { maxR, maxB } = canvasExtent(canvas), h = maxB + 8;
+    let baseR = 0; Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); });
+    const { maxB } = canvasExtent(canvas), h = maxB + 8;
     canvas.style.height = h + "px";
-    const sc = stacked ? 1 : Math.max(0.5, Math.min(1, maxR ? avail / maxR : 1));
+    if (stacked) {   // mobile: static stacked layout (media query) — no transform, natural width
+      canvas.style.width = ""; canvas.style.transform = ""; canvas.style.transformOrigin = ""; canvas.style.marginBottom = "";
+      canvasScale = 1; return;
+    }
+    const sc = Math.max(0.4, Math.min(2, baseR ? avail / baseR : 1));
     canvasScale = sc;
-    if (sc < 1 && !stacked) {
-      canvas.style.transform = `scale(${sc})`; canvas.style.transformOrigin = "top left";
-      canvas.style.marginBottom = (-h * (1 - sc)) + "px";
-    } else { canvas.style.transform = ""; canvas.style.transformOrigin = ""; canvas.style.marginBottom = ""; }
+    canvas.style.width = baseR + "px";                       // design width; scaled it becomes exactly `avail`
+    canvas.style.transform = `scale(${sc})`; canvas.style.transformOrigin = "top left";
+    canvas.style.marginBottom = (h * (sc - 1)) + "px";       // compensate layout height for the visual scale
   }
 
   /* ---- free drag (pointer) with snap-to-align against the other tiles ---- */
@@ -873,12 +877,21 @@ window.ExecSummary = (function () {
       if (changed) { window.DASH.saveState(); fitCanvas(); }
     });
 
-    // keep the tile canvas fitted to the window so nothing gets cut off on narrower screens
-    let fitRaf = null;
-    window.addEventListener("resize", () => {
-      if (fitRaf) return;
-      fitRaf = requestAnimationFrame(() => { fitRaf = null; const sec = section(); if (sec && sec.querySelector(".exec-canvas")) fitCanvas(); });
-    });
+    // keep the canvas scaled to the window — re-fit on window resize AND via a ResizeObserver
+    // on the content container (more reliable: catches resizes/sidebar changes that don't
+    // deliver a clean window resize event, and re-fits when the page becomes visible again)
+    // debounced with setTimeout (NOT requestAnimationFrame — rAF never fires in a background
+    // tab, which jammed the guard flag and killed every later re-fit)
+    let fitTimer = null;
+    const requestFit = () => {
+      clearTimeout(fitTimer);
+      fitTimer = setTimeout(() => { const sec = section(); if (sec && sec.querySelector(".exec-canvas")) fitCanvas(); }, 80);
+    };
+    window.addEventListener("resize", requestFit);
+    if (window.ResizeObserver) {
+      const target = document.querySelector(".content") || document.body;
+      new ResizeObserver(requestFit).observe(target);
+    }
 
     // service-line allocation sliders (admin): live-update while dragging, persist on release
     s.addEventListener("input", e => {
