@@ -751,10 +751,20 @@ window.ExecSummary = (function () {
   // tiles are never cut off / forced into horizontal scroll (arrangement preserved)
   function fitCanvas() {
     const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
+    const stacked = window.innerWidth <= 760;
+    // Horizontal stretch-to-fill: widen columns (x and w scale; heights + font size unchanged)
+    // so the grid's right edge always meets the North Star banner's right edge on any screen.
+    const lay = getLayout(window.DASH.getEng());
+    let baseR = 0; Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); });
+    const avail = canvas.clientWidth || baseR;
+    const fx = (!stacked && baseR > 0) ? Math.max(1, avail / baseR) : 1;   // stretch up only; shrink handled by scale below
+    canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
+      const p = lay.free[t.dataset.key]; if (!p) return;
+      t.style.left = Math.round(p.x * fx) + "px";
+      t.style.width = Math.round(p.w * fx) + "px";
+    });
     const { maxR, maxB } = canvasExtent(canvas), h = maxB + 8;
     canvas.style.height = h + "px";
-    const stacked = window.innerWidth <= 760;
-    const avail = canvas.clientWidth || maxR;
     const sc = stacked ? 1 : Math.max(0.5, Math.min(1, maxR ? avail / maxR : 1));
     canvasScale = sc;
     if (sc < 1 && !stacked) {
