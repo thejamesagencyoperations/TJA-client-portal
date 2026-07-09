@@ -965,8 +965,17 @@ body[data-role="client"] .admin-only { display: none !important; }
 .rsvc-status.is-over        { background: #e5322b; color: #fff; }
 .rsvc-status.is-unalloc     { background: var(--input); color: var(--text-dim); }
 /* admin-only "Unallocated" line: billable hrs with no matching discipline (still in the burn) */
-.rsvc-unalloc { opacity: .8; border-top: 1px dashed var(--line); padding-top: 10px; }
+.rsvc-unalloc { opacity: .85; border-top: 1px dashed var(--line); padding-top: 10px; cursor: pointer; border-radius: 8px; }
+.rsvc-unalloc:hover { background: var(--input); }
 .rsvc-unalloc .rsvc-name { color: var(--text-dim); font-style: italic; }
+.rsvc-caret { font-style: normal; color: var(--accent-text); font-size: .68rem; font-weight: 700; }
+/* Unallocated popup rows */
+.up-total { float: right; font-size: .82rem; font-weight: 800; color: var(--accent-text); }
+.up-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; max-height: 46vh; overflow-y: auto; }
+.up-row { display: flex; justify-content: space-between; gap: 12px; font-size: .82rem; color: var(--text-dim);
+  padding: 9px 11px; background: var(--input); border-radius: 8px; }
+.up-name { min-width: 0; line-height: 1.35; }
+.up-hrs { flex: none; font-weight: 800; color: var(--text); }
 .rsvc-setup-note { font-size: .72rem; color: var(--text-faint); line-height: 1.4; margin-top: 10px; }
 /* editable contracted-hours input inside the admin caption */
 .rsvc-hrs { width: 64px; padding: 1px 4px 1px 7px; margin: 0 2px; font: inherit; font-size: .7rem; font-weight: 700;

@@ -69,9 +69,17 @@
       const lines = [];
       C.depts.forEach((T, dept) => {
         let alloc = 0, bill = 0;
-        T.forEach(t => { alloc += t.allocated; bill += t.billable; });
+        const projMap = {};   // billable hours by Project_Name within this dept (for the Unallocated drill-down)
+        T.forEach((t, tk) => {
+          alloc += t.allocated; bill += t.billable;
+          const proj = (tk.split("|")[1] || "General").trim() || "General";
+          projMap[proj] = (projMap[proj] || 0) + t.billable;
+        });
         if (alloc <= 0 && bill <= 0) return;
-        lines.push({ name: dept, allocated: Math.round(alloc * 100) / 100, billable: Math.round(bill * 100) / 100 });
+        const projects = Object.keys(projMap).filter(n => projMap[n] > 0)
+          .map(name => ({ name, billable: Math.round(projMap[name] * 100) / 100 }))
+          .sort((a, b) => b.billable - a.billable);
+        lines.push({ name: dept, allocated: Math.round(alloc * 100) / 100, billable: Math.round(bill * 100) / 100, projects });
       });
       const totalAllocated = Math.round(lines.reduce((s, l) => s + l.allocated, 0) * 100) / 100;
       const totalBillable = Math.round(lines.reduce((s, l) => s + l.billable, 0) * 100) / 100;

@@ -16,6 +16,7 @@ window.ExecSummary = (function () {
   const section = () => document.querySelector('.page[data-page="exec"]');
   let viewMonthIdx = null;   // retainer MoM view (null = current)
   let burnPreviewPct = null; // transient dial position while dragging the burn (before the distribute popup)
+  let unallocOpen = false;   // admin: is the Unallocated drill-down expanded?
 
   /* ---- line icons (brand: custom vector icons + bolt motif) ---- */
   const svg = (p, o) => `<svg viewBox="0 0 24 24" fill="${o ? "currentColor" : "none"}" stroke="${o ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -270,6 +271,17 @@ window.ExecSummary = (function () {
     const keys = new Set((e.serviceDisciplines || []).map(d => canon(d.name)));
     return (e.wmjServiceLines || []).reduce((s, l) => s + (keys.has(canon(l.name)) ? 0 : (+l.billable || 0)), 0);
   }
+  // the projects (name + billable hrs) behind the unallocated hours — for the admin drill-down
+  function unmatchedProjects(e) {
+    const keys = new Set((e.serviceDisciplines || []).map(d => canon(d.name)));
+    const acc = {};
+    (e.wmjServiceLines || []).forEach(l => {
+      if (keys.has(canon(l.name))) return;
+      (l.projects || []).forEach(p => { acc[p.name] = (acc[p.name] || 0) + (+p.billable || 0); });
+    });
+    return Object.keys(acc).map(name => ({ name, billable: round2(acc[name]) }))
+      .filter(p => p.billable > 0).sort((a, b) => b.billable - a.billable);
+  }
   function retainerUsed(e) {   // burn numerator = Σ disciplines' used + unallocated billable
     const m = actualByDiscipline(e);
     return (e.serviceDisciplines || []).reduce((s, d) => s + discUsed(e, d, m), 0) + unmatchedBillable(e);
@@ -317,8 +329,8 @@ window.ExecSummary = (function () {
     // Unallocated: WMJ billable in departments with no matching discipline (admin-only flag)
     const misc = round2(unmatchedBillable(e));
     const miscRow = (admin && misc > 0)
-      ? `<div class="rsvc-row rsvc-unalloc" title="Billable hours in WMJ departments that don't match a discipline. They count toward the burn — add a discipline to categorize them.">
-           <div class="rsvc-top"><span class="rsvc-name">Unallocated</span><span class="rsvc-right"><span class="rsvc-status is-unalloc">In burn</span></span></div>
+      ? `<div class="rsvc-row rsvc-unalloc" data-unalloctoggle title="Click to see the projects behind these hours">
+           <div class="rsvc-top"><span class="rsvc-name">Unallocated <span class="rsvc-caret">view ›</span></span><span class="rsvc-right"><span class="rsvc-status is-unalloc">In burn</span></span></div>
            <div class="rsvc-cap">${misc} hrs billable · not in a discipline</div>
          </div>` : "";
     const setupNote = (admin && unset)
@@ -642,6 +654,27 @@ window.ExecSummary = (function () {
     ov.querySelector("[data-bpcancel]").addEventListener("click", () => close(false));
     ov.querySelector("[data-bpapply]").addEventListener("click", () => close(true));
     ov.addEventListener("click", e => { if (e.target === ov) close(false); });
+  }
+
+  /* ---- Unallocated drill-down popup: projects behind the misc (out-of-discipline) hours ---- */
+  function openUnallocPopup(e) {
+    const projects = unmatchedProjects(e);
+    const misc = round2(unmatchedBillable(e));
+    const old = document.getElementById("burnPop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "burnPop"; ov.className = "burn-pop-overlay";
+    const rows = projects.map(p => `<div class="up-row"><span class="up-name">${esc(p.name)}</span><span class="up-hrs">${p.billable} hrs</span></div>`).join("")
+      || `<div class="up-row">No project detail available.</div>`;
+    ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Unallocated hours <span class="up-total">${misc} hrs</span></div>
+      <p class="bp-lead">Billable work in WMJ departments with no matching discipline. It still counts toward the burn — add a discipline to categorize it.</p>
+      <div class="up-rows">${rows}</div>
+      <div class="bp-actions"><button type="button" class="btn btn-primary" data-bpclose>Close</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    ov.querySelector("[data-bpclose]").addEventListener("click", close);
+    ov.addEventListener("click", e2 => { if (e2.target === ov) close(); });
   }
 
   /* ---- tile remove / restore ---- */
@@ -980,6 +1013,10 @@ window.ExecSummary = (function () {
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
       if (ra && canAdmin()) { delete eng.svcUtilOverride; if (eng.burn) delete eng.burn.pctOverride; window.DASH.saveState(); rerender(); return; }
+
+      // Unallocated drill-down → popup listing the projects behind the misc hours
+      const ut = e.target.closest("[data-unalloctoggle]");
+      if (ut && canAdmin()) { openUnallocPopup(window.DASH.getEng()); return; }
 
       const add = e.target.closest("[data-listadd]");
       if (add) { const k = add.dataset.listadd; (eng[k] || (eng[k] = [])).push(defaults[k]()); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
