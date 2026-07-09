@@ -177,8 +177,7 @@ window.ExecSummary = (function () {
           ${unset
             ? `<div class="sub">${used} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>`
             : canAdmin()
-            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>
-               <div class="burn-hint">drag the dial (or edit the %) to set the total — you'll pick which disciplines absorb it</div>`
+            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
