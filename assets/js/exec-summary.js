@@ -526,7 +526,7 @@ window.ExecSummary = (function () {
   // projects. PROJECT_LAYOUT_V forces existing project layouts to re-adopt the
   // template when bumped (without touching monthly-services layouts).
   const PROJECT_LAYOUT_V = 3;   // bump → all projects re-adopt the current template (RCS), locked
-  const RETAINER_LAYOUT_V = 2;  // bump → all retainers re-adopt the reference layout (A New Leaf)
+  const RETAINER_LAYOUT_V = 3;  // bump → all retainers re-adopt the standard layout (restores sizing)
   const PROJECT_HIDDEN = ["pr", "kpis"];
   const DEFAULT_PROJECT_FREE = (function () {
     const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
@@ -540,9 +540,8 @@ window.ExecSummary = (function () {
       lay.v = LAYOUT_V; lay.pv = PROJECT_LAYOUT_V;
       return lay;
     }
-    // retainers adopt the reference layout (A New Leaf) so every client matches it
-    const ref = (window.TJA_STORE && window.TJA_STORE.referenceRetainerLayout) ? window.TJA_STORE.referenceRetainerLayout() : null;
-    const lay = ref || { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
+    // retainers use the standard layout (reverted the per-client-reference propagation that broke sizing)
+    const lay = { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
     lay.v = LAYOUT_V; lay.rv = RETAINER_LAYOUT_V;
     return lay;
   }
