@@ -510,30 +510,25 @@ window.ExecSummary = (function () {
   };
   const LAYOUT_V = 4;        // free-canvas layout: tiles are absolutely positioned and drag anywhere
   const SNAP = 9, GRID_GAP = 16, DEF_W = 360;   // snap distance (px), default gap + tile width
-  // FIXED, LOCKED layout — a clean 3-column grid, aligned rows + equal 16px gaps.
-  // Column x: 0 / 376 / 752 (width 360, 16px gaps). This is the single source of truth;
-  // it can only be changed here in code. Tiles scroll internally if content exceeds height.
-  const COL = [0, 376, 752], TW = 360;
+  // FIXED, LOCKED layout — the exact v1.80 geometry (positions AND sizes), byte-for-byte.
+  // This is the single source of truth; it can only be changed here in code, and only when
+  // Cameron specifically asks. Tiles scroll internally if content exceeds their height.
   const DEFAULT_RETAINER_FREE = {
-    // Row 1 (y 0 → 500): burn + service tall; milestones + todos stacked to match
-    burn:         { x: COL[0], y: 0,   w: TW, h: 500 },
-    service:      { x: COL[1], y: 0,   w: TW, h: 500 },
-    milestones:   { x: COL[2], y: 0,   w: TW, h: 242 },
-    todos:        { x: COL[2], y: 258, w: TW, h: 242 },
-    // Row 2 (y 516 → 816): even trio
-    pr:           { x: COL[0], y: 516, w: TW, h: 300 },
-    dependencies: { x: COL[1], y: 516, w: TW, h: 300 },
-    kpis:         { x: COL[2], y: 516, w: TW, h: 300 },
+    burn:         { x: 0,   y: 0,   w: 360, h: 525 },
+    service:      { x: 376, y: 0,   w: 360, h: 474 },
+    milestones:   { x: 752, y: 0,   w: 360, h: 284 },
+    todos:        { x: 752, y: 300, w: 360, h: 186 },
+    dependencies: { x: 376, y: 490, w: 360, h: 176 },
+    kpis:         { x: 752, y: 502, w: 360, h: 185 },
+    pr:           { x: 0,   y: 541, w: 360, h: 558 },
   };
   const PROJECT_HIDDEN = ["pr", "kpis"];   // PR Coverage + KPIs hidden on projects
-  // Projects: same clean grid, minus pr/kpis. Row 1: burn, service, milestones+todos; Row 2: dependencies.
-  const DEFAULT_PROJECT_FREE = {
-    burn:         { x: COL[0], y: 0,   w: TW, h: 500 },
-    service:      { x: COL[1], y: 0,   w: TW, h: 500 },
-    milestones:   { x: COL[2], y: 0,   w: TW, h: 242 },
-    todos:        { x: COL[2], y: 258, w: TW, h: 242 },
-    dependencies: { x: COL[0], y: 516, w: TW, h: 300 },
-  };
+  // Projects: identical geometry minus the hidden tiles (exactly as v1.80 derived it)
+  const DEFAULT_PROJECT_FREE = (function () {
+    const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
+    PROJECT_HIDDEN.forEach(k => delete f[k]);
+    return f;
+  })();
   function defaultLayout(e) {
     return (e.type === "project")
       ? { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice(), locked: true }
