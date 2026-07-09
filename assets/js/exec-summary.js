@@ -509,48 +509,37 @@ window.ExecSummary = (function () {
   };
   const LAYOUT_V = 4;        // free-canvas layout: tiles are absolutely positioned and drag anywhere
   const SNAP = 9, GRID_GAP = 16, DEF_W = 360;   // snap distance (px), default gap + tile width
-  // FIXED, LOCKED layout — the exact v1.80 geometry (positions AND sizes), byte-for-byte.
-  // This is the single source of truth; it can only be changed here in code, and only when
-  // Cameron specifically asks. Tiles scroll internally if content exceeds their height.
+  // FIXED, LOCKED layouts — Cameron's final arrangement (copied from his browser on 2026-07-09
+  // via the Copy-layout button). Single source of truth; changed only here in code, and only
+  // when Cameron specifically asks. Tiles scroll internally if content exceeds their height.
   const DEFAULT_RETAINER_FREE = {
-    burn:         { x: 0,   y: 0,   w: 360, h: 525 },
-    service:      { x: 376, y: 0,   w: 360, h: 474 },
-    milestones:   { x: 752, y: 0,   w: 360, h: 284 },
-    todos:        { x: 752, y: 300, w: 360, h: 186 },
-    dependencies: { x: 376, y: 490, w: 360, h: 176 },
-    kpis:         { x: 752, y: 502, w: 360, h: 185 },
-    pr:           { x: 0,   y: 541, w: 360, h: 558 },
+    burn:         { x: 0,    y: 0,   w: 491, h: 377 },
+    service:      { x: 506,  y: 0,   w: 704, h: 451 },
+    milestones:   { x: 1226, y: 0,   w: 405, h: 285 },
+    todos:        { x: 1226, y: 300, w: 406, h: 222 },
+    dependencies: { x: 0,    y: 393, w: 489, h: 368 },
+    kpis:         { x: 1226, y: 537, w: 407, h: 225 },
+    pr:           { x: 507,  y: 467, w: 703, h: 293 },
   };
   const PROJECT_HIDDEN = ["pr", "kpis"];   // PR Coverage + KPIs hidden on projects
-  // Projects: identical geometry minus the hidden tiles (exactly as v1.80 derived it)
-  const DEFAULT_PROJECT_FREE = (function () {
-    const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
-    PROJECT_HIDDEN.forEach(k => delete f[k]);
-    return f;
-  })();
-  // TEMPORARY EDITING WINDOW (one push): stored layouts + drag/resize/lock controls are back so
-  // Cameron can do a final arrangement, then click "Copy layout" and paste it to Claude — the
-  // result gets baked in as the permanent hard-coded layout and editing is removed for good.
-  const PROJECT_LAYOUT_V = 3, RETAINER_LAYOUT_V = 3;   // matches the v1.80-era stored layouts
+  const DEFAULT_PROJECT_FREE = {
+    burn:         { x: 0,    y: 0,   w: 809, h: 306 },
+    service:      { x: 0,    y: 322, w: 808, h: 434 },
+    dependencies: { x: 823,  y: 0,   w: 424, h: 362 },
+    todos:        { x: 823,  y: 378, w: 424, h: 380 },
+    milestones:   { x: 1263, y: 0,   w: 363, h: 760 },
+  };
   function defaultLayout(e) {
-    const lay = (e.type === "project")
-      ? { free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() }
-      : { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
-    lay.v = LAYOUT_V;
-    if (e.type === "project") lay.pv = PROJECT_LAYOUT_V; else lay.rv = RETAINER_LAYOUT_V;
-    return lay;
+    return (e.type === "project")
+      ? { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice(), locked: true }
+      : { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [], locked: true };
   }
+  // Always return the fixed layout — stored/Supabase layouts are ignored entirely, so nothing
+  // can drift or be changed by saved state. Layout changes happen in code only, on request.
   function getLayout(e) {
-    const isProj = e.type === "project";
-    const stale = !e.layout || e.layout.v !== LAYOUT_V
-      || (isProj && e.layout.pv !== PROJECT_LAYOUT_V)
-      || (!isProj && e.layout.rv !== RETAINER_LAYOUT_V);
-    if (stale) e.layout = defaultLayout(e);
-    const L = e.layout;
-    if (!L.free || typeof L.free !== "object") L.free = {};
-    if (!Array.isArray(L.hidden)) L.hidden = [];
+    const L = defaultLayout(e);
     const valid = Object.keys(MODULES);
-    L.hidden = [...new Set(L.hidden.filter(k => valid.includes(k)))];
+    L.hidden = L.hidden.filter(k => valid.includes(k));
     Object.keys(L.free).forEach(k => { if (!valid.includes(k) || L.hidden.includes(k)) delete L.free[k]; });
     return L;
   }
@@ -569,37 +558,24 @@ window.ExecSummary = (function () {
 
   /* ---- assemble (free canvas: tiles absolutely positioned, drag anywhere) ---- */
   function render(e) {
-    // TEMPORARY: layout editing is re-enabled for Cameron's final arranging pass.
-    // Arrange → "Copy layout" → paste to Claude → it gets baked in and editing removed for good.
+    // Layout is FIXED and locked — no drag / resize / add / remove / lock / copy controls.
+    // The only control is "Reset to actuals" (data overrides, not layout). Code-only changes.
     const lay = getLayout(e);
-    const locked = !!lay.locked;
     const visible = Object.keys(MODULES).filter(k => !lay.hidden.includes(k));
     const tiles = visible.map(k => {
       const p = lay.free[k];
       const style = p
         ? `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`
         : `width:${DEF_W}px;`;
-      const bar = (canAdmin() && !locked) ? `<button class="tile-remove" data-tileremove="${k}" title="Remove tile">✕</button>` : "";
-      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${bar}${MODULES[k].fn(e)}</div>`;
+      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${MODULES[k].fn(e)}</div>`;
     }).join("");
     const actualsBtn = (canAdmin() && hasActualsOverride(e))
-      ? `<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>` : "";
-    const copyBtn = canAdmin()
-      ? `<button class="exec-reset-btn" data-copylayout title="Copy this page's tile layout as JSON — paste it to Claude to bake in permanently">📋 Copy layout</button>` : "";
-    const resetBtn = (canAdmin() && !locked)
-      ? `<button class="exec-reset-btn" data-tilereset title="Reset tiles to the standard layout">↺ Reset layout</button>` : "";
-    const lockBtn = canAdmin()
-      ? `<div class="exec-controls">${actualsBtn}${copyBtn}${resetBtn}<button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
-      : "";
-    const hiddenRow = (canAdmin() && !locked && lay.hidden.length)
-      ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
-      : "";
+      ? `<div class="exec-controls"><button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button></div>` : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${northStarBanner(e)}
-    ${lockBtn}
-    <div class="exec-canvas${locked ? " locked" : ""}">${tiles}</div>
-    ${hiddenRow}`;
+    ${actualsBtn}
+    <div class="exec-canvas locked">${tiles}</div>`;
   }
   function rerender() {
     const s = section(); if (!s) return;
@@ -774,6 +750,7 @@ window.ExecSummary = (function () {
   // tiles are never cut off / forced into horizontal scroll (arrangement preserved)
   function fitCanvas() {
     const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
+    if (!canvas.clientWidth) return;   // page hidden (another tab active) — measuring now would corrupt the fit
     const stacked = window.innerWidth <= 760;
     // Horizontal stretch-to-fill: widen columns (x and w scale; heights + font size unchanged)
     // so the grid's right edge always meets the North Star banner's right edge on any screen.
@@ -878,15 +855,19 @@ window.ExecSummary = (function () {
     if (wired) return; wired = true;
     const s = section();
 
-    // per-tile resize (CSS resize: both) — persist each tile's width/height on release
+    // per-tile resize (CSS resize: both) — persist each tile's width/height on release.
+    // GUARDS: only while the exec page is actually visible, and never persist a zero size —
+    // a mouseup on another tab (exec display:none → offsetWidth 0) used to write w:0 into the
+    // layout, which is why tiles "changed size" after visiting Status and coming back.
     document.addEventListener("mouseup", () => {
       if (!canAdmin()) return;
-      const sec = section(); if (!sec) return;
+      const sec = section(); if (!sec || !sec.classList.contains("active")) return;
       const lay = getLayout(window.DASH.getEng()); if (!lay.free || lay.locked) return;
       let changed = false;
       sec.querySelectorAll(".exec-tile[data-key]").forEach(t => {
         const pos = lay.free[t.dataset.key]; if (!pos) return;
         const w = Math.round(t.offsetWidth), h = Math.round(t.offsetHeight);
+        if (w < 50 || h < 30) return;   // hidden/collapsed reads — never persist
         if (pos.w !== w || (t.style.height && pos.h !== h)) { pos.w = w; if (t.style.height) pos.h = h; changed = true; }
       });
       if (changed) { window.DASH.saveState(); fitCanvas(); }
