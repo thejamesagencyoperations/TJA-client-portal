@@ -54,7 +54,7 @@ window.ExecSummary = (function () {
       const d = S + i / 10 * S2, o = polar(cx, cy, r, d), inn = polar(cx, cy, r - (i % 5 === 0 ? 15 : 9), d);
       ticks += `<line x1="${o.x}" y1="${o.y}" x2="${inn.x}" y2="${inn.y}" stroke="${i % 5 === 0 ? "#9a9a9f" : "#48484e"}" stroke-width="${i % 5 === 0 ? 2.2 : 1.4}"/>`;
     }
-    return `<svg viewBox="0 25 260 180" width="100%" style="max-width:240px${interactive ? ";cursor:grab;touch-action:none" : ""}" class="gauge-svg${interactive ? " gauge-drag" : ""}">
+    return `<svg viewBox="0 25 260 180" width="100%" style="max-width:180px${interactive ? ";cursor:grab;touch-action:none" : ""}" class="gauge-svg${interactive ? " gauge-drag" : ""}">
       <defs><linearGradient id="gz2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#EFAE41"/><stop offset="0.55" stop-color="#EC9C39"/><stop offset="1" stop-color="#DA662A"/></linearGradient></defs>
       <path d="${arc(cx, cy, r, S, E)}" fill="none" stroke="rgba(130,130,140,.22)" stroke-width="14" stroke-linecap="round"/>
       <path d="${arc(cx, cy, r, S, nd)}" fill="none" stroke="url(#gz2)" stroke-width="14" stroke-linecap="round"/>
@@ -529,17 +529,29 @@ window.ExecSummary = (function () {
     PROJECT_HIDDEN.forEach(k => delete f[k]);
     return f;
   })();
+  // TEMPORARY EDITING WINDOW (one push): stored layouts + drag/resize/lock controls are back so
+  // Cameron can do a final arrangement, then click "Copy layout" and paste it to Claude — the
+  // result gets baked in as the permanent hard-coded layout and editing is removed for good.
+  const PROJECT_LAYOUT_V = 3, RETAINER_LAYOUT_V = 3;   // matches the v1.80-era stored layouts
   function defaultLayout(e) {
-    return (e.type === "project")
-      ? { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice(), locked: true }
-      : { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [], locked: true };
+    const lay = (e.type === "project")
+      ? { free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() }
+      : { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
+    lay.v = LAYOUT_V;
+    if (e.type === "project") lay.pv = PROJECT_LAYOUT_V; else lay.rv = RETAINER_LAYOUT_V;
+    return lay;
   }
-  // Always return the fixed layout — ignore any stored/Supabase layout entirely, so it can
-  // never drift or be changed by a client's saved state. Layout changes happen in code only.
   function getLayout(e) {
-    const L = defaultLayout(e);
+    const isProj = e.type === "project";
+    const stale = !e.layout || e.layout.v !== LAYOUT_V
+      || (isProj && e.layout.pv !== PROJECT_LAYOUT_V)
+      || (!isProj && e.layout.rv !== RETAINER_LAYOUT_V);
+    if (stale) e.layout = defaultLayout(e);
+    const L = e.layout;
+    if (!L.free || typeof L.free !== "object") L.free = {};
+    if (!Array.isArray(L.hidden)) L.hidden = [];
     const valid = Object.keys(MODULES);
-    L.hidden = L.hidden.filter(k => valid.includes(k));
+    L.hidden = [...new Set(L.hidden.filter(k => valid.includes(k)))];
     Object.keys(L.free).forEach(k => { if (!valid.includes(k) || L.hidden.includes(k)) delete L.free[k]; });
     return L;
   }
@@ -558,24 +570,37 @@ window.ExecSummary = (function () {
 
   /* ---- assemble (free canvas: tiles absolutely positioned, drag anywhere) ---- */
   function render(e) {
-    // Layout is FIXED and locked — no drag / resize / add / remove / lock controls. The only
-    // control here is "Reset to actuals" (data overrides, not layout). Change layout via code only.
+    // TEMPORARY: layout editing is re-enabled for Cameron's final arranging pass.
+    // Arrange → "Copy layout" → paste to Claude → it gets baked in and editing removed for good.
     const lay = getLayout(e);
+    const locked = !!lay.locked;
     const visible = Object.keys(MODULES).filter(k => !lay.hidden.includes(k));
     const tiles = visible.map(k => {
       const p = lay.free[k];
       const style = p
         ? `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`
         : `width:${DEF_W}px;`;
-      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${MODULES[k].fn(e)}</div>`;
+      const bar = (canAdmin() && !locked) ? `<button class="tile-remove" data-tileremove="${k}" title="Remove tile">✕</button>` : "";
+      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${bar}${MODULES[k].fn(e)}</div>`;
     }).join("");
     const actualsBtn = (canAdmin() && hasActualsOverride(e))
-      ? `<div class="exec-controls"><button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button></div>` : "";
+      ? `<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>` : "";
+    const copyBtn = canAdmin()
+      ? `<button class="exec-reset-btn" data-copylayout title="Copy this page's tile layout as JSON — paste it to Claude to bake in permanently">📋 Copy layout</button>` : "";
+    const resetBtn = (canAdmin() && !locked)
+      ? `<button class="exec-reset-btn" data-tilereset title="Reset tiles to the standard layout">↺ Reset layout</button>` : "";
+    const lockBtn = canAdmin()
+      ? `<div class="exec-controls">${actualsBtn}${copyBtn}${resetBtn}<button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
+      : "";
+    const hiddenRow = (canAdmin() && !locked && lay.hidden.length)
+      ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
+      : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${northStarBanner(e)}
-    ${actualsBtn}
-    <div class="exec-canvas locked">${tiles}</div>`;
+    ${lockBtn}
+    <div class="exec-canvas${locked ? " locked" : ""}">${tiles}</div>
+    ${hiddenRow}`;
   }
   function rerender() {
     const s = section(); if (!s) return;
@@ -684,9 +709,8 @@ window.ExecSummary = (function () {
   // of the team's Celtic layout (matched box sizes) when available, else the baked default.
   function resetLayout() {
     const e = window.DASH.getEng();
-    if (!confirm("Reset this Executive Summary to the default monthly-services layout? Your current tile arrangement here will be replaced.")) return;
-    const ref = (window.TJA_STORE && window.TJA_STORE.referenceRetainerLayout) ? window.TJA_STORE.referenceRetainerLayout() : null;
-    e.layout = (ref && e.type !== "project") ? ref : defaultLayout(e);
+    if (!confirm("Reset this Executive Summary to the standard layout? Your current tile arrangement here will be replaced.")) return;
+    e.layout = defaultLayout(e);
     window.DASH.saveState(); rerender();
   }
 
@@ -757,7 +781,9 @@ window.ExecSummary = (function () {
     const lay = getLayout(window.DASH.getEng());
     let baseR = 0; Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); });
     const avail = canvas.clientWidth || baseR;
-    const fx = (!stacked && baseR > 0) ? Math.max(1, avail / baseR) : 1;   // stretch up only; shrink handled by scale below
+    // stretch only while locked — during an editing session tiles use raw coordinates so
+    // drag/resize persist exactly what's on screen (no double-scaling)
+    const fx = (!stacked && baseR > 0 && lay.locked) ? Math.max(1, avail / baseR) : 1;
     canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
       const p = lay.free[t.dataset.key]; if (!p) return;
       t.style.left = Math.round(p.x * fx) + "px";
@@ -997,6 +1023,17 @@ window.ExecSummary = (function () {
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
       if (ra && canAdmin()) { delete eng.svcUtilOverride; if (eng.burn) delete eng.burn.pctOverride; window.DASH.saveState(); rerender(); return; }
+
+      // "Copy layout" — copy this page's tile arrangement as JSON (paste to Claude to bake in)
+      const cl = e.target.closest("[data-copylayout]");
+      if (cl && canAdmin()) {
+        const lay = getLayout(eng);
+        const txt = JSON.stringify({ type: eng.type, free: lay.free, hidden: lay.hidden }, null, 1);
+        const done = () => { cl.textContent = "✓ Copied — paste it to Claude"; setTimeout(rerender, 2000); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => prompt("Copy this layout JSON:", txt));
+        else prompt("Copy this layout JSON:", txt);
+        return;
+      }
 
       // Unallocated drill-down → popup listing the projects behind the misc hours
       const ut = e.target.closest("[data-unalloctoggle]");

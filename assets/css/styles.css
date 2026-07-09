@@ -894,7 +894,9 @@ body[data-role="client"] .admin-only { display: none !important; }
 @media (max-width: 860px) { .exec-grid, .exec-grid-3 { grid-template-columns: 1fr; } }
 
 /* Burn (speedometer) */
-.burn-wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.burn-wrap { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; }   /* % readout sits to the RIGHT of the speedometer */
+.burn-wrap .gauge-svg { flex: 0 1 180px; min-width: 120px; }
+.burn-readout { flex: 1; min-width: 0; }
 .burn-readout .big { font-size: 2rem; font-weight: 800; letter-spacing: -.02em; color: var(--accent-text); }
 .burn-readout .sub { font-size: .8rem; color: var(--text-dim); }
 .burn-edit { margin-top: 8px; display: flex; align-items: center; gap: 6px; font-size: .76rem; color: var(--text-dim); }
