@@ -510,52 +510,41 @@ window.ExecSummary = (function () {
   };
   const LAYOUT_V = 4;        // free-canvas layout: tiles are absolutely positioned and drag anywhere
   const SNAP = 9, GRID_GAP = 16, DEF_W = 360;   // snap distance (px), default gap + tile width
-  // The monthly-services layout we like (captured from Celtic) — exact box position
-  // AND size, so every fresh retainer renders identical tiles regardless of content.
+  // FIXED, LOCKED layout — a clean 3-column grid, aligned rows + equal 16px gaps.
+  // Column x: 0 / 376 / 752 (width 360, 16px gaps). This is the single source of truth;
+  // it can only be changed here in code. Tiles scroll internally if content exceeds height.
+  const COL = [0, 376, 752], TW = 360;
   const DEFAULT_RETAINER_FREE = {
-    burn:         { x: 0,   y: 0,   w: 360, h: 525 },
-    service:      { x: 376, y: 0,   w: 360, h: 474 },
-    milestones:   { x: 752, y: 0,   w: 360, h: 284 },
-    todos:        { x: 752, y: 300, w: 360, h: 186 },
-    dependencies: { x: 376, y: 490, w: 360, h: 176 },
-    kpis:         { x: 752, y: 502, w: 360, h: 185 },
-    pr:           { x: 0,   y: 541, w: 360, h: 558 },
+    // Row 1 (y 0 → 500): burn + service tall; milestones + todos stacked to match
+    burn:         { x: COL[0], y: 0,   w: TW, h: 500 },
+    service:      { x: COL[1], y: 0,   w: TW, h: 500 },
+    milestones:   { x: COL[2], y: 0,   w: TW, h: 242 },
+    todos:        { x: COL[2], y: 258, w: TW, h: 242 },
+    // Row 2 (y 516 → 816): even trio
+    pr:           { x: COL[0], y: 516, w: TW, h: 300 },
+    dependencies: { x: COL[1], y: 516, w: TW, h: 300 },
+    kpis:         { x: COL[2], y: 516, w: TW, h: 300 },
   };
-  // Projects mirror a designated template project (DNA Stratagem) — see
-  // referenceProjectLayout in client-store. PR Coverage + KPIs are hidden on
-  // projects. PROJECT_LAYOUT_V forces existing project layouts to re-adopt the
-  // template when bumped (without touching monthly-services layouts).
-  const PROJECT_LAYOUT_V = 3;   // bump → all projects re-adopt the current template (RCS), locked
-  const RETAINER_LAYOUT_V = 3;  // bump → all retainers re-adopt the standard layout (restores sizing)
-  const PROJECT_HIDDEN = ["pr", "kpis"];
-  const DEFAULT_PROJECT_FREE = (function () {
-    const f = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
-    PROJECT_HIDDEN.forEach(k => delete f[k]);
-    return f;
-  })();
+  const PROJECT_HIDDEN = ["pr", "kpis"];   // PR Coverage + KPIs hidden on projects
+  // Projects: same clean grid, minus pr/kpis. Row 1: burn, service, milestones+todos; Row 2: dependencies.
+  const DEFAULT_PROJECT_FREE = {
+    burn:         { x: COL[0], y: 0,   w: TW, h: 500 },
+    service:      { x: COL[1], y: 0,   w: TW, h: 500 },
+    milestones:   { x: COL[2], y: 0,   w: TW, h: 242 },
+    todos:        { x: COL[2], y: 258, w: TW, h: 242 },
+    dependencies: { x: COL[0], y: 516, w: TW, h: 300 },
+  };
   function defaultLayout(e) {
-    if (e.type === "project") {
-      const ref = (window.TJA_STORE && window.TJA_STORE.referenceProjectLayout) ? window.TJA_STORE.referenceProjectLayout() : null;
-      const lay = ref || { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() };
-      lay.v = LAYOUT_V; lay.pv = PROJECT_LAYOUT_V;
-      return lay;
-    }
-    // retainers use the standard layout (reverted the per-client-reference propagation that broke sizing)
-    const lay = { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
-    lay.v = LAYOUT_V; lay.rv = RETAINER_LAYOUT_V;
-    return lay;
+    return (e.type === "project")
+      ? { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice(), locked: true }
+      : { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [], locked: true };
   }
+  // Always return the fixed layout — ignore any stored/Supabase layout entirely, so it can
+  // never drift or be changed by a client's saved state. Layout changes happen in code only.
   function getLayout(e) {
-    const isProj = e.type === "project";
-    const stale = !e.layout || e.layout.v !== LAYOUT_V
-      || (isProj && e.layout.pv !== PROJECT_LAYOUT_V)
-      || (!isProj && e.layout.rv !== RETAINER_LAYOUT_V);
-    if (stale) e.layout = defaultLayout(e);
-    const L = e.layout;
-    if (!L.free || typeof L.free !== "object") L.free = {};
-    if (!Array.isArray(L.hidden)) L.hidden = [];
+    const L = defaultLayout(e);
     const valid = Object.keys(MODULES);
-    L.hidden = [...new Set(L.hidden.filter(k => valid.includes(k)))];
+    L.hidden = L.hidden.filter(k => valid.includes(k));
     Object.keys(L.free).forEach(k => { if (!valid.includes(k) || L.hidden.includes(k)) delete L.free[k]; });
     return L;
   }
@@ -574,33 +563,24 @@ window.ExecSummary = (function () {
 
   /* ---- assemble (free canvas: tiles absolutely positioned, drag anywhere) ---- */
   function render(e) {
+    // Layout is FIXED and locked — no drag / resize / add / remove / lock controls. The only
+    // control here is "Reset to actuals" (data overrides, not layout). Change layout via code only.
     const lay = getLayout(e);
-    const locked = !!lay.locked;
     const visible = Object.keys(MODULES).filter(k => !lay.hidden.includes(k));
     const tiles = visible.map(k => {
       const p = lay.free[k];
       const style = p
         ? `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`
-        : `width:${DEF_W}px;`;   // unplaced → positioned by ensurePositions after first layout
-      const bar = (canAdmin() && !locked) ? `<button class="tile-remove" data-tileremove="${k}" title="Remove tile">✕</button>` : "";
-      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${bar}${MODULES[k].fn(e)}</div>`;
+        : `width:${DEF_W}px;`;
+      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${MODULES[k].fn(e)}</div>`;
     }).join("");
-    const resetBtn = (canAdmin() && !locked && e.type !== "project")
-      ? `<button class="exec-reset-btn" data-tilereset title="Reset tiles to the default monthly-services layout">↺ Reset layout</button>` : "";
     const actualsBtn = (canAdmin() && hasActualsOverride(e))
-      ? `<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>` : "";
-    const lockBtn = canAdmin()
-      ? `<div class="exec-controls">${actualsBtn}${resetBtn}<button class="exec-lock-btn${locked ? " on" : ""}" data-tilelock title="${locked ? "Unlock to rearrange tiles" : "Freeze tiles exactly where they are"}">${locked ? "🔒 Layout locked" : "🔓 Lock layout"}</button></div>`
-      : "";
-    const hiddenRow = (canAdmin() && !locked && lay.hidden.length)
-      ? `<div class="exec-add"><span class="exec-add-label">Hidden tiles:</span>${lay.hidden.map(k => `<button class="exec-add-btn" data-tilerestore="${k}">＋ ${esc(MODULES[k].label)}</button>`).join("")}</div>`
-      : "";
+      ? `<div class="exec-controls"><button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button></div>` : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${northStarBanner(e)}
-    ${lockBtn}
-    <div class="exec-canvas${locked ? " locked" : ""}">${tiles}</div>
-    ${hiddenRow}`;
+    ${actualsBtn}
+    <div class="exec-canvas locked">${tiles}</div>`;
   }
   function rerender() {
     const s = section(); if (!s) return;
