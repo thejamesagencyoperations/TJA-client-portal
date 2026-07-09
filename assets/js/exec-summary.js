@@ -760,19 +760,27 @@ window.ExecSummary = (function () {
     if (!avail) return;   // page hidden (another tab active) — measuring now would corrupt the fit
     const stacked = window.innerWidth <= 760;
     const lay = getLayout(window.DASH.getEng());
-    // pin tiles at their base (design) coordinates — idempotent, clears any stale inline styles
-    canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
-      const p = lay.free[t.dataset.key]; if (!p) return;
-      t.style.left = p.x + "px"; t.style.width = p.w + "px";
-    });
-    let baseR = 0; Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); });
-    const { maxB } = canvasExtent(canvas), h = maxB + 8;
-    canvas.style.height = h + "px";
-    if (stacked) {   // mobile: static stacked layout (media query) — no transform, natural width
-      canvas.style.width = ""; canvas.style.transform = ""; canvas.style.transformOrigin = ""; canvas.style.marginBottom = "";
+    let baseR = 0, baseB = 0;
+    Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); baseB = Math.max(baseB, p.y + (p.h || 0)); });
+    if (stacked) {   // mobile: static stacked layout (media query) — no transform, natural sizing
+      canvas.style.width = ""; canvas.style.height = ""; canvas.style.transform = ""; canvas.style.transformOrigin = ""; canvas.style.marginBottom = "";
       canvasScale = 1; return;
     }
     const sc = Math.max(0.4, Math.min(2, baseR ? avail / baseR : 1));
+    // VERTICAL FILL: stretch tile heights + row positions (only — no font/width change, no
+    // reordering) so the grid's bottom row lands exactly on the bottom of the viewport.
+    // Boxes get longer/shorter; content scrolls inside tiles when shorter.
+    const topDoc = canvas.getBoundingClientRect().top + window.scrollY;   // scroll-independent
+    const availH = window.innerHeight - topDoc - 14;                      // breathing room at the bottom
+    const fy = (baseB > 0 && availH > 200) ? Math.max(0.6, Math.min(2, (availH / sc - 8) / baseB)) : 1;
+    canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
+      const p = lay.free[t.dataset.key]; if (!p) return;
+      t.style.left = p.x + "px"; t.style.width = p.w + "px";
+      t.style.top = Math.round(p.y * fy) + "px";
+      if (p.h) t.style.height = Math.round(p.h * fy) + "px";
+    });
+    const { maxB } = canvasExtent(canvas), h = maxB + 8;
+    canvas.style.height = h + "px";
     canvasScale = sc;
     canvas.style.width = baseR + "px";                       // design width; scaled it becomes exactly `avail`
     canvas.style.transform = `scale(${sc})`; canvas.style.transformOrigin = "top left";
