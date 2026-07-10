@@ -13,7 +13,7 @@
    engagement + the burn tile's "unset" hint in exec-summary.js.
    ============================================================ */
 window.WMJ_RETAINER_VALUE = (function () {
-  const URL = "https://script.google.com/macros/s/AKfycbzXjSg15uTCAnahwUlDIHf7p1j139V4yvHElGG4hABxHkvPCZoOLaZsu7Zh44wyitzZ/exec";
+  const URL = "https://script.google.com/macros/s/AKfycbxq5ARfE9Tourj-ZD85aMW0QquSH1AUan3pLkjETUJ0dNb2zzOwTEECdjsqqkO54HPR/exec";
   const PENDING = /pending|proposal|draft|on\s*hold/i;
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
