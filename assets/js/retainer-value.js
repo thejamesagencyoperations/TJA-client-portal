@@ -30,21 +30,29 @@ window.WMJ_RETAINER_VALUE = (function () {
             d.toLocaleString("en-US", { month: "long" }) + " " + y];
   }
 
-  // Hours for one tab's retainer SOWs. PREFER the current month's actual billing $ ÷ rate
-  // (exact — handles partial-year retainers like DNA's Jul–Dec schedule); fall back to
-  // total $ ÷ rate ÷ 12 (annual average) for SOWs whose month columns aren't in the feed.
-  function hrsForRetainers(retainers) {
+  // Hours for one tab's retainer SOWs — ACTIVE-MONTH ONLY (per Cameron): the current month's
+  // billing $ ÷ rate. Retainers are often flighted / partial-year, so an annual average is
+  // wrong by construction; a SOW with month columns but no billing THIS month contributes 0
+  // (no retainer this month — the burn correctly shows unset).
+  // TRANSITIONAL fallback: while the deployed feed has no month columns at all (script not yet
+  // redeployed), estimate total ÷ rate ÷ 12 and mark it `monthly:false` so the UI labels it
+  // "estimated". Dies automatically the moment the feed starts returning months.
+  function hrsForRetainers(retainers, feedHasMonths) {
     const keys = monthKeys();
-    let hrs = 0, hasHrs = false, anyMonthly = false, hasPending = false;
+    let hrs = 0, hasHrs = false, hasPending = false;
     (retainers || []).forEach(r => {
       if (PENDING.test(r.sow || "")) { hasPending = true; return; }
       if (!r.rate) return;
-      let m = null;
-      if (r.months) for (const k of keys) { if (r.months[k] != null) { m = r.months[k]; break; } }
-      if (m != null) { hrs += m / r.rate; hasHrs = true; anyMonthly = true; }
-      else if (r.total != null) { hrs += r.total / r.rate / 12; hasHrs = true; }
+      if (feedHasMonths) {
+        let m = null;
+        if (r.months) for (const k of keys) { if (r.months[k] != null) { m = r.months[k]; break; } }
+        if (m != null) { hrs += m / r.rate; hasHrs = true; }
+        else if (r.months && Object.keys(r.months).length) hasHrs = true;   // flighted, off-month → 0 hrs
+      } else if (r.total != null) {
+        hrs += r.total / r.rate / 12; hasHrs = true;   // labeled estimate — transition only
+      }
     });
-    return { hrs: hasHrs ? Math.round(hrs * 100) / 100 : null, monthly: anyMonthly, hasPending };
+    return { hrs: hasHrs ? Math.round(hrs * 100) / 100 : null, monthly: !!feedHasMonths, hasPending };
   }
 
   // → Map<code, {hrs, monthly, hasPending, sows}>, keyed by the SOW's own leading-token code
@@ -54,8 +62,10 @@ window.WMJ_RETAINER_VALUE = (function () {
   // but the tab name will.
   function buildIndex(data) {
     const byCode = new Map(), byTab = new Map();
+    // does ANY SOW in the feed carry month columns? (false until the Apps Script redeploy lands)
+    const feedHasMonths = (data.clients || []).some(t => (t.retainers || []).some(r => r.months && Object.keys(r.months).length));
     (data.clients || []).forEach(t => {
-      const { hrs, monthly, hasPending } = hrsForRetainers(t.retainers);
+      const { hrs, monthly, hasPending } = hrsForRetainers(t.retainers, feedHasMonths);
       const sows = (t.retainers || []).map(r => ({ sow: r.sow, total: r.total, rate: r.rate, pending: PENDING.test(r.sow || "") }));
       const entry = { hrs, monthly, hasPending, sows };
       (t.retainers || []).forEach(r => { if (r.code) byCode.set(r.code.toUpperCase(), entry); });

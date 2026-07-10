@@ -1105,6 +1105,12 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pr-metric.pr-av { color: var(--accent-text); }
 .pr-link { color: var(--accent-text); text-decoration: none; font-weight: 600; }
 .pr-link:hover { text-decoration: underline; }
+/* curated Slack wins send (admin) */
+.pr-slack { font: inherit; font-size: .68rem; font-weight: 700; padding: 3px 9px; border-radius: 7px;
+  border: 1px solid var(--orange); background: transparent; color: var(--accent-text); cursor: pointer; }
+.pr-slack:hover { background: var(--orange); color: #111; }
+.pr-slack:disabled { opacity: .6; cursor: default; }
+.pr-slack.sent { border-color: transparent; background: rgba(46,160,110,.16); color: #2ea06e; cursor: default; }
 
 /* ---- Executive Summary kanban (2 columns + movable tiles) ---- */
 /* Executive Summary — free canvas: tiles are absolutely positioned and drag anywhere */

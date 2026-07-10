@@ -179,7 +179,7 @@ window.ExecSummary = (function () {
                ${(canAdmin() && e.retainerValueHasPending) ? `<div class="burn-hint">a pending (unsigned) SOW exists — it isn't counted until signed</div>` : ""}`
             : canAdmin()
             ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>
-               ${(viewMonthIdx == null && usingSowTotal(e)) ? `<div class="burn-hint">total from the signed SOW (${e.retainerValueMonthly ? "this month's billing ÷ rate" : "retainer $ ÷ rate ÷ 12"}) — set per-discipline hours below to split it</div>` : ""}`
+               ${(viewMonthIdx == null && usingSowTotal(e)) ? `<div class="burn-hint">total from the signed SOW (${e.retainerValueMonthly ? "this month's billing ÷ rate" : "ESTIMATED: annual ÷ 12 — exact month data arrives once the sheet script redeploy lands"}) — set per-discipline hours below to split it</div>` : ""}`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
@@ -476,7 +476,17 @@ window.ExecSummary = (function () {
     const fmtNum = (n) => { const v = String(n == null ? "" : n).replace(/[^0-9.]/g, ""); return v ? Number(v).toLocaleString() : String(n || ""); };
 
     if (sheet) {
-      const rows = list.map(p => `
+      // admin-only, curated Slack send: the team picks which hits go to the wins channel
+      const slackOn = canAdmin() && window.SLACK_WINS && window.SLACK_WINS.enabled();
+      const sent = e.prSlackSent || {};
+      const rows = list.map((p, i) => {
+        const wasSent = slackOn && sent[window.SLACK_WINS.keyFor(p)];
+        const slackBtn = slackOn
+          ? (wasSent
+              ? `<span class="pr-slack sent" title="Already posted to the wins channel">✓ Sent</span>`
+              : `<button class="pr-slack" data-prslack="${i}" title="Post this hit to the Slack wins channel">→ Slack</button>`)
+          : "";
+        return `
         <div class="pr-item">
           <div class="pr-main">
             <div class="pr-top"><span class="pr-outlet">${esc(p.outlet || "")}</span><span class="pr-date">${esc(p.date || "")}</span></div>
@@ -485,8 +495,10 @@ window.ExecSummary = (function () {
           <div class="pr-stats">
             ${p.impressions ? `<span class="pr-metric" title="Estimated impressions">${esc(fmtNum(p.impressions))} impressions</span>` : ""}
             ${p.adValue ? `<span class="pr-metric pr-av" title="Ad value equivalent">${esc(String(p.adValue))} AVE</span>` : ""}
+            ${slackBtn}
           </div>
-        </div>`).join("");
+        </div>`;
+      }).join("");
       const n = e.prHits != null ? e.prHits : list.length;
       return `<div class="module">
         <div class="module-head"><span class="module-title">${IC.pr}PR Coverage · Recent Wins</span><span class="rsvc-legend">${n} hits YTD</span></div>
@@ -1055,6 +1067,21 @@ window.ExecSummary = (function () {
       // Unallocated drill-down → popup listing the projects behind the misc hours
       const ut = e.target.closest("[data-unalloctoggle]");
       if (ut && canAdmin()) { openUnallocPopup(window.DASH.getEng()); return; }
+
+      // curated PR-wins Slack send (admin): post ONE chosen hit via the proxy, remember it
+      const ps = e.target.closest("[data-prslack]");
+      if (ps && canAdmin() && window.SLACK_WINS && window.SLACK_WINS.enabled()) {
+        const hit = (eng.prCoverage || [])[+ps.dataset.prslack]; if (!hit) return;
+        ps.disabled = true; ps.textContent = "Sending…";
+        const clientName = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name) || "Client";
+        window.SLACK_WINS.send(clientName, hit)
+          .then(() => {
+            (eng.prSlackSent || (eng.prSlackSent = {}))[window.SLACK_WINS.keyFor(hit)] = new Date().toISOString();
+            window.DASH.saveState(); rerender();
+          })
+          .catch(err => { alert("Couldn't post to Slack: " + (err && err.message || err)); rerender(); });
+        return;
+      }
 
       const add = e.target.closest("[data-listadd]");
       if (add) { const k = add.dataset.listadd; (eng[k] || (eng[k] = [])).push(defaults[k]()); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
