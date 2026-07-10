@@ -178,8 +178,7 @@ window.ExecSummary = (function () {
             ? `<div class="sub">${used} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>
                ${(canAdmin() && e.retainerValueHasPending) ? `<div class="burn-hint">a pending (unsigned) SOW exists — it isn't counted until signed</div>` : ""}`
             : canAdmin()
-            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>
-               ${(viewMonthIdx == null && usingSowTotal(e)) ? `<div class="burn-hint">total from the signed SOW (${e.retainerValueMonthly ? "this month's billing ÷ rate" : "ESTIMATED: annual ÷ 12 — exact month data arrives once the sheet script redeploy lands"}) — set per-discipline hours below to split it</div>` : ""}`
+            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
