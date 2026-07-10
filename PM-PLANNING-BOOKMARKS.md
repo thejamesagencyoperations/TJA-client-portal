@@ -10,6 +10,12 @@ with the project-management team. Grouped by theme. (Maintained by Claude as we 
 2-hr one-offs that are **rolled into a monthly-services retainer** should NOT be
 projects.
 
+**✅ Interim fix shipped (v1.90):** admins can now **archive** any auto-synced project
+from the Projects folder (📁, mirrors the Clients page pattern) — it's hidden from the
+client but recoverable in an admin-only Archived tab. Lets the team manually prune
+small non-SOW campaigns today, without waiting on WMJ. The durable fix (a real WMJ
+Project Type field) below is still the long-term answer.
+
 **The problem — the sheet can't tell us this today.** Findings from the WMJ export
 (51 billable campaigns):
 - There is **no SOW / billing-type flag** in the columns we have.
@@ -85,10 +91,13 @@ Needs the backend (Supabase/Option B) + a notification channel (email/Slack) —
 run from a static client-only site.
 
 ## Smaller / later
-- Client-tile footer still shows a static "1 project" (not the real count).
+- ✅ **Done (v1.90):** client-tile footer now shows a live "Monthly Services · N
+  projects" count computed from real dashboard state, not the static string stamped
+  at creation.
 - Confirm `(xxx)` = contracted hours with WMJ (and whether to display it to clients).
-- Default project-only clients' top toggle to **Projects** (today it opens on the
-  empty Monthly Services side).
+- ✅ **Done (v1.90):** engagement-mode default now checks actual data (retainer vs
+  projects) instead of always opening Monthly Services — and is scoped per client so
+  an admin's last-used mode doesn't leak between clients in the same tab.
 - **Actual vs allocated hours:** the sheet only has *allocated*. Ask WMJ to expose
   *actual/logged* hours → enables a true burn instead of "allocated of budget."
 - **Production backend (Option B):** move the WMJ sync to a Supabase Edge Function +
