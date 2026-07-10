@@ -732,6 +732,29 @@ function applyEngagement() {
     } catch (e) {}
   })();
 
+  // Refresh the SOW-derived retainer hours for THIS client on load, same reasoning as the PR
+  // block above: syncRetainerValue only runs in the Clients-page poll, so a client dashboard
+  // opened directly would never receive its SOW total (burn showed "—" despite signed $ in the
+  // sheet). Fire-and-forget; repaint the summary when it lands.
+  (function refreshRetainerValueForCurrent() {
+    try {
+      const rv = window.WMJ_RETAINER_VALUE;
+      const ret = STATE.engagements && STATE.engagements.retainer;
+      const me = window.TJA_STORE && window.TJA_STORE.get && window.TJA_STORE.get(clientId());
+      if (!rv || !ret || !me) return;
+      rv.forRoster([me])
+        .then(map => {
+          const entry = map.get(me.id); if (!entry) return;
+          ret.retainerValueTarget = entry.hrs;
+          ret.retainerValueMonthly = !!entry.monthly;
+          ret.retainerValueHasPending = entry.hasPending;
+          saveState();
+          if (currentPage() === "exec") repaint("exec");
+        })
+        .catch(e => console.warn("retainer-value refresh", e));
+    } catch (e) { console.warn("retainer-value refresh", e); }
+  })();
+
   // normalize a stale/invalid selection from older sessions
   if (engMode !== "retainer" && engMode !== "project") setEngMode("retainer");
   if (selectedProjectId && !getProjects().some(p => p.id === selectedProjectId)) selectProject("");

@@ -223,6 +223,7 @@ window.WMJ_SYNC = (function () {
       const e = state.engagements && state.engagements.retainer;
       if (!e) return;
       e.retainerValueTarget = entry.hrs;         // hrs/mo, or null if no signed $ figure yet
+      e.retainerValueMonthly = !!entry.monthly;  // true = exact current-month $ ÷ rate; false = annual avg (÷12)
       e.retainerValueHasPending = entry.hasPending;
       saveState(id, state);
       done++;
