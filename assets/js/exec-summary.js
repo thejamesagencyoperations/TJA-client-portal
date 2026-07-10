@@ -176,9 +176,10 @@ window.ExecSummary = (function () {
           <div class="big">${bigPct}${canAdmin() && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</div>
           ${unset
             ? `<div class="sub">${used} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>
-               ${(canAdmin() && e.retainerValueTarget != null) ? `<div class="burn-hint">SOW suggests ~${e.retainerValueTarget} hrs/mo (from the signed retainer value ÷ hourly rate)${e.retainerValueHasPending ? " · a pending SOW isn't counted yet" : ""}</div>` : ""}`
+               ${(canAdmin() && e.retainerValueHasPending) ? `<div class="burn-hint">a pending (unsigned) SOW exists — it isn't counted until signed</div>` : ""}`
             : canAdmin()
-            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>`
+            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>
+               ${(viewMonthIdx == null && usingSowTotal(e)) ? `<div class="burn-hint">total from the signed SOW (retainer $ ÷ rate ÷ 12) — set per-discipline hours below to split it</div>` : ""}`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
@@ -234,11 +235,21 @@ window.ExecSummary = (function () {
   // allocated for that line — how much of its hours are used up).
   const canon = (s) => (window.tjaCanonDiscipline ? window.tjaCanonDiscipline(s) : String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
   const round2 = (n) => Math.round((+n || 0) * 100) / 100;
-  // total monthly contracted hours = sum of the disciplines' budgets (single source of truth)
+  // total monthly contracted hours: the admin's per-discipline budgets when entered; otherwise
+  // fall back to the SOW-derived total from the retainer-value feed (signed retainer $ ÷ rate ÷ 12).
+  // The TOTAL is real contract data — only the per-discipline SPLIT stays manual (never guessed).
   function retainerTotalContracted(e) {
     const d = e.serviceDisciplines;
-    if (Array.isArray(d) && d.length) return d.reduce((s, x) => s + (+x.contracted || 0), 0);
+    const disc = (Array.isArray(d) && d.length) ? d.reduce((s, x) => s + (+x.contracted || 0), 0) : 0;
+    if (disc > 0) return disc;
+    if (e.retainerValueTarget != null && +e.retainerValueTarget > 0) return +e.retainerValueTarget;
     return (e.burn && +e.burn.contractedHours) || 0;
+  }
+  // is the total currently coming from the SOW feed (no discipline hours entered yet)?
+  function usingSowTotal(e) {
+    const d = e.serviceDisciplines;
+    const disc = (Array.isArray(d) && d.length) ? d.reduce((s, x) => s + (+x.contracted || 0), 0) : 0;
+    return disc <= 0 && e.retainerValueTarget != null && +e.retainerValueTarget > 0;
   }
   // keep the burn denominator in step with the disciplines (total contracted = their sum)
   function syncContracted(e) { e.burn = e.burn || {}; e.burn.contractedHours = retainerTotalContracted(e); }
@@ -295,7 +306,9 @@ window.ExecSummary = (function () {
     const actual = actualByDiscipline(e);
     const total = retainerTotalContracted(e);
     const ov = e.svcUtilOverride || {};   // admin manual % overrides, keyed by discipline name
-    const unset = total <= 0;   // no contracted hours entered yet → "needs setup", don't blast everything red
+    // "needs setup" keys off the DISCIPLINES (not the total, which may come from the SOW feed):
+    // until the admin splits hours across disciplines, rows stay neutral and the note shows.
+    const unset = disc.reduce((s, d2) => s + (+d2.contracted || 0), 0) <= 0;
     const rows = disc.map((d, i) => {
       const contracted = +d.contracted || 0;
       const act = actual[canon(d.name)] || 0;
@@ -334,7 +347,9 @@ window.ExecSummary = (function () {
            <div class="rsvc-cap">${misc} hrs billable · not in a discipline</div>
          </div>` : "";
     const setupNote = (admin && unset)
-      ? `<div class="rsvc-setup-note">No contracted hours yet — set them per discipline (or they'll auto-fill from the SOW sheet once connected).</div>` : "";
+      ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0
+            ? `The burn total (~${e.retainerValueTarget} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
+            : `No contracted hours yet — set them per discipline.`}</div>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span class="rsvc-legend">% of retainer</span></div>
       <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}${miscRow}</div>
