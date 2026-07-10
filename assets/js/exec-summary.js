@@ -237,18 +237,25 @@ window.ExecSummary = (function () {
   // total monthly contracted hours: the admin's per-discipline budgets when entered; otherwise
   // fall back to the SOW-derived total from the retainer-value feed (signed retainer $ ÷ rate ÷ 12).
   // The TOTAL is real contract data — only the per-discipline SPLIT stays manual (never guessed).
+  // A stored SOW value is only usable if it came from the ACTIVE-MONTH formula
+  // (retainerValueMonthly). Stale ÷12 estimates persisted by older builds are ignored
+  // outright — a client renders "—" for a few seconds and then the exact number lands,
+  // but a wrong number is never shown.
+  function sowTargetUsable(e) {
+    return e.retainerValueMonthly === true && e.retainerValueTarget != null && +e.retainerValueTarget > 0;
+  }
   function retainerTotalContracted(e) {
     const d = e.serviceDisciplines;
     const disc = (Array.isArray(d) && d.length) ? d.reduce((s, x) => s + (+x.contracted || 0), 0) : 0;
     if (disc > 0) return disc;
-    if (e.retainerValueTarget != null && +e.retainerValueTarget > 0) return +e.retainerValueTarget;
+    if (sowTargetUsable(e)) return +e.retainerValueTarget;
     return (e.burn && +e.burn.contractedHours) || 0;
   }
   // is the total currently coming from the SOW feed (no discipline hours entered yet)?
   function usingSowTotal(e) {
     const d = e.serviceDisciplines;
     const disc = (Array.isArray(d) && d.length) ? d.reduce((s, x) => s + (+x.contracted || 0), 0) : 0;
-    return disc <= 0 && e.retainerValueTarget != null && +e.retainerValueTarget > 0;
+    return disc <= 0 && sowTargetUsable(e);
   }
   // keep the burn denominator in step with the disciplines (total contracted = their sum)
   function syncContracted(e) { e.burn = e.burn || {}; e.burn.contractedHours = retainerTotalContracted(e); }
