@@ -128,23 +128,27 @@ window.ExecSummary = (function () {
   /* ---- modules ---- */
   function burnModule(e) {
     if (e.type === "project") {
+      const admin = canAdmin();
+      const manual = !!(e.pizza && e.pizza.manual);   // editable tracker (not-completed); completed = WMJ, read-only
+      const cap = manual ? 24 : 8;
       const allPhases = e.pizza.phases || [];
-      const ph = allPhases.slice(0, 8);                 // cap the tracker graphic at 8 phases
+      const ph = allPhases.slice(0, cap);
       const cur = ph.findIndex(p => !p.done);
       const steps = ph.map((p, i) => {
         const state = p.done ? "done" : (i === cur ? "current" : "");
-        return `<div class="pizza-step ${state}"><div class="pizza-dot ${canAdmin() ? "admin-edit" : ""}" data-phase="${i}" ${canAdmin() ? `title="Toggle ${esc(p.label)} complete"` : ""}>${p.done ? "✓" : i + 1}</div><div class="pizza-label">${esc(p.label)}</div></div>`;
+        const label = (admin && manual)
+          ? ed(p.label, "pizza.phases." + i + ".label", { rerender: false })   // editable step name
+          : esc(p.label);
+        const del = (admin && manual && allPhases.length > 1)
+          ? `<button class="pizza-del" data-delstep="${i}" title="Remove this step">✕</button>` : "";
+        return `<div class="pizza-step ${state}"><div class="pizza-dot ${admin ? "admin-edit" : ""}" data-phase="${i}" ${admin ? `title="Toggle complete"` : ""}>${p.done ? "✓" : i + 1}</div><div class="pizza-label">${label}${del}</div></div>`;
       }).join("");
       const pct = allPhases.length ? Math.round(allPhases.filter(p => p.done).length / allPhases.length * 100) : (e.progressPct || 0);
-      // hours readout is client-facing (per Cameron); per-task hours stay admin-only
-      const hrs = (e.allocatedHours != null)
-        ? `<div class="proj-hours"><b>${e.allocatedHours}h</b>${e.contractedHours ? ` of ${e.contractedHours}h` : ""} allocated</div>`
-        : "";
       return `<div class="module">
         <div class="module-head"><span class="module-title">${IC.burn}Project Progress · ${pct}%</span></div>
         <div class="pizza">${steps}</div>
-        ${hrs}
-        ${canAdmin() ? `<div class="burn-edit">Click a phase to mark it complete.</div>` : ""}
+        ${(admin && manual) ? `<div class="pizza-controls"><button class="row-add" data-addstep>＋ Add step</button></div>` : ""}
+        ${admin ? `<div class="burn-edit">${manual ? "Click a dot to mark it complete · edit the names · ✕ removes a step" : "Click a phase to mark it complete."}</div>` : ""}
         ${conditionInline(e)}
       </div>`;
     }
@@ -202,11 +206,18 @@ window.ExecSummary = (function () {
     </div>`;
   }
 
+  // stable key for a WMJ task (survives re-sync); admin visibility overrides are stored by it
+  const taskKey = (t) => (t.phase || "") + "|" + (t.name || "");
+  // effective "internal" = admin override if set, else the rule-based flag from the transform
+  function taskInternal(e, t) {
+    const ov = (e.taskInternalOverride || {})[taskKey(t)];
+    return (ov === true || ov === false) ? ov : !!t.internal;
+  }
   // Projects show a WMJ-fed "Tasks" module (grouped by phase) instead of Service Lines.
   function tasksModule(e) {
     const admin = canAdmin();
     const all = Array.isArray(e.wmjTasks) ? e.wmjTasks : [];
-    const tasks = admin ? all : all.filter(t => !t.internal);
+    const tasks = admin ? all : all.filter(t => !taskInternal(e, t));
     const order = (e.pizza && e.pizza.phases) ? e.pizza.phases.map(p => p.label) : [];
     const groups = {};
     tasks.forEach(t => { (groups[t.phase] = groups[t.phase] || []).push(t); });
@@ -215,13 +226,13 @@ window.ExecSummary = (function () {
     const body = names.map(pn => `
       <div class="task-group">
         <div class="task-group-head">${esc(pn)}</div>
-        ${groups[pn].map(t => `
-          <div class="task-row${t.internal ? " is-internal" : ""}">
+        ${groups[pn].map(t => { const internal = taskInternal(e, t); return `
+          <div class="task-row${internal ? " is-internal" : ""}">
             <span class="task-dot ${stCls[t.status] || "pending"}" title="${esc(t.status)}"></span>
-            <span class="task-name">${esc(t.name)}${t.internal ? ` <span class="task-int">internal</span>` : ""}</span>
+            <span class="task-name">${esc(t.name)}${internal ? ` <span class="task-int">internal</span>` : ""}</span>
             ${t.service ? `<span class="task-svc">${esc(t.service)}</span>` : ""}
-            ${(admin && t.hours) ? `<span class="task-hrs">${t.hours}h</span>` : ""}
-          </div>`).join("")}
+            ${admin ? `<button class="task-vis" data-taskvis="${esc(taskKey(t))}" title="${internal ? "Internal — click to show the client" : "Client-visible — click to make internal"}">${internal ? "🔒 Internal" : "👁 Client"}</button>` : ""}
+          </div>`; }).join("")}
       </div>`).join("");
     return `<div class="module module--tasks">
       <div class="module-head"><span class="module-title">${IC.svc}Tasks</span><span class="module-link" data-go="status">View status →</span></div>
@@ -1101,9 +1112,26 @@ window.ExecSummary = (function () {
       const phase = e.target.closest("[data-phase]");
       if (phase && canAdmin()) {
         const i = +phase.dataset.phase, ph = eng.pizza.phases;
-        // sequential: clicking a done phase clears it onward; clicking an undone phase fills up to it
-        if (ph[i].done) { for (let j = i; j < ph.length; j++) ph[j].done = false; }
+        if (eng.pizza.manual) { ph[i].done = !ph[i].done; }   // manual tracker → toggle just this step
+        // WMJ tracker → sequential: clicking a done phase clears onward; clicking undone fills up to it
+        else if (ph[i].done) { for (let j = i; j < ph.length; j++) ph[j].done = false; }
         else { for (let j = 0; j <= i; j++) ph[j].done = true; }
+        window.DASH.saveState(); rerender(); return;
+      }
+
+      // manual pizza: add a step
+      const addstep = e.target.closest("[data-addstep]");
+      if (addstep && canAdmin()) { (eng.pizza.phases || (eng.pizza.phases = [])).push({ label: "", done: false }); window.DASH.saveState(); rerender(); return; }
+      // manual pizza: remove a step
+      const delstep = e.target.closest("[data-delstep]");
+      if (delstep && canAdmin()) { eng.pizza.phases.splice(+delstep.dataset.delstep, 1); window.DASH.saveState(); rerender(); return; }
+      // per-task internal/client visibility toggle (admin) — persisted override, survives re-sync
+      const tv = e.target.closest("[data-taskvis]");
+      if (tv && canAdmin()) {
+        const key = tv.dataset.taskvis, ov = eng.taskInternalOverride || (eng.taskInternalOverride = {});
+        const t = (eng.wmjTasks || []).find(x => ((x.phase || "") + "|" + (x.name || "")) === key);
+        const currentlyInternal = typeof ov[key] === "boolean" ? ov[key] : !!(t && t.internal);
+        ov[key] = !currentlyInternal;
         window.DASH.saveState(); rerender(); return;
       }
 

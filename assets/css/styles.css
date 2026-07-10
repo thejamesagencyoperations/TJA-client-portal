@@ -1014,6 +1014,18 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pizza-label { margin-top: 8px; font-size: .68rem; color: var(--text-dim); text-align: center; width: 100%;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; word-break: break-word; }
 .pizza-step.done .pizza-label, .pizza-step.current .pizza-label { color: var(--text); font-weight: 600; }
+/* editable manual tracker: step-name field, remove ✕, add-step control */
+.pizza-label .ed[contenteditable] { display: inline-block; min-width: 40px; padding: 1px 4px; border-radius: 5px;
+  border: 1px dashed var(--border); outline: none; }
+.pizza-label .ed[contenteditable]:empty::before { content: "name…"; color: var(--text-faint); }
+.pizza-label .ed[contenteditable]:focus { border-color: var(--orange); border-style: solid; background: var(--input); }
+.pizza-del { margin-left: 4px; border: none; background: none; color: var(--text-faint); cursor: pointer; font-size: .66rem; padding: 0 2px; }
+.pizza-del:hover { color: var(--bad); }
+.pizza-controls { display: flex; justify-content: center; margin-top: 8px; }
+/* per-task internal/client visibility toggle (admin) */
+.task-vis { flex: none; font: inherit; font-size: .6rem; font-weight: 700; padding: 2px 7px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+.task-vis:hover { border-color: var(--orange); color: var(--accent-text); }
 
 /* Condition / temperature */
 .condition { display: flex; align-items: center; gap: 14px; }

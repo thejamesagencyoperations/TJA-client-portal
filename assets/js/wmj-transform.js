@@ -60,7 +60,7 @@
       const cm = (r.Campaign_Name || "").toLowerCase(), cl = (r.Client_Name || "").toLowerCase(), pn = (r.Project_Name || "").toLowerCase();
       return !cm || !cl || cm.indexOf("non-billable") > -1 || pn.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1;
     },
-    INTERNAL_TASK: /(internal\b|internal revision|mech\b|mech\s*\/?\s*(check|mech)|admin time|huddle|collab time|final eyes|account management|project management|strategic oversight|account supervis|internal planning|internal meeting|internal kickoff|internal stakeholder|monday morning|1:1|q[1-4] quarterly|camp james|proofing|\bproof\b|kickoff question|non-billable|account ramp|account health)/i,
+    INTERNAL_TASK: /(internal\b|internal revision|mech\b|mech\s*\/?\s*(check|mech)|admin time|huddle|collab time|final eyes|account management|project management|strategic oversight|account supervis|internal planning|internal meeting|internal kickoff|internal stakeholder|monday morning|1:1|q[1-4] quarterly|camp james|proofing|\bproof\b|kickoff question|non-billable|account ramp|account health|client communications)/i,
     EXCLUDE_PHASE: /(oversight|client communications|account leadership|account (management|supervis)|project management|ongoing client services|status meeting)/i,
   };
   function isNonBillable(r) { return RULES.DROP_ROW(r); }

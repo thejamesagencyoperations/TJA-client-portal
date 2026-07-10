@@ -60,7 +60,18 @@ window.WMJ_SYNC = (function () {
     p.id = w.id; p.type = "project"; p.source = "wmj";
     p.label = w.label; p.name = w.name;
     p.dueDate = w.dueDate || p.dueDate || "";
-    p.pizza = { phases: w.phases.map(ph => ({ label: ph.label, done: !!ph.done, status: ph.status })) };
+    // Pizza tracker precedence:
+    //  1. An admin-managed MANUAL tracker is sacrosanct — never overwritten (even once completed).
+    //  2. COMPLETED projects that were never made manual keep their WMJ-derived phases as-is.
+    //  3. NOT-completed projects get a manual, admin-editable tracker seeded with 3 empty steps.
+    const completed = (w.status === "Completed") || (+w.progressPct >= 100);
+    if (p.pizza && p.pizza.manual && Array.isArray(p.pizza.phases)) {
+      /* keep the admin's tracker untouched */
+    } else if (completed) {
+      p.pizza = { phases: w.phases.map(ph => ({ label: ph.label, done: !!ph.done, status: ph.status })) };
+    } else {
+      p.pizza = { manual: true, phases: [{ label: "", done: false }, { label: "", done: false }, { label: "", done: false }] };
+    }
     p.wmjTasks = w.tasks;
     p.contractedHours = w.contractedHours;
     p.allocatedHours = w.allocatedHours;
