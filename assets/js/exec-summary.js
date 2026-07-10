@@ -368,7 +368,7 @@ window.ExecSummary = (function () {
             ? `The burn total (~${e.retainerValueTarget} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
             : `No contracted hours yet — set them per discipline.`}</div>` : "";
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span class="rsvc-legend">% of retainer</span></div>
+      <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span style="display:flex;align-items:center;gap:10px"><span class="module-link" data-go="status">View status →</span><span class="rsvc-legend">% of retainer</span></span></div>
       <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}${miscRow}</div>
       ${setupNote}
       ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
@@ -417,8 +417,11 @@ window.ExecSummary = (function () {
         </div>
         ${canAdmin() ? `<button class="ms-del" data-listdel="milestones" data-idx="${i}" title="Remove milestone">✕</button>` : ""}
       </div>`).join("");
+    // Projects: header links to the full Project Plan. Retainers have no project-plan
+    // page (it force-redirects to exec), so the link only shows for projects.
+    const planLink = e.type === "project" ? `<span class="module-link" data-go="projectplan">View plan →</span>` : "";
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.flag}Milestones</span></div>
+      <div class="module-head"><span class="module-title">${IC.flag}Milestones</span>${planLink}</div>
       <div class="ms-list">${items}</div>
       ${listAdd("milestones", "Add milestone")}
     </div>`;

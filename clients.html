@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=199">
+<link rel="stylesheet" href="assets/css/styles.css?v=200">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -116,23 +116,23 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=199"></script>
-<script src="assets/js/supabase-sync.js?v=199"></script>
-<script src="assets/js/auth.js?v=199"></script>
+<script src="assets/js/supabase-config.js?v=200"></script>
+<script src="assets/js/supabase-sync.js?v=200"></script>
+<script src="assets/js/auth.js?v=200"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=199"></script>
-<script src="assets/js/client-template.js?v=199"></script>
-<script src="assets/js/client-store.js?v=199"></script>
-<script src="assets/js/wmj-transform.js?v=199"></script>
-<script src="assets/js/retainer-transform.js?v=199"></script>
-<script src="assets/js/client-logos.js?v=199"></script>
-<script src="assets/js/client-pr-sheets.js?v=199"></script>
-<script src="assets/js/retainer-value.js?v=199"></script>
-<script src="assets/js/wmj-sync.js?v=199"></script>
+<script src="assets/js/clients.js?v=200"></script>
+<script src="assets/js/client-template.js?v=200"></script>
+<script src="assets/js/client-store.js?v=200"></script>
+<script src="assets/js/wmj-transform.js?v=200"></script>
+<script src="assets/js/retainer-transform.js?v=200"></script>
+<script src="assets/js/client-logos.js?v=200"></script>
+<script src="assets/js/client-pr-sheets.js?v=200"></script>
+<script src="assets/js/retainer-value.js?v=200"></script>
+<script src="assets/js/wmj-sync.js?v=200"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
