@@ -175,7 +175,8 @@ window.ExecSummary = (function () {
         <div class="burn-readout">
           <div class="big">${bigPct}${canAdmin() && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</div>
           ${unset
-            ? `<div class="sub">${used} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>`
+            ? `<div class="sub">${used} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>
+               ${(canAdmin() && e.retainerValueTarget != null) ? `<div class="burn-hint">SOW suggests ~${e.retainerValueTarget} hrs/mo (from the signed retainer value ÷ hourly rate)${e.retainerValueHasPending ? " · a pending SOW isn't counted yet" : ""}</div>` : ""}`
             : canAdmin()
             ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}

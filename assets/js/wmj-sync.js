@@ -207,6 +207,29 @@ window.WMJ_SYNC = (function () {
     return { clients: done };
   }
 
+  /* ---------- RETAINER VALUE (SOW $ ÷ rate → advisory monthly-hours target) ----------
+     Read-only Apps Script feed off the revenue-forecasting workbook. This ONLY sets
+     retainer.retainerValueTarget (a reference number shown to the admin) — it never
+     writes serviceDisciplines or burn.contractedHours, since the feed has no per-
+     discipline breakdown and guessing one could show a client a fabricated split. */
+  async function syncRetainerValue() {
+    if (!window.WMJ_RETAINER_VALUE) return { clients: 0 };
+    let done = 0;
+    let byClient;
+    try { byClient = await window.WMJ_RETAINER_VALUE.forRoster(window.TJA_STORE.list()); }
+    catch (e) { console.warn("retainer-value sync", e); return { clients: 0 }; }
+    byClient.forEach((entry, id) => {
+      const state = loadState(id);
+      const e = state.engagements && state.engagements.retainer;
+      if (!e) return;
+      e.retainerValueTarget = entry.hrs;         // hrs/mo, or null if no signed $ figure yet
+      e.retainerValueHasPending = entry.hasPending;
+      saveState(id, state);
+      done++;
+    });
+    return { clients: done };
+  }
+
   function lastSync() { try { return localStorage.getItem(LAST_KEY) || null; } catch (e) { return null; } }
 
   // auto-sync: once on load (always fresh when the page opens) + hourly while open.
@@ -225,6 +248,8 @@ window.WMJ_SYNC = (function () {
         .catch(err => { console.warn("WMJ retainers sync", err); })
         .then(() => syncPR())
         .catch(err => { console.warn("PR sync", err); })
+        .then(() => syncRetainerValue())
+        .catch(err => { console.warn("retainer-value sync", err); })
         .then(() => {
           try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
           if (onDone) { try { onDone(window.__wmjProjResult || null); } catch (e) {} }
@@ -233,5 +258,5 @@ window.WMJ_SYNC = (function () {
     if (!timer) timer = setInterval(run, HOUR);
   }
 
-  return { sync, syncRetainers, syncPR, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
+  return { sync, syncRetainers, syncPR, syncRetainerValue, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
 })();
