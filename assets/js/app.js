@@ -68,18 +68,26 @@ function updateUndoBtn() {
 }
 
 // Engagement context = a MODE (retainer | project) + which project is open.
-let engMode = sessionStorage.getItem("tja_eng_mode");
-let selectedProjectId = sessionStorage.getItem("tja_proj") || "";
-if (!engMode) {                                   // migrate older "tja_eng" key (retainer | project:<id>)
-  const old = sessionStorage.getItem("tja_eng") || "retainer";
-  if (old.indexOf("project:") === 0) { engMode = "project"; selectedProjectId = old.slice(8); }
-  else engMode = "retainer";
+// Scoped per client (not a single global key) — otherwise an admin's mode carries over when
+// switching clients in the same tab (e.g. leaving a retainer client landed you back on Monthly
+// Services for a project-only client, since the browser had no idea the client had changed).
+let engMode = sessionStorage.getItem("tja_eng_mode_" + clientId());
+if (!engMode) {   // no explicit choice yet for this client — default to whichever engagement has
+  // real data (a client can be rostered "project" but still have live retainer billing, or vice
+  // versa, so the actual dashboard state is the reliable signal, not the roster's stamped kind)
+  const hasProj = Array.isArray(STATE.engagements.projects) && STATE.engagements.projects.length > 0;
+  engMode = (!retainerHasData() && hasProj) ? "project" : "retainer";
 }
-function getProjects() { return STATE.engagements.projects || []; }
+let selectedProjectId = sessionStorage.getItem("tja_proj_" + clientId()) || "";
+function getAllProjects() { return STATE.engagements.projects || []; }        // includes archived — admin/internal use
+function getProjects() {                                                      // client-facing list — archived hidden
+  const all = getAllProjects();
+  return (typeof canEdit === "function" && canEdit()) ? all : all.filter(p => !p.archived);
+}
 function isRetainer() { return engMode === "retainer"; }
 function selectedProject() { return getProjects().find(p => p.id === selectedProjectId) || null; }
-function setEngMode(m) { engMode = m; sessionStorage.setItem("tja_eng_mode", m); }
-function selectProject(id) { selectedProjectId = id || ""; sessionStorage.setItem("tja_proj", selectedProjectId); }
+function setEngMode(m) { engMode = m; sessionStorage.setItem("tja_eng_mode_" + clientId(), m); }
+function selectProject(id) { selectedProjectId = id || ""; sessionStorage.setItem("tja_proj_" + clientId(), selectedProjectId); }
 function getEng() {
   if (isRetainer() && STATE.engagements.retainer) return STATE.engagements.retainer;
   return selectedProject() || getProjects()[0] || STATE.engagements.retainer;
@@ -157,10 +165,14 @@ function projectPct(p) {
 // "completed" = WMJ says Completed, or 100% progress
 function isProjComplete(p) { return (p.source === "wmj" && p.wmjStatus === "Completed") || projectPct(p) >= 100; }
 let pendingDeleteId = null;   // project id awaiting delete-confirm (two-step, prevents accidental delete)
+let projBucket = "current";   // admin-only Current/Archived folder toggle (clients never see archived)
 // Projects landing — a folder of project tiles (Projects is a top-mode, not a left-nav tab).
 function renderProjectFolder() {
   const admin = ppAdmin();
-  const projects = getProjects();
+  const all = admin ? getAllProjects() : getProjects();
+  const bucket = admin ? projBucket : "current";
+  const projects = all.filter(p => !!p.archived === (bucket === "archived"));
+  const nCurrent = all.filter(p => !p.archived).length, nArchived = all.length - nCurrent;
   const tiles = projects.map(p => {
     if (pendingDeleteId === p.id) {
       return `<div class="proj-tile proj-tile-confirm">
@@ -174,20 +186,32 @@ function renderProjectFolder() {
     }
     const lvl = (p.projectPlan && p.projectPlan.status && p.projectPlan.status.level) || (p.condition && p.condition.level) || "green";
     const pct = projectPct(p);
-    return `<div class="proj-tile" data-ppopen="${esc(p.id)}">
-        <div class="proj-tile-top"><span class="ryg-dot ${lvl}"></span><span class="proj-tile-name">${esc(p.label || p.name)}</span>${admin ? `<button class="proj-del" data-ppdel="${esc(p.id)}" title="Delete project">✕</button>` : ""}</div>
+    const actions = admin ? `
+        <button class="ct-act" data-pparch="${esc(p.id)}" title="${p.archived ? "Move to Current" : "Move to Archived"}">${p.archived ? "↩" : "📁"}</button>
+        <button class="ct-act ct-del" data-ppdel="${esc(p.id)}" title="Delete project">🗑</button>` : "";
+    return `<div class="proj-tile client-tile" data-ppopen="${esc(p.id)}">
+        ${admin ? `<div class="client-tile-actions">${actions}</div>` : ""}
+        <div class="proj-tile-top"><span class="ryg-dot ${lvl}"></span><span class="proj-tile-name">${esc(p.label || p.name)}</span></div>
         <div class="proj-tile-sub">${esc(p.name)}</div>
         <div class="bar"><span style="width:${pct}%"></span></div>
         <div class="proj-tile-foot">${pct}% complete</div>
       </div>`;
   }).join("");
+  const tabs = admin ? `
+    <div class="cl-tabs" id="ppTabs">
+      <button class="cl-tab ${bucket === "current" ? "active" : ""}" data-ppbucket="current">Current <span class="cl-tab-n">${nCurrent}</span></button>
+      <button class="cl-tab ${bucket === "archived" ? "active" : ""}" data-ppbucket="archived">Archived <span class="cl-tab-n">${nArchived}</span></button>
+    </div>` : "";
   return `
-  ${admin ? `<div class="admin-hint">✎ Admin — click a project to open it · ＋ adds a project · ✕ then confirm to delete</div>` : ""}
-  <div class="page-head">
-    <div class="page-title">Projects</div>
-    <div class="page-desc">${projects.length ? `${projects.length} active project${projects.length === 1 ? "" : "s"} — choose one to open.` : "No projects yet — add your first one."}</div>
+  ${admin ? `<div class="admin-hint">✎ Admin — click a project to open it · ＋ adds a project · 📁 archives (hides from the client) · 🗑 then confirm to delete</div>` : ""}
+  <div class="page-head page-head-row">
+    <div>
+      <div class="page-title">Projects</div>
+      <div class="page-desc">${projects.length ? `${projects.length} project${projects.length === 1 ? "" : "s"}${bucket === "current" ? " — choose one to open." : " archived — hidden from the client."}` : (bucket === "archived" ? "No archived projects." : "No projects yet — add your first one.")}</div>
+    </div>
+    ${tabs}
   </div>
-  <div class="proj-grid">${tiles}${admin ? `<button class="proj-tile proj-tile-add" data-ppaddproject><span class="pta-plus">＋</span> New Project</button>` : ""}</div>`;
+  <div class="proj-grid">${tiles}${admin && bucket === "current" ? `<button class="proj-tile proj-tile-add" data-ppaddproject><span class="pta-plus">＋</span> New Project</button>` : ""}</div>`;
 }
 function renderProjectPicker(projects, admin) {
   const tiles = projects.map(p => {
@@ -308,6 +332,10 @@ function initProjectPlan() {
     if (delx) { pendingDeleteId = null; repaint("projectplan"); return; }
     const del = e.target.closest("[data-ppdel]");
     if (del) { pendingDeleteId = del.dataset.ppdel; repaint("projectplan"); return; }
+    const arch = e.target.closest("[data-pparch]");
+    if (arch) { const p = getAllProjects().find(x => x.id === arch.dataset.pparch); if (p) p.archived = !p.archived; saveState(); repaint("projectplan"); return; }
+    const bucket = e.target.closest("[data-ppbucket]");
+    if (bucket) { projBucket = bucket.dataset.ppbucket; repaint("projectplan"); return; }
     const add = e.target.closest("[data-ppaddproject]");
     if (add) { const id = "p_" + Date.now().toString(36); getProjects().push(newProjectTemplate(id)); selectProject(id); saveState(); applyEngagement(); openFresh("exec"); return; }
     const open = e.target.closest("[data-ppopen]");

@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=189">
+<link rel="stylesheet" href="assets/css/styles.css?v=190">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -116,22 +116,22 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=189"></script>
-<script src="assets/js/supabase-sync.js?v=189"></script>
-<script src="assets/js/auth.js?v=189"></script>
+<script src="assets/js/supabase-config.js?v=190"></script>
+<script src="assets/js/supabase-sync.js?v=190"></script>
+<script src="assets/js/auth.js?v=190"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=189"></script>
-<script src="assets/js/client-template.js?v=189"></script>
-<script src="assets/js/client-store.js?v=189"></script>
-<script src="assets/js/wmj-transform.js?v=189"></script>
-<script src="assets/js/retainer-transform.js?v=189"></script>
-<script src="assets/js/client-logos.js?v=189"></script>
-<script src="assets/js/client-pr-sheets.js?v=189"></script>
-<script src="assets/js/wmj-sync.js?v=189"></script>
+<script src="assets/js/clients.js?v=190"></script>
+<script src="assets/js/client-template.js?v=190"></script>
+<script src="assets/js/client-store.js?v=190"></script>
+<script src="assets/js/wmj-transform.js?v=190"></script>
+<script src="assets/js/retainer-transform.js?v=190"></script>
+<script src="assets/js/client-logos.js?v=190"></script>
+<script src="assets/js/client-pr-sheets.js?v=190"></script>
+<script src="assets/js/wmj-sync.js?v=190"></script>
 <script>
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
@@ -168,6 +168,25 @@
   let bucket = "current";   // which folder is shown
   function isArchived(c) { return !!c.archived; }
 
+  // Live "Monthly Services · N projects" footer — computed from the client's actual dashboard
+  // state (not the static string stamped at creation, which never updated as WMJ synced in).
+  function retainerHasData(r) {
+    if (!r) return false;
+    return r.source === "wmj" || (Array.isArray(r.wmjServiceLines) && r.wmjServiceLines.length > 0)
+      || (r.burn && Number(r.burn.contractedHours) > 0) || (Array.isArray(r.serviceLines) && r.serviceLines.length > 0)
+      || (Array.isArray(r.milestones) && r.milestones.length > 0) || (Array.isArray(r.todos) && r.todos.length > 0)
+      || (r.northStar && String(r.northStar).trim() !== "");
+  }
+  function liveEngagementLabel(c) {
+    let e; try { e = (JSON.parse(localStorage.getItem("tja_dashboard_" + c.id) || "{}").engagements) || {}; } catch { e = {}; }
+    const hasRet = retainerHasData(e.retainer);
+    const nProj = (e.projects || []).filter(p => !p.archived).length;
+    const parts = [];
+    if (hasRet) parts.push("Monthly Services");
+    if (nProj) parts.push(nProj + " project" + (nProj === 1 ? "" : "s"));
+    return parts.join(" · ") || c.engagements || "";
+  }
+
   function renderGrid() {
     const all = window.TJA_STORE.list();
     const nCur = all.filter(c => !isArchived(c)).length, nArc = all.length - nCur;
@@ -186,7 +205,7 @@
           <span class="proj-tile-name">${esc(c.name)}</span>
         </div>
         ${c.tagline ? `<div class="proj-tile-sub">${esc(c.tagline)}</div>` : ""}
-        ${c.engagements ? `<div class="proj-tile-foot">${esc(c.engagements)}</div>` : ""}
+        ${(() => { const lbl = liveEngagementLabel(c); return lbl ? `<div class="proj-tile-foot">${esc(lbl)}</div>` : ""; })()}
       </div>`).join("")
       + (bucket === "current" ? `<button class="proj-tile proj-tile-add" id="addClient"><span class="pta-plus">＋</span> Add client</button>` : `<div class="cl-empty">${clients.length ? "" : "No archived clients. Drag a tile onto Archived to file it here."}</div>`);
   }
