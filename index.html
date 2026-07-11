@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=200">
+<link rel="stylesheet" href="assets/css/styles.css?v=201">
 </head>
 <body>
 <div class="login-wrap">
@@ -38,7 +38,7 @@
     </form>
 
     <div class="login-foot">
-      © 2026 The James Agency · v1.67
+      © 2026 The James Agency · v2.1
       <br>
       <span class="sandbox-tag">Sandbox · Demo Login</span>
     </div>
@@ -46,9 +46,13 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=200"></script>
-<script src="assets/js/supabase-sync.js?v=200"></script>
-<script src="assets/js/auth.js?v=200"></script>
+<script src="assets/js/supabase-config.js?v=201"></script>
+<script src="assets/js/supabase-sync.js?v=201"></script>
+<script src="assets/js/auth.js?v=201"></script>
+<!-- client roster on the login page so per-client logins resolve to their own workspace -->
+<script src="assets/js/clients.js?v=201"></script>
+<script src="assets/js/client-template.js?v=201"></script>
+<script src="assets/js/client-store.js?v=201"></script>
 <script>
   // Admins land on the client picker; clients go straight to their workspace.
   const landing = () => (typeof isAdmin === "function" && isAdmin()) ? "clients.html" : "dashboard.html";

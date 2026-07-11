@@ -52,21 +52,23 @@ function getSession() {
   catch { return null; }
 }
 
-// Unified login — uses Supabase when configured, falls back to the mock accounts.
+// Unified login. Identity (who you are + which workspace you own) is resolved from the
+// mock roster — the two hardcoded accounts PLUS the client registry (window.TJA_STORE),
+// which holds every admin-added client's email→workspace mapping. Supabase auth is used
+// ONLY as a best-effort background data-sync session; it must NOT decide identity, because
+// its `profiles` table has no per-client rows yet and was therefore sending EVERY client to
+// the hard-coded celtic-elevator fallback (that was the "all logins open Celtic" bug). The
+// Step-6 backend will replace this with real server-side claims.
 async function login(email, password) {
-  if (window.SUPA && window.SUPA.enabled) {
-    const res = await window.SUPA.signIn(email, password);
-    if (!res.ok) return false;
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      email: (res.user && res.user.email) || email,
-      client: res.profile.client_id,
-      name: res.profile.role === "admin" ? "TJA Client Services" : "Client",
-      role: res.profile.role,
-    }));
-    sessionStorage.removeItem(PREVIEW_KEY);
-    return true;
+  // Ensure the client roster is loaded so per-client logins resolve (added clients live in
+  // the store, not the two hardcoded accounts). No-op if the store isn't on this page.
+  if (window.TJA_STORE && window.TJA_STORE.hydrate) { try { await window.TJA_STORE.hydrate(); } catch (e) {} }
+
+  const ok = attemptLogin(email, password);
+  if (ok && window.SUPA && window.SUPA.enabled) {
+    try { await window.SUPA.signIn(email, password); } catch (e) { /* sync-only; identity already set */ }
   }
-  return attemptLogin(email, password);   // mock (synchronous)
+  return ok;
 }
 
 function requireAuth() {
