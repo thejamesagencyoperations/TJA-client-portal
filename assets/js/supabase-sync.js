@@ -26,10 +26,12 @@ window.SUPA = (function () {
   async function signOut() { try { if (client) await client.auth.signOut(); } catch {} }
 
   async function fetchProfile(userId) {
+    // Missing row → null. NEVER fabricate a fallback profile here: the old hard-coded
+    // { client_id: "celtic-elevator" } default sent every client to Celtic's workspace.
     try {
       const { data } = await client.from("profiles").select("role,client_id").eq("id", userId).single();
-      return data || { role: "client", client_id: "celtic-elevator" };
-    } catch { return { role: "client", client_id: "celtic-elevator" }; }
+      return data || null;
+    } catch { return null; }
   }
   async function currentSession() {
     if (!client) return null;

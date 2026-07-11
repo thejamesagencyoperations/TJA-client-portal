@@ -1,3 +1,5 @@
 .DS_Store
 *.log
 node_modules/
+# plaintext login list for the provisioning script — never commit
+scripts/users.json

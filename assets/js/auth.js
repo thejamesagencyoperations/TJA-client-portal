@@ -52,31 +52,83 @@ function getSession() {
   catch { return null; }
 }
 
-// Unified login. Identity (who you are + which workspace you own) is resolved from the
-// mock roster — the two hardcoded accounts PLUS the client registry (window.TJA_STORE),
-// which holds every admin-added client's email→workspace mapping. Supabase auth is used
-// ONLY as a best-effort background data-sync session; it must NOT decide identity, because
-// its `profiles` table has no per-client rows yet and was therefore sending EVERY client to
-// the hard-coded celtic-elevator fallback (that was the "all logins open Celtic" bug). The
-// Step-6 backend will replace this with real server-side claims.
+/* ---------- identity resolution ----------
+   WHO a signed-in email is (role + which workspace they own). Order of truth:
+     1. hardcoded accounts (admin + Celtic demo)
+     2. the client registry (TJA_STORE) — email→workspace for every auto-created client
+     3. a real Supabase `profiles` row (future-provisioned users not in the roster)
+   The roster outranks the profile because existing profile rows carry the signup
+   trigger's old celtic-elevator default; once profiles are provisioned correctly
+   (scripts/provision-supabase-users.mjs + schema v2) this order can flip.
+   Returns null when the email maps to nothing — callers must DENY, never default. */
+function resolveIdentity(email, profile) {
+  const em = (email || "").trim().toLowerCase();
+  const hard = ACCOUNTS[em];
+  if (hard) return { email: em, client: hard.client, name: hard.name, role: hard.role };
+  const reg = registryAccount(em);
+  if (reg) return { email: em, client: reg.client, name: reg.name, role: reg.role };
+  if (profile && profile.client_id) return { email: em, client: profile.client_id, name: profile.role === "admin" ? "TJA Client Services" : "Client", role: profile.role || "client" };
+  return null;
+}
+function setSession(identity) {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(identity));
+  sessionStorage.removeItem(PREVIEW_KEY);
+}
+
+/* ---------- unified login ----------
+   1. Supabase auth first (REAL credentials — the production path; the admin's real
+      password lives there, not in this public file).
+   2. Mock/roster fallback (sandbox demo creds) so clients without a Supabase user
+      yet can still sign in, and `admin` keeps working for the demo.
+   Identity always comes from resolveIdentity() — an authenticated user whose email
+   maps to no workspace is signed out and denied (no celtic-elevator default). */
 async function login(email, password) {
-  // Ensure the client roster is loaded so per-client logins resolve (added clients live in
-  // the store, not the two hardcoded accounts). No-op if the store isn't on this page.
+  // Roster must be loaded before identity lookups (added clients live in the store).
   if (window.TJA_STORE && window.TJA_STORE.hydrate) { try { await window.TJA_STORE.hydrate(); } catch (e) {} }
 
-  const ok = attemptLogin(email, password);
-  if (ok && window.SUPA && window.SUPA.enabled) {
-    try { await window.SUPA.signIn(email, password); } catch (e) { /* sync-only; identity already set */ }
+  if (window.SUPA && window.SUPA.enabled) {
+    try {
+      const res = await window.SUPA.signIn(email, password);
+      if (res.ok) {
+        const who = resolveIdentity(email, res.profile);
+        if (who) { setSession(who); return true; }
+        console.warn("login: authenticated but no workspace mapping for", email);
+        try { window.SUPA.signOut(); } catch (e) {}
+        return false;
+      }
+    } catch (e) { /* fall through to mock */ }
   }
-  return ok;
+  return attemptLogin(email, password);   // sandbox fallback (synchronous)
+}
+
+/* ---------- session restore ----------
+   The mock session lives in sessionStorage (per-tab); the Supabase session persists
+   in localStorage. A new tab therefore lands on the login page even though Supabase
+   still knows the user — rebuild the session instead of making them re-type. */
+async function restoreSession() {
+  if (getSession()) return true;
+  if (!(window.SUPA && window.SUPA.enabled)) return false;
+  try {
+    if (window.TJA_STORE && window.TJA_STORE.hydrate) { try { await window.TJA_STORE.hydrate(); } catch (e) {} }
+    const cur = await window.SUPA.currentSession();
+    if (!cur || !cur.user || !cur.user.email) return false;
+    const who = resolveIdentity(cur.user.email, cur.profile);
+    if (!who) return false;
+    setSession(who);
+    return true;
+  } catch (e) { return false; }
 }
 
 function requireAuth() {
   if (!getSession()) window.location.replace("index.html");
 }
 
-function logout() {
-  if (window.SUPA && window.SUPA.enabled) { try { window.SUPA.signOut(); } catch {} }
+async function logout() {
+  // AWAIT the Supabase sign-out before navigating — firing it and immediately
+  // redirecting aborts the call, leaving the Supabase session alive, and the
+  // login page's restoreSession() then signs the "signed-out" user straight
+  // back in.
+  if (window.SUPA && window.SUPA.enabled) { try { await window.SUPA.signOut(); } catch {} }
   sessionStorage.removeItem(SESSION_KEY);
   sessionStorage.removeItem(PREVIEW_KEY);
   window.location.replace("index.html");
