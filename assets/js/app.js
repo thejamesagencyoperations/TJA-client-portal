@@ -565,15 +565,19 @@ function applyEngagement() {
     setPath(getEng(), f.dataset.tbpath, f.textContent.trim()); saveState();
   });
 
-  // Live data: pull from Supabase when configured (otherwise stay on localStorage)
+  // Live data: pull from Supabase when configured (otherwise stay on localStorage).
+  // The three scopes pull IN PARALLEL (each self-times-out in the sync layer), so a slow
+  // or unreachable backend delays boot by at most one timeout, never the sum of three.
   if (window.SUPA && window.SUPA.enabled) {
     try {
       const cid = clientId();
-      const dash = await window.SUPA.pullScope(cid, "dashboard");
+      const [dash, files, dels] = await Promise.all([
+        window.SUPA.pullScope(cid, "dashboard"),
+        window.SUPA.pullScope(cid, "files"),
+        window.SUPA.pullScope(cid, "deliverables"),
+      ]);
       if (dash && dash.engagements) { STATE = migrate(dash); lastSnapshot = clone(STATE); try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch {} }
-      const files = await window.SUPA.pullScope(cid, "files");
       if (files) { try { localStorage.setItem(FILES_KEY, JSON.stringify(files)); } catch {} }
-      const dels = await window.SUPA.pullScope(cid, "deliverables");
       if (dels) { try { localStorage.setItem("tja_deliverables_" + cid, JSON.stringify(dels)); } catch {} }
     } catch (e) { console.warn("Supabase boot sync failed; using local data.", e); }
   }

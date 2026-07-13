@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=206">
+<link rel="stylesheet" href="assets/css/styles.css?v=207">
 </head>
 <body>
 <div class="app">
@@ -44,7 +44,7 @@
       </div>
     </nav>
     <div class="sidebar-foot">
-      <div class="version-pill">Sandbox · v2.6</div>
+      <div class="version-pill">Sandbox · v2.7</div>
     </div>
   </aside>
 
@@ -90,27 +90,33 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=206"></script>
-<script src="assets/js/supabase-sync.js?v=206"></script>
-<script src="assets/js/auth.js?v=206"></script>
+<script src="assets/js/supabase-config.js?v=207"></script>
+<script src="assets/js/supabase-sync.js?v=207"></script>
+<script src="assets/js/auth.js?v=207"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=206"></script>
-<script src="assets/js/client-template.js?v=206"></script>
-<script src="assets/js/client-store.js?v=206"></script>
-<script src="assets/js/wmj-transform.js?v=206"></script>
-<script src="assets/js/retainer-transform.js?v=206"></script>
-<script src="assets/js/client-logos.js?v=206"></script>
-<script src="assets/js/client-pr-sheets.js?v=206"></script>
-<script src="assets/js/retainer-value.js?v=206"></script>
-<script src="assets/js/wmj-sync.js?v=206"></script>
-<script src="assets/data/celtic-elevator.js?v=206"></script>
+<script src="assets/js/clients.js?v=207"></script>
+<script src="assets/js/client-template.js?v=207"></script>
+<script src="assets/js/client-store.js?v=207"></script>
+<script src="assets/js/wmj-transform.js?v=207"></script>
+<script src="assets/js/retainer-transform.js?v=207"></script>
+<script src="assets/js/client-logos.js?v=207"></script>
+<script src="assets/js/client-pr-sheets.js?v=207"></script>
+<script src="assets/js/retainer-value.js?v=207"></script>
+<script src="assets/js/wmj-sync.js?v=207"></script>
+<script src="assets/data/celtic-elevator.js?v=207"></script>
 <script>
   /* bootstrap: resolve the selected client's data BEFORE app.js reads window.CLIENT_DATA.
      Built-in clients use their rich seed; added clients build from the registry template. */
   (function () {
     try {
       var s = (typeof getSession === "function" && getSession()) || {};
-      var id = s.client || "celtic-elevator";
+      var id = s.client;
+      // The admin owns no client workspace: if they reach the dashboard without a real
+      // client selected (id is the "_admin" sentinel, or empty), send them to the picker.
+      if (s.role === "admin" && (!id || id === "_admin" || String(id).charAt(0) === "_")) {
+        window.location.replace("clients.html"); return;
+      }
+      if (!id) { window.location.replace("index.html"); return; }   // no workspace → back to login
       var seeds = window.CLIENT_SEEDS || {};
       if (seeds[id]) { window.CLIENT_DATA = seeds[id]; }
       else {
@@ -119,13 +125,13 @@
       }
     } catch (e) {
       console.warn("client bootstrap failed", e);
-      window.CLIENT_DATA = (window.CLIENT_SEEDS && window.CLIENT_SEEDS["celtic-elevator"]) || window.makeClientData({ name: "Client" });
+      window.location.replace("clients.html");
     }
   })();
 </script>
-<script src="assets/js/slack-wins.js?v=206"></script>
-<script src="assets/js/present-docs.js?v=206"></script>
-<script src="assets/js/exec-summary.js?v=206"></script>
-<script src="assets/js/app.js?v=206"></script>
+<script src="assets/js/slack-wins.js?v=207"></script>
+<script src="assets/js/present-docs.js?v=207"></script>
+<script src="assets/js/exec-summary.js?v=207"></script>
+<script src="assets/js/app.js?v=207"></script>
 </body>
 </html>

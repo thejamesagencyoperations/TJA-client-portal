@@ -31,7 +31,7 @@ begin
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'role', 'client'),
-    coalesce(new.raw_user_meta_data->>'client_id', 'celtic-elevator')
+    coalesce(new.raw_user_meta_data->>'client_id', 'unassigned')   -- never default into a real client (see schema-v2)
   )
   on conflict (id) do nothing;
   return new;
@@ -81,7 +81,7 @@ create policy app_state_write on public.app_state
 -- ============================================================
 -- After running this, create your two auth users (Authentication → Users → Add user),
 -- each with raw_user_meta_data:
---   admin:   { "role": "admin",  "client_id": "celtic-elevator" }
+--   admin:   { "role": "admin",  "client_id": "_admin" }        -- standalone; owns no client
 --   client:  { "role": "client", "client_id": "celtic-elevator" }
 -- (see SUPABASE_SETUP.md for the exact steps).
 -- ============================================================

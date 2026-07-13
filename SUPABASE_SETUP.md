@@ -27,11 +27,13 @@ and under **User Metadata** paste the JSON shown:
 
 | User | Email | Password | User metadata |
 |---|---|---|---|
-| Admin (TJA) | `clientservices@thejamesagency.com` | *(your choice)* | `{ "role": "admin", "client_id": "celtic-elevator" }` |
+| Admin (TJA) | `clientservices@thejamesagency.com` | *(your choice)* | `{ "role": "admin", "client_id": "_admin" }` |
 | Client (Celtic) | `celticelevator@thejamesagency.com` | *(your choice)* | `{ "role": "client", "client_id": "celtic-elevator" }` |
 
-The trigger auto-creates a matching row in `profiles`. (If a profile is missing,
-re-run: `insert into profiles(id,email,role,client_id) select id,email,'admin','celtic-elevator' from auth.users where email='clientservices@thejamesagency.com';`)
+The admin's `client_id` is the reserved sentinel `_admin` — the admin owns no client
+workspace; its all-client access comes from `role = 'admin'` (RLS), not the id. The
+trigger auto-creates a matching row in `profiles`. (If the admin profile is missing,
+re-run: `insert into profiles(id,email,role,client_id) select id,email,'admin','_admin' from auth.users where email='clientservices@thejamesagency.com';`)
 
 ## 4. Seed the first dashboard row (optional but recommended)
 So the admin sees data on first login, insert one `app_state` row. Easiest: log in

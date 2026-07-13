@@ -42,11 +42,22 @@ window.SUPA = (function () {
     } catch { return null; }
   }
 
+  // race any Supabase call against a timeout so a slow/failing backend can never
+  // hang the UI (boot awaits these) — on timeout we return null and use localStorage.
+  function withTimeout(promise, ms, label) {
+    return Promise.race([
+      promise,
+      new Promise(res => setTimeout(() => res({ __timeout: true, label }), ms)),
+    ]);
+  }
+
   async function pullScope(clientId, scope) {
     if (!client) return null;
     try {
-      const { data, error } = await client.from("app_state")
-        .select("data").eq("client_id", clientId).eq("scope", scope).maybeSingle();
+      const q = client.from("app_state").select("data").eq("client_id", clientId).eq("scope", scope).maybeSingle();
+      const r = await withTimeout(q, 3500, scope);
+      if (r && r.__timeout) { console.warn("SUPA pull timeout", scope); return null; }
+      const { data, error } = r;
       if (error) { console.warn("SUPA pull", scope, error.message); return null; }
       return data ? data.data : null;
     } catch (e) { console.warn("SUPA pull", scope, e); return null; }

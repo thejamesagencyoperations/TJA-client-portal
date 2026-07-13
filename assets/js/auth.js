@@ -8,16 +8,22 @@
    server-side. Here they just shape the UI.
    ============================================================ */
 
+// Reserved workspace id for the admin. The admin owns NO client workspace — this is a
+// sentinel (like _registry) that is never a real client, so the admin can never be
+// confused with, or land inside, an actual client's data. Admins always route to the
+// client picker; their data access comes from role === "admin" (RLS), not this id.
+const ADMIN_CLIENT_ID = "_admin";
+
 const ACCOUNTS = {
   "celticelevator@thejamesagency.com": {
     password: "celticelevator",
-    client: "celtic-elevator",
+    client: "celtic-elevator",   // the real Celtic Elevator CLIENT login
     name: "Celtic Elevator",
     role: "client",
   },
   "clientservices@thejamesagency.com": {
     password: "admin",
-    client: "celtic-elevator",   // admin views this client's workspace in the beta
+    client: ADMIN_CLIENT_ID,     // standalone admin — not tied to any client workspace
     name: "TJA Client Services",
     role: "admin",
   },
