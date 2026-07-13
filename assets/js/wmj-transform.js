@@ -101,7 +101,6 @@
     if (statuses.length && statuses.every(s => s === "Completed")) return "Completed";
     return statuses[0] || "Production";
   }
-  function condLevel(status) { return status === "On Hold" ? "yellow" : "green"; }
 
   /* ---------- main transform ---------- */
   function transform(rows) {

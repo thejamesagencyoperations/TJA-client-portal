@@ -253,5 +253,6 @@ window.TJA_STORE = (function () {
     } catch (e) { console.warn("roster hydrate", e); }
   }
 
-  return { list, get, exists, add, update, remove, seedWorkspace, hydrate, uniqueId, referenceRetainerLayout, referenceProjectLayout };
+  // Public surface — only what other modules actually consume (exists/uniqueId/referenceRetainerLayout are internal-only).
+  return { list, get, add, update, remove, seedWorkspace, hydrate, referenceProjectLayout };
 })();

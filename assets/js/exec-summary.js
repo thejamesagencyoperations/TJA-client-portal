@@ -1,10 +1,11 @@
 /* ============================================================
-   EXECUTIVE SUMMARY — the homepage (V1, v1.7)
+   EXECUTIVE SUMMARY — the homepage
 
    The one screen a CEO/CMO opens to understand their engagement.
-   Modules: header + North Star, Burn (speedometer / pizza tracker),
-   Condition, Service Lines (+ MoM), Milestones, To-Do's,
-   Dependencies, KPIs, PR Coverage.
+   Modules: North Star banner, Burn (speedometer / pizza tracker,
+   with Condition inline), Service Lines (+ MoM), Milestones,
+   To-Do's, Dependencies, KPIs, PR Coverage. Tiles sit on a fixed,
+   locked free-canvas layout (changed in code only).
 
    Every field is admin-editable (inline) and read-only in client
    view. Edits persist via window.DASH (state in localStorage).
@@ -16,7 +17,6 @@ window.ExecSummary = (function () {
   const section = () => document.querySelector('.page[data-page="exec"]');
   let viewMonthIdx = null;   // retainer MoM view (null = current)
   let burnPreviewPct = null; // transient dial position while dragging the burn (before the distribute popup)
-  let unallocOpen = false;   // admin: is the Unallocated drill-down expanded?
 
   /* ---- line icons (brand: custom vector icons + bolt motif) ---- */
   const svg = (p, o) => `<svg viewBox="0 0 24 24" fill="${o ? "currentColor" : "none"}" stroke="${o ? "none" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
@@ -189,20 +189,6 @@ window.ExecSummary = (function () {
       ${mom ? `<div class="mom-strip">${mom}</div>` : ""}
       ${canAdmin() ? `<button class="row-add mom-newmonth" data-newmonth title="Save this month to history and roll into the next">＋ New month</button>` : ""}
       ${conditionInline(e)}
-    </div>`;
-  }
-
-  function conditionModule(e) {
-    const c = e.condition, lvl = c.level;
-    const labels = { green: "On Track", yellow: "Needs Attention", red: "Off Track" };
-    const dot = (col) => `<div class="cond-dot ${col} ${lvl === col ? "on" : ""} ${canAdmin() ? "admin-edit" : ""}" data-cond="${col}" ${canAdmin() ? `title="Set to ${col}"` : ""}></div>`;
-    return `<div class="module cond-module">
-      <div class="module-head"><span class="module-title">${IC.cond}${e.type === "project" ? "Project" : "Engagement"} Condition</span></div>
-      <div class="condition">
-        <div class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</div>
-        <div class="cond-label ${lvl}">${labels[lvl] || "—"}</div>
-      </div>
-      <div class="cond-note">${ed(c.note, "condition.note")}</div>
     </div>`;
   }
 
@@ -555,11 +541,9 @@ window.ExecSummary = (function () {
     kpis:         { label: "KPIs",          fn: kpiModule },
     pr:           { label: "PR Coverage",   fn: prModule },
   };
-  const LAYOUT_V = 4;        // free-canvas layout: tiles are absolutely positioned and drag anywhere
-  const SNAP = 9, GRID_GAP = 16, DEF_W = 360;   // snap distance (px), default gap + tile width
-  // FIXED, LOCKED layouts — Cameron's final arrangement (copied from his browser on 2026-07-09
-  // via the Copy-layout button). Single source of truth; changed only here in code, and only
-  // when Cameron specifically asks. Tiles scroll internally if content exceeds their height.
+  // FIXED, LOCKED layouts — Cameron's final arrangement (captured 2026-07-09). Single source
+  // of truth; changed only here in code, and only when Cameron specifically asks. Tiles are
+  // absolutely positioned; they scroll internally if content exceeds their height.
   const DEFAULT_RETAINER_FREE = {
     burn:         { x: 0,    y: 0,   w: 491, h: 377 },
     service:      { x: 506,  y: 0,   w: 704, h: 451 },
@@ -579,8 +563,8 @@ window.ExecSummary = (function () {
   };
   function defaultLayout(e) {
     return (e.type === "project")
-      ? { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice(), locked: true }
-      : { v: LAYOUT_V, free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [], locked: true };
+      ? { free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() }
+      : { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
   }
   // Always return the fixed layout — stored/Supabase layouts are ignored entirely, so nothing
   // can drift or be changed by saved state. Layout changes happen in code only, on request.
@@ -591,7 +575,6 @@ window.ExecSummary = (function () {
     Object.keys(L.free).forEach(k => { if (!valid.includes(k) || L.hidden.includes(k)) delete L.free[k]; });
     return L;
   }
-  const TILEBAR = (key) => !canAdmin() ? "" : `<button class="tile-remove" data-tileremove="${key}" title="Remove tile">✕</button>`;
 
   /* ---- North Star banner (full-width strip across all 3 columns) ---- */
   function northStarBanner(e) {
@@ -611,11 +594,9 @@ window.ExecSummary = (function () {
     const lay = getLayout(e);
     const visible = Object.keys(MODULES).filter(k => !lay.hidden.includes(k));
     const tiles = visible.map(k => {
-      const p = lay.free[k];
-      const style = p
-        ? `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`
-        : `width:${DEF_W}px;`;
-      return `<div class="exec-tile${p ? "" : " unplaced"}" data-key="${k}" style="${style}">${MODULES[k].fn(e)}</div>`;
+      const p = lay.free[k];   // every visible key is present in the fixed layout
+      const style = `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`;
+      return `<div class="exec-tile" data-key="${k}" style="${style}">${MODULES[k].fn(e)}</div>`;
     }).join("");
     const actualsBtn = (canAdmin() && hasActualsOverride(e))
       ? `<div class="exec-controls"><button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button></div>` : "";
@@ -628,7 +609,7 @@ window.ExecSummary = (function () {
   function rerender() {
     const s = section(); if (!s) return;
     s.innerHTML = render(window.DASH.getEng());
-    ensurePositions(); setupFreeDrag(); fitCanvas();
+    fitCanvas();
   }
 
   /* ---- burn → disciplines distribution popup ----
@@ -699,100 +680,10 @@ window.ExecSummary = (function () {
     ov.addEventListener("click", e2 => { if (e2.target === ov) close(); });
   }
 
-  /* ---- tile remove / restore ---- */
-  function tileAction(action, key) {
-    const e = window.DASH.getEng(); const lay = getLayout(e);
-    if (action === "remove") {
-      delete lay.free[key];
-      if (!lay.hidden.includes(key)) lay.hidden.push(key);
-    } else if (action === "restore") {
-      lay.hidden = lay.hidden.filter(k => k !== key);   // re-placed by ensurePositions on next render
-    }
-    window.DASH.saveState(); rerender();
-  }
-
-  /* ---- lock layout: snapshot exact current positions/sizes, then freeze drag+resize ---- */
-  function snapshotPositions() {
-    const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
-    const lay = getLayout(window.DASH.getEng());
-    canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
-      lay.free[t.dataset.key] = {
-        x: Math.round(t.offsetLeft), y: Math.round(t.offsetTop),
-        w: Math.round(t.offsetWidth), h: Math.round(t.offsetHeight)
-      };
-    });
-  }
-  function toggleLock() {
-    const lay = getLayout(window.DASH.getEng());
-    if (!lay.locked) snapshotPositions();   // pin everything exactly where it sits before freezing
-    lay.locked = !lay.locked;
-    window.DASH.saveState(); rerender();
-  }
-  // Reset this engagement's tiles to the default monthly-services layout — a clone
-  // of the team's Celtic layout (matched box sizes) when available, else the baked default.
-  function resetLayout() {
-    const e = window.DASH.getEng();
-    if (!confirm("Reset this Executive Summary to the standard layout? Your current tile arrangement here will be replaced.")) return;
-    e.layout = defaultLayout(e);
-    window.DASH.saveState(); rerender();
-  }
-
-  /* ---- default placement: the curated 3-column arrangement we like for monthly
-     services (Celtic's layout) — every fresh client starts here. Tiles not named in
-     the template, or any leftovers, fall to the shortest column. Hidden tiles (e.g.
-     PR on projects) are simply skipped. ---- */
-  const DEFAULT_COLS = [
-    ["burn", "pr"],                       // left:   burn / pizza, then PR coverage
-    ["service", "dependencies"],          // middle: service lines, then dependencies
-    ["milestones", "todos", "kpis"],      // right:  milestones, to-do's, KPIs
-  ];
-  function templateCol(key) { for (let i = 0; i < DEFAULT_COLS.length; i++) if (DEFAULT_COLS[i].includes(key)) return i; return -1; }
-  function nearestCol(x, colX) { let b = 0, bd = Infinity; colX.forEach((cx, i) => { const d = Math.abs(x - cx); if (d < bd) { bd = d; b = i; } }); return b; }
-  function applyPos(t, p) { t.style.left = p.x + "px"; t.style.top = p.y + "px"; t.style.width = p.w + "px"; if (p.h) t.style.height = p.h + "px"; }
-  function ensurePositions() {
-    const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
-    const lay = getLayout(window.DASH.getEng());
-    // lay the template out at design width (3 columns); fitCanvas() scales it down to
-    // fit narrower windows, exactly like a saved 3-column layout
-    const ncols = DEFAULT_COLS.length, colW = DEF_W;
-    const colX = []; for (let i = 0; i < ncols; i++) colX.push(Math.round(i * (colW + GRID_GAP)));
-    const colH = new Array(ncols).fill(0);
-    // existing placed tiles set each column's running height so restored/added tiles stack below
-    canvas.querySelectorAll(".exec-tile:not(.unplaced)").forEach(t => {
-      const ci = nearestCol(t.offsetLeft, colX);
-      colH[ci] = Math.max(colH[ci], t.offsetTop + t.offsetHeight + GRID_GAP);
-    });
-    // place unplaced tiles in template order: by column, then by position within the column
-    const unplaced = [...canvas.querySelectorAll(".exec-tile.unplaced")].sort((a, b) => {
-      const ca = templateCol(a.dataset.key), cb = templateCol(b.dataset.key);
-      const ka = ca < 0 ? 99 : ca, kb = cb < 0 ? 99 : cb;
-      if (ka !== kb) return ka - kb;
-      const oa = ca < 0 ? 99 : DEFAULT_COLS[ca].indexOf(a.dataset.key);
-      const ob = cb < 0 ? 99 : DEFAULT_COLS[cb].indexOf(b.dataset.key);
-      return oa - ob;
-    });
-    let changed = false;
-    unplaced.forEach(t => {
-      t.style.width = colW + "px";
-      const h = t.offsetHeight;
-      let ci = templateCol(t.dataset.key);
-      if (ci < 0 || ci >= ncols) ci = colH.indexOf(Math.min(...colH));   // leftover → shortest column
-      const pos = { x: colX[ci], y: Math.round(colH[ci]), w: colW };
-      colH[ci] += h + GRID_GAP;
-      applyPos(t, pos); t.classList.remove("unplaced");
-      lay.free[t.dataset.key] = pos; changed = true;
-    });
-    if (changed && canAdmin()) window.DASH.saveState();
-  }
-  let canvasScale = 1;
   function canvasExtent(canvas) {
     let maxR = 0, maxB = 120;
     canvas.querySelectorAll(".exec-tile").forEach(t => { maxR = Math.max(maxR, t.offsetLeft + t.offsetWidth); maxB = Math.max(maxB, t.offsetTop + t.offsetHeight); });
     return { maxR, maxB };
-  }
-  function updateCanvasHeight() {                 // height only — cheap, safe to call mid-drag
-    const s = section(); const canvas = s && s.querySelector(".exec-canvas"); if (!canvas) return;
-    canvas.style.height = (canvasExtent(canvas).maxB + 8) + "px";
   }
   // scale the whole tile canvas down to fit narrower windows so the right-hand
   // tiles are never cut off / forced into horizontal scroll (arrangement preserved)
@@ -812,7 +703,7 @@ window.ExecSummary = (function () {
     Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); baseB = Math.max(baseB, p.y + (p.h || 0)); });
     if (stacked) {   // mobile: static stacked layout (media query) — no transform, natural sizing
       canvas.style.width = ""; canvas.style.height = ""; canvas.style.transform = ""; canvas.style.transformOrigin = ""; canvas.style.marginBottom = "";
-      canvasScale = 1; return;
+      return;
     }
     const sc = Math.max(0.4, Math.min(2, baseR ? avail / baseR : 1));
     // VERTICAL FILL: stretch tile heights + row positions (only — no font/width change, no
@@ -829,74 +720,9 @@ window.ExecSummary = (function () {
     });
     const { maxB } = canvasExtent(canvas), h = maxB + 8;
     canvas.style.height = h + "px";
-    canvasScale = sc;
     canvas.style.width = baseR + "px";                       // design width; scaled it becomes exactly `avail`
     canvas.style.transform = `scale(${sc})`; canvas.style.transformOrigin = "top left";
     canvas.style.marginBottom = (h * (sc - 1)) + "px";       // compensate layout height for the visual scale
-  }
-
-  /* ---- free drag (pointer) with snap-to-align against the other tiles ---- */
-  function snapPos(tile, x, y, others) {
-    const w = tile.offsetWidth, h = tile.offsetHeight;
-    let bx = { d: SNAP + 1, v: x, g: null }, by = { d: SNAP + 1, v: y, g: null };
-    const tX = (dv, t) => { const d = Math.abs(dv - t); if (d <= SNAP && d < bx.d) bx = { d, v: x + (t - dv), g: t }; };
-    const tY = (dv, t) => { const d = Math.abs(dv - t); if (d <= SNAP && d < by.d) by = { d, v: y + (t - dv), g: t }; };
-    tX(x, 0);   // canvas left edge
-    others.forEach(o => {
-      const ol = o.offsetLeft, ot = o.offsetTop, ow = o.offsetWidth, oh = o.offsetHeight;
-      tX(x, ol); tX(x + w, ol + ow); tX(x + w / 2, ol + ow / 2);      // align left / right / centre
-      tX(x, ol + ow + GRID_GAP); tX(x + w, ol - GRID_GAP);           // sit beside (gap)
-      tY(y, ot); tY(y + h, ot + oh); tY(y + h / 2, ot + oh / 2);
-      tY(y, ot + oh + GRID_GAP); tY(y + h, ot - GRID_GAP);
-    });
-    return { x: bx.v, y: by.v, gx: bx.g, gy: by.g };
-  }
-  function clearGuides(canvas) { canvas.querySelectorAll(".snap-guide").forEach(g => g.remove()); }
-  function drawGuides(canvas, gx, gy) {
-    clearGuides(canvas);
-    if (gx != null) { const d = document.createElement("div"); d.className = "snap-guide v"; d.style.left = gx + "px"; canvas.appendChild(d); }
-    if (gy != null) { const d = document.createElement("div"); d.className = "snap-guide h"; d.style.top = gy + "px"; canvas.appendChild(d); }
-  }
-  function setupFreeDrag() {
-    if (!canAdmin()) return;
-    if (getLayout(window.DASH.getEng()).locked) return;   // layout frozen — no drag handles
-    const s = section(); const canvas = s.querySelector(".exec-canvas"); if (!canvas) return;
-    canvas.querySelectorAll(".exec-tile").forEach(tile => {
-      const head = tile.querySelector(".module-head"); if (!head) return;
-      head.classList.add("tile-drag-handle");
-      head.addEventListener("pointerdown", ev => {
-        if (ev.button !== 0 || ev.target.closest(".module-link, .tile-remove, .ed, input, button, a, textarea, select")) return;
-        ev.preventDefault();
-        const lay = getLayout(window.DASH.getEng());
-        const pos = lay.free[tile.dataset.key]; if (!pos) return;
-        const sx = ev.clientX, sy = ev.clientY, ox = pos.x, oy = pos.y;
-        const others = [...canvas.querySelectorAll(".exec-tile")].filter(t => t !== tile);
-        tile.classList.add("dragging"); let moved = false;
-        // pointer capture → pointermove/up keep firing on the handle even as the cursor
-        // passes over other tiles, and the native text/element drag can't hijack it
-        try { head.setPointerCapture(ev.pointerId); } catch {}
-        const move = (mv) => {
-          moved = true;
-          const nx = Math.max(0, ox + (mv.clientX - sx) / canvasScale), ny = Math.max(0, oy + (mv.clientY - sy) / canvasScale);
-          const sn = snapPos(tile, nx, ny, others);
-          tile.style.left = sn.x + "px"; tile.style.top = sn.y + "px";
-          pos.x = Math.round(sn.x); pos.y = Math.round(sn.y);
-          drawGuides(canvas, sn.gx, sn.gy); updateCanvasHeight();
-        };
-        const up = () => {
-          head.removeEventListener("pointermove", move);
-          head.removeEventListener("pointerup", up);
-          head.removeEventListener("pointercancel", up);
-          try { head.releasePointerCapture(ev.pointerId); } catch {}
-          tile.classList.remove("dragging"); clearGuides(canvas);
-          if (moved && canAdmin()) window.DASH.saveState();
-          fitCanvas();
-        };
-        head.addEventListener("pointermove", move);
-        head.addEventListener("pointerup", up);
-        head.addEventListener("pointercancel", up);
-      });
-    });
   }
 
   /* ---- wiring (delegated, attached once) ---- */
@@ -914,24 +740,6 @@ window.ExecSummary = (function () {
     rerender();
     if (wired) return; wired = true;
     const s = section();
-
-    // per-tile resize (CSS resize: both) — persist each tile's width/height on release.
-    // GUARDS: only while the exec page is actually visible, and never persist a zero size —
-    // a mouseup on another tab (exec display:none → offsetWidth 0) used to write w:0 into the
-    // layout, which is why tiles "changed size" after visiting Status and coming back.
-    document.addEventListener("mouseup", () => {
-      if (!canAdmin()) return;
-      const sec = section(); if (!sec || !sec.classList.contains("active")) return;
-      const lay = getLayout(window.DASH.getEng()); if (!lay.free || lay.locked) return;
-      let changed = false;
-      sec.querySelectorAll(".exec-tile[data-key]").forEach(t => {
-        const pos = lay.free[t.dataset.key]; if (!pos) return;
-        const w = Math.round(t.offsetWidth), h = Math.round(t.offsetHeight);
-        if (w < 50 || h < 30) return;   // hidden/collapsed reads — never persist
-        if (pos.w !== w || (t.style.height && pos.h !== h)) { pos.w = w; if (t.style.height) pos.h = h; changed = true; }
-      });
-      if (changed) { window.DASH.saveState(); fitCanvas(); }
-    });
 
     // keep the canvas scaled to the window — re-fit on window resize AND via a ResizeObserver
     // on the content container (more reliable: catches resizes/sidebar changes that don't
@@ -1060,29 +868,11 @@ window.ExecSummary = (function () {
     s.addEventListener("click", e => {
       const eng = window.DASH.getEng();
 
-      // kanban tile controls
-      const tm = e.target.closest("[data-tilemove]"); if (tm) { tileAction(tm.dataset.tilemove, tm.dataset.key); return; }
-      const tr = e.target.closest("[data-tileremove]"); if (tr) { tileAction("remove", tr.dataset.tileremove); return; }
-      const ts = e.target.closest("[data-tilerestore]"); if (ts) { tileAction("restore", ts.dataset.tilerestore); return; }
-      const tl = e.target.closest("[data-tilelock]"); if (tl && canAdmin()) { toggleLock(); return; }
-      const trs = e.target.closest("[data-tilereset]"); if (trs && canAdmin()) { resetLayout(); return; }
-
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
 
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
       if (ra && canAdmin()) { delete eng.svcUtilOverride; if (eng.burn) delete eng.burn.pctOverride; window.DASH.saveState(); rerender(); return; }
-
-      // "Copy layout" — copy this page's tile arrangement as JSON (paste to Claude to bake in)
-      const cl = e.target.closest("[data-copylayout]");
-      if (cl && canAdmin()) {
-        const lay = getLayout(eng);
-        const txt = JSON.stringify({ type: eng.type, free: lay.free, hidden: lay.hidden }, null, 1);
-        const done = () => { cl.textContent = "✓ Copied — paste it to Claude"; setTimeout(rerender, 2000); };
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done).catch(() => prompt("Copy this layout JSON:", txt));
-        else prompt("Copy this layout JSON:", txt);
-        return;
-      }
 
       // Unallocated drill-down → popup listing the projects behind the misc hours
       const ut = e.target.closest("[data-unalloctoggle]");

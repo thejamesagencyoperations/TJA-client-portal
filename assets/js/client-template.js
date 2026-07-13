@@ -134,7 +134,6 @@
   window.makeClientData = makeClientData;
   window.tjaInitialsFrom = initialsFrom;
   window.tjaSlugify = slugify;
-  window.tjaStandardDisciplines = STANDARD_DISCIPLINES;
   window.tjaDefaultDisciplines = defaultDisciplines;
   window.tjaSeedDisciplinesFor = seedDisciplinesFor;
   window.tjaCanonDiscipline = canonDiscipline;

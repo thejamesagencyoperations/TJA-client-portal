@@ -123,30 +123,13 @@ function setPath(obj, path, val) {
 }
 
 // shared with exec-summary.js
-window.DASH = { get D() { return D; }, get state() { return STATE; }, getEng, saveState, getPath, setPath, esc, badge, STATUS, STATUS_CLASS,
+// Public surface consumed by exec-summary.js — keep this list tight (only what's actually read).
+window.DASH = { getEng, saveState, setPath, badge,
   // "← All projects" link, shown on a project's homepage when several projects exist (handled in exec-summary render so it survives rerender)
   projectBack: () => (!isRetainer() && getProjects().length > 1 && selectedProject()) ? `<button class="pp-back" data-allprojects>← All projects</button>` : "" };
 
-/* ---------- Project Plan (multi-project folders + editable) ---------- */
-const rygDot = (lvl) => `<span class="ryg-dot ${lvl}"></span>`;
-const sicon = (p) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px;margin-right:6px;color:var(--accent-text)">${p}</svg>`;
-const PP_IC = {
-  flag: sicon('<path d="M5 21V4M5 4h11l-2 3.5L16 11H5"/>'),
-  list: sicon('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>'),
-  risk: sicon('<path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/>'),
-};
+/* ---------- Projects folder (tiles + archive + two-step delete) ---------- */
 const ppAdmin = () => (typeof canEdit === "function" ? canEdit() : true);
-function ppEd(val, path, opts = {}) {
-  if (!ppAdmin()) return esc(val);
-  return `<span class="ed" contenteditable="true" data-pp="${esc(path)}"${opts.num ? ' data-num="1"' : ""}${opts.rerender ? ' data-rerender="1"' : ""}>${esc(val)}</span>`;
-}
-function rygCell(path, lvl) {
-  return `<span class="ryg-dot ${lvl} ${ppAdmin() ? "admin-edit" : ""}" ${ppAdmin() ? `data-ppryg="${esc(path)}" title="Cycle R/Y/G"` : ""}></span>`;
-}
-function taskStatusCell(status, path) {
-  return ppAdmin() ? `<span class="svc-status admin-edit" data-ppstatus="${esc(path)}" title="Cycle status">${badge(status)}</span>` : badge(status);
-}
-const ppDel = (key) => `<button class="row-del" data-ppdel="${key}" title="Remove">✕</button>`;
 
 function projectPct(p) {
   if (p.source === "wmj") {                                  // WMJ projects: trust the synced progress
@@ -212,113 +195,6 @@ function renderProjectFolder() {
     ${tabs}
   </div>
   <div class="proj-grid">${tiles}${admin && bucket === "current" ? `<button class="proj-tile proj-tile-add" data-ppaddproject><span class="pta-plus">＋</span> New Project</button>` : ""}</div>`;
-}
-function renderProjectPicker(projects, admin) {
-  const tiles = projects.map(p => {
-    const lvl = (p.projectPlan && p.projectPlan.status && p.projectPlan.status.level) || (p.condition && p.condition.level) || "green";
-    const pct = projectPct(p);
-    return `<button class="proj-tile" data-ppopen="${esc(p.id)}">
-        <div class="proj-tile-top"><span class="ryg-dot ${lvl}"></span><span class="proj-tile-name">${esc(p.label || p.name)}</span></div>
-        <div class="proj-tile-sub">${esc(p.name)}</div>
-        <div class="bar"><span style="width:${pct}%"></span></div>
-        <div class="proj-tile-foot">${pct}% complete</div>
-      </button>`;
-  }).join("");
-  return `
-  ${admin ? `<div class="admin-hint">✎ Admin — click a project to open it · ＋ adds a new project</div>` : ""}
-  <div class="page-head">
-    <div class="page-title">Projects</div>
-    <div class="page-desc">${projects.length} active project${projects.length === 1 ? "" : "s"} — choose one to open.</div>
-  </div>
-  <div class="proj-grid">${tiles}${admin ? `<button class="proj-tile proj-tile-add" data-ppnewproject><span class="pta-plus">＋</span> New Project</button>` : ""}</div>`;
-}
-function renderProjectsEmpty(admin) {
-  return `
-  <div class="page-head"><div class="page-title">Projects</div><div class="page-desc">No projects yet.</div></div>
-  <div class="proj-grid">${admin ? `<button class="proj-tile proj-tile-add" data-ppnewproject><span class="pta-plus">＋</span> New Project</button>` : `<div class="placeholder-note">No projects to show.</div>`}</div>`;
-}
-function renderProjectPlan() {
-  const admin = ppAdmin();
-  // The Projects tab only applies in Project mode.
-  if (isRetainer()) return `<div class="page-head"><div class="page-title">Projects</div><div class="page-desc">Switch the top toggle to <b>Project</b> to view and manage projects.</div></div>`;
-  const projects = getProjects();
-  if (projects.length === 0) return renderProjectsEmpty(admin);
-  if (projects.length === 1 && !selectedProject()) selectProject(projects[0].id);            // one project → open it directly
-  if (projects.length > 1 && !selectedProject()) return renderProjectPicker(projects, admin); // several → show tiles
-  const e = selectedProject(); const pp = e.projectPlan || {};
-  const st = pp.status || { level: "green", pct: 0, note: "" };
-  const stLabel = { green: "On Track", yellow: "Needs Attention", red: "Off Track" }[st.level] || "—";
-  const back = projects.length > 1 ? `<button class="pp-back" data-ppback>← All projects</button>` : "";
-
-  const allTasks = (pp.phases || []).flatMap(ph => ph.tasks);
-  const avg = allTasks.length ? Math.round(allTasks.reduce((s, t) => s + (+t.pct || 0), 0) / allTasks.length) : null;
-
-  const cp = (pp.criticalPath || []).map((m, i) => `<tr>
-      <td style="text-align:center">${rygCell("projectPlan.criticalPath." + i + ".ryg", m.ryg)}</td>
-      <td style="font-weight:600">${ppEd(m.item, "projectPlan.criticalPath." + i + ".item")}</td>
-      <td style="color:var(--accent-text);font-weight:700;white-space:nowrap">${ppEd(m.owner, "projectPlan.criticalPath." + i + ".owner")}</td>
-      <td style="white-space:nowrap">${ppEd(m.window, "projectPlan.criticalPath." + i + ".window")}</td>
-      <td style="color:var(--text-dim)">${ppEd(m.why, "projectPlan.criticalPath." + i + ".why")}</td>
-      <td style="color:var(--text-dim)">${ppEd(m.action, "projectPlan.criticalPath." + i + ".action")}</td>
-      ${admin ? `<td>${ppDel("cp." + i)}</td>` : ""}
-    </tr>`).join("");
-
-  let tasks = "";
-  (pp.phases || []).forEach((ph, pi) => {
-    tasks += `<tr class="group-row"><td colspan="${admin ? 8 : 7}">${ppEd(ph.name, "projectPlan.phases." + pi + ".name")} ${admin ? ppDel("phase." + pi) : ""}</td></tr>`;
-    ph.tasks.forEach((t, ti) => {
-      const base = "projectPlan.phases." + pi + ".tasks." + ti;
-      tasks += `<tr>
-        <td style="color:var(--text-faint)">${ppEd(t.id, base + ".id")}</td>
-        <td style="font-weight:600">${ppEd(t.task, base + ".task")}</td>
-        <td style="color:var(--accent-text);font-weight:700;white-space:nowrap">${ppEd(t.who, base + ".who")}</td>
-        <td style="white-space:nowrap">${ppEd(t.start, base + ".start")}–${ppEd(t.end, base + ".end")}</td>
-        <td style="min-width:74px"><div class="bar"><span style="width:${t.pct}%"></span></div><div class="pct-lbl">${ppEd(t.pct, base + ".pct", { num: true, rerender: true })}%</div></td>
-        <td>${taskStatusCell(t.status, base + ".status")}</td>
-        <td style="color:var(--text-dim)">${ppEd(t.notes, base + ".notes")}</td>
-        ${admin ? `<td>${ppDel("task." + pi + "." + ti)}</td>` : ""}
-      </tr>`;
-    });
-    if (admin) tasks += `<tr><td colspan="8"><button class="row-add" data-ppaddtask="${pi}">＋ Add task</button></td></tr>`;
-  });
-
-  const risks = (pp.risks || []).map((r, i) => `<tr>
-      <td style="text-align:center">${rygCell("projectPlan.risks." + i + ".ryg", r.ryg)}</td>
-      <td style="font-weight:600">${ppEd(r.risk, "projectPlan.risks." + i + ".risk")}</td>
-      <td>${ppEd(r.impact, "projectPlan.risks." + i + ".impact")}</td>
-      <td style="color:var(--accent-text);font-weight:700;white-space:nowrap">${ppEd(r.owner, "projectPlan.risks." + i + ".owner")}</td>
-      <td style="color:var(--text-dim)">${ppEd(r.mitigation, "projectPlan.risks." + i + ".mitigation")}</td>
-      ${admin ? `<td>${ppDel("risk." + i)}</td>` : ""}
-    </tr>`).join("");
-
-  return `
-  ${admin ? `<div class="admin-hint">✎ Admin — click R/Y/G dots &amp; status badges to cycle; every field is editable; ＋ adds rows.</div>` : ""}
-  ${back}
-  <div class="page-head">
-    <div class="page-title">${ppEd(e.name, "name")}</div>
-    <div class="page-desc">${pp.startDate || admin ? `${ppEd(pp.startDate || "", "projectPlan.startDate")} → ${ppEd(pp.endDate || "", "projectPlan.endDate")}` : ""}${admin ? ` · <button class="pp-del-project" data-ppdelproject="${esc(e.id)}">Delete project</button>` : ""}</div>
-  </div>
-  <div class="exec-grid" style="margin-bottom:18px">
-    <div class="module"><div class="module-title">Outcome</div><div style="font-size:.95rem;margin-top:8px;line-height:1.5">${ppEd(pp.outcome || "", "projectPlan.outcome")}</div></div>
-    <div class="module">
-      <div class="module-title">Status${avg != null ? ` <span class="stat-sub" style="text-transform:none;letter-spacing:0">· tasks avg ${avg}%</span>` : ""}</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:8px">${rygCell("projectPlan.status.level", st.level)}<span class="cond-label ${st.level}" style="font-size:1.05rem">${stLabel}</span><span class="stat-sub">${ppEd(st.pct, "projectPlan.status.pct", { num: true, rerender: true })}% complete</span></div>
-      <div class="bar" style="margin-top:10px"><span style="width:${st.pct}%"></span></div>
-      <div class="cond-note">${ppEd(st.note || "", "projectPlan.status.note")}</div>
-    </div>
-  </div>
-  <div class="section-title">${PP_IC.flag}Key Milestones${admin ? ` <button class="row-add" data-ppadd="cp">＋ Add milestone</button>` : ""}</div>
-  <div class="card"><table class="table">
-    <thead><tr><th></th><th>Critical Path Item</th><th>Owner</th><th>Target</th><th>Why It Matters</th><th>Action Needed</th>${admin ? "<th></th>" : ""}</tr></thead>
-    <tbody>${cp || `<tr><td colspan="${admin ? 7 : 6}" style="color:var(--text-faint)">No milestones yet.</td></tr>`}</tbody></table></div>
-  <div class="section-title">${PP_IC.list}Detailed Plan${admin ? ` <button class="row-add" data-ppadd="phase">＋ Add phase</button>` : ""}</div>
-  <div class="card"><table class="table">
-    <thead><tr><th>#</th><th>Task</th><th>Who</th><th>Window</th><th>Progress</th><th>Status</th><th>Notes</th>${admin ? "<th></th>" : ""}</tr></thead>
-    <tbody>${tasks}</tbody></table></div>
-  <div class="section-title">${PP_IC.risk}Risks &amp; Watch Items${admin ? ` <button class="row-add" data-ppadd="risk">＋ Add risk</button>` : ""}</div>
-  <div class="card"><table class="table">
-    <thead><tr><th></th><th>Risk</th><th>Impact</th><th>Owner</th><th>Mitigation</th>${admin ? "<th></th>" : ""}</tr></thead>
-    <tbody>${risks || `<tr><td colspan="${admin ? 6 : 5}" style="color:var(--text-faint)">No risks logged.</td></tr>`}</tbody></table></div>`;
 }
 let ppWired = false;
 function initProjectPlan() {
