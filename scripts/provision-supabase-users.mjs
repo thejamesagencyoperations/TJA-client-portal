@@ -51,11 +51,27 @@ catch { console.error("scripts/users.json not found or invalid — see the heade
 
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
 
+// Load the full auth-user roster ONCE and match locally. The GoTrue admin list
+// endpoint ignores the ?email= filter (it returns page 1 regardless), so filtering
+// server-side silently found nothing and every re-run tried to CREATE existing users
+// → 422 email_exists. Paginating + matching here makes the script truly idempotent.
+let _allUsers = null;
+async function allUsers() {
+  if (_allUsers) return _allUsers;
+  _allUsers = [];
+  for (let page = 1; page <= 50; page++) {
+    const r = await fetch(`${BASE}/auth/v1/admin/users?page=${page}&per_page=200`, { headers: H });
+    if (!r.ok) break;
+    const j = await r.json();
+    const arr = j.users || [];
+    _allUsers.push(...arr);
+    if (arr.length < 200) break;
+  }
+  return _allUsers;
+}
 async function findUser(email) {
-  const r = await fetch(`${BASE}/auth/v1/admin/users?page=1&per_page=1&email=${encodeURIComponent(email)}`, { headers: H });
-  const j = await r.json().catch(() => ({}));
-  const list = j.users || (Array.isArray(j) ? j : []);
-  return list.find(u => (u.email || "").toLowerCase() === email.toLowerCase()) || null;
+  const target = (email || "").toLowerCase();
+  return (await allUsers()).find(u => (u.email || "").toLowerCase() === target) || null;
 }
 
 async function upsertUser(u) {
