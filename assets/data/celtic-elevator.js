@@ -1,8 +1,11 @@
 /* ============================================================
    SEED DATA — Celtic Elevator
-   Cleared to a BLANK workspace (2026-07 reset). All prior test /
-   placeholder content removed — real data will be populated from the
-   Workamajig retainer + project sheets under the new implementation.
+   Celtic is a PROJECT client: its only real engagement is the
+   "CEL Stratagem" project, which populates live from the Workamajig
+   projects sheet. Its retainer-sheet rows are non-billable internal
+   time only, so there is NO monthly-services retainer — the retainer
+   below stays blank and `projectOnly` suppresses the placeholder
+   disciplines the self-heal would otherwise seed.
    Registers into window.CLIENT_SEEDS (resolved by the bootstrap in
    dashboard.html).
    ============================================================ */
@@ -13,10 +16,11 @@ window.CLIENT_SEEDS["celtic-elevator"] = {
   engagements: {
     retainer: {
       type: "retainer", label: "Retainer", name: "Celtic Elevator — Retainer",
+      projectOnly: true,
       northStar: "", dueDate: "",
       burn: { usedHours: 0, contractedHours: 0, periodLabel: "" },
       condition: { level: "green", note: "" },
-      serviceLines: [], mom: [], milestones: [], todos: [], dependencies: [], kpis: [], prCoverage: [], backlog: [],
+      serviceLines: [], serviceDisciplines: [], mom: [], milestones: [], todos: [], dependencies: [], kpis: [], prCoverage: [], backlog: [],
       status: { groups: [] },
       projectPlan: { outcome: "", startDate: "", endDate: "", status: { level: "green", pct: 0, note: "" }, criticalPath: [], phases: [], risks: [] },
     },

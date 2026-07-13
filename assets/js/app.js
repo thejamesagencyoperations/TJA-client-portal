@@ -587,8 +587,11 @@ function applyRole() {
         <button class="role-seg ${!prev ? "active" : ""}" id="modeAdmin">Admin</button>
         <button class="role-seg ${prev ? "active" : ""}" id="modeClient">Client view</button>
       </div>`;
-    el("#modeAdmin").addEventListener("click", () => { setPreview(false); applyRole(); repaintAll(); });
-    el("#modeClient").addEventListener("click", () => { setPreview(true); applyRole(); repaintAll(); });
+    // applyEngagement() must re-run on a role switch: a client only sees engagements with
+    // data, so toggling Client view has to re-gate the Monthly Services / Projects toggle
+    // (e.g. Celtic's empty retainer must disappear in the client preview).
+    el("#modeAdmin").addEventListener("click", () => { setPreview(false); applyRole(); applyEngagement(); repaintAll(); });
+    el("#modeClient").addEventListener("click", () => { setPreview(true); applyRole(); applyEngagement(); repaintAll(); });
     if (!prev) { const ub = el("#undoBtn"); if (ub) ub.addEventListener("click", undo); updateUndoBtn(); }
   } else { rc.innerHTML = ""; }
   const banner = el("#previewBanner");
@@ -705,6 +708,7 @@ function applyEngagement() {
   (function ensureRetainerDisciplines() {
     const ret = STATE.engagements && STATE.engagements.retainer;
     if (!ret) return;
+    if (ret.projectOnly) return;   // project-only clients (e.g. Celtic) have no monthly retainer — don't seed placeholders
     if (!Array.isArray(ret.serviceDisciplines) || !ret.serviceDisciplines.length) {
       ret.serviceDisciplines = (typeof window.tjaSeedDisciplinesFor === "function")
         ? window.tjaSeedDisciplinesFor(D.client.name) : [];

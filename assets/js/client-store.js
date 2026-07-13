@@ -50,6 +50,34 @@
   } catch (e) {}
 })();
 
+/* One-time Celtic cleanup (2026-07): Celtic is a PROJECT client (real
+   engagement = the WMJ "CEL Stratagem" project). Remove leftover demo
+   content from any browser that has it — the hand-made "New Project"
+   and the placeholder monthly-services disciplines — so only the real,
+   live project data shows. Runs once per browser. */
+(function () {
+  const TAG = "2026-07-celtic-clean-v1";
+  try {
+    if (localStorage.getItem("tja_celtic_clean") === TAG) return;
+    const k = "tja_dashboard_celtic-elevator";
+    const s = JSON.parse(localStorage.getItem(k) || "null");
+    if (s && s.engagements) {
+      const e = s.engagements;
+      // keep only real WMJ projects; drop any hand-made mock project
+      if (Array.isArray(e.projects)) e.projects = e.projects.filter(p => String((p && p.id) || "").indexOf("wmj_") === 0);
+      // clear the placeholder retainer — Celtic has no monthly-services engagement
+      if (e.retainer) {
+        e.retainer.projectOnly = true;
+        e.retainer.serviceDisciplines = [];
+        e.retainer.serviceLines = [];
+        e.retainer.burn = { usedHours: 0, contractedHours: 0, periodLabel: "" };
+      }
+      localStorage.setItem(k, JSON.stringify(s));
+    }
+    localStorage.setItem("tja_celtic_clean", TAG);
+  } catch (e) {}
+})();
+
 window.TJA_STORE = (function () {
   const LS_KEY = "tja_clients";
   const REG_CLIENT = "_registry";   // pseudo client_id for the roster row

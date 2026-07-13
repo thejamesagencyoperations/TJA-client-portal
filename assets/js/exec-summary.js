@@ -363,7 +363,7 @@ window.ExecSummary = (function () {
            <div class="rsvc-top"><span class="rsvc-name">Unallocated <span class="rsvc-caret">view ›</span></span><span class="rsvc-right"><span class="rsvc-status is-unalloc">In burn</span></span></div>
            <div class="rsvc-cap">${misc} hrs billable · not in a discipline</div>
          </div>` : "";
-    const setupNote = (admin && unset)
+    const setupNote = (admin && unset && !e.projectOnly)
       ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0
             ? `The burn total (~${e.retainerValueTarget} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
             : `No contracted hours yet — set them per discipline.`}</div>` : "";
