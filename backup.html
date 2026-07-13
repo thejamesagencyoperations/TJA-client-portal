@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backup &amp; Sync · TJA Portal</title>
+<script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/styles.css?v=203">
+<style>
+  .bk-wrap { max-width: 780px; margin: 40px auto; padding: 0 20px; }
+  .bk-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  .bk-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
+  .bk-sub { color: var(--text-dim); font-size: 0.88rem; margin: 4px 0 24px; max-width: 62ch; }
+  .bk-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+  .bk-card h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint); margin: 0 0 6px; font-weight: 700; }
+  .bk-card p { font-size: 0.84rem; color: var(--text-dim); margin: 0 0 12px; }
+  .bk-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .bk-status { font-size: 0.8rem; color: var(--text-dim); }
+  .bk-status b { color: var(--text); }
+  .bk-ok { color: #3f9d63; font-weight: 700; }
+  .bk-warn { color: #d97706; font-weight: 700; }
+  .bk-log { font-family: ui-monospace, Menlo, monospace; font-size: 0.72rem; line-height: 1.7;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    max-height: 260px; overflow-y: auto; margin-top: 12px; white-space: pre-wrap; display: none; }
+  .bk-back { font-size: 0.8rem; color: var(--accent-text); text-decoration: none; font-weight: 600; }
+  .bk-back:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="bk-wrap">
+  <div class="bk-head">
+    <div class="bk-title">Backup &amp; Sync</div>
+    <a class="bk-back" href="clients.html">← All clients</a>
+  </div>
+  <p class="bk-sub">Admin utility. <strong>Export</strong> saves everything in this browser (all clients, edits, files) to a file on your Mac. <strong>Import</strong> restores from such a file. <strong>Push to cloud</strong> copies this browser's data to Supabase so other devices can pull it.</p>
+
+  <div class="bk-card">
+    <h2>This browser</h2>
+    <div class="bk-status" id="localStatus">Reading…</div>
+  </div>
+
+  <div class="bk-card">
+    <h2>1 · Export — save a snapshot file</h2>
+    <p>Downloads a JSON file of every portal key in this browser. Keep one from right before the presentation — restoring it takes one click.</p>
+    <div class="bk-row">
+      <button class="btn btn-primary" id="exportBtn">⬇ Export backup file</button>
+    </div>
+  </div>
+
+  <div class="bk-card">
+    <h2>2 · Import — restore a snapshot</h2>
+    <p>Replaces this browser's portal data with the file's contents (current data is overwritten — export first if unsure).</p>
+    <div class="bk-row">
+      <input type="file" id="importFile" accept="application/json" style="font-size:0.8rem">
+      <button class="btn btn-ghost" id="importBtn" disabled>⬆ Restore from file</button>
+    </div>
+  </div>
+
+  <div class="bk-card">
+    <h2>3 · Push to cloud — copy this browser → Supabase</h2>
+    <p>Upserts every client's dashboard, files, deliverables + the client roster into Supabase. Requires being logged in with your <strong>real Supabase admin password</strong> (the demo <code>admin</code> password has no cloud session).</p>
+    <div class="bk-status" id="cloudStatus">Checking cloud session…</div>
+    <div class="bk-row" style="margin-top:12px">
+      <button class="btn btn-primary" id="pushBtn" disabled>☁ Push everything to cloud</button>
+    </div>
+    <div class="bk-log" id="log"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/js/supabase-config.js?v=203"></script>
+<script src="assets/js/supabase-sync.js?v=203"></script>
+<script src="assets/js/auth.js?v=203"></script>
+<script>requireAuth();</script>
+<script src="assets/js/clients.js?v=203"></script>
+<script src="assets/js/client-template.js?v=203"></script>
+<script src="assets/js/client-store.js?v=203"></script>
+<script>
+(async function () {
+  if (!isAdmin()) { window.location.replace("dashboard.html"); return; }
+  const $ = (id) => document.getElementById(id);
+  const log = (m) => { const L = $("log"); L.style.display = "block"; L.textContent += m + "\n"; L.scrollTop = L.scrollHeight; };
+
+  /* ---------- local status ---------- */
+  function portalKeys() { return Object.keys(localStorage).filter(k => k.indexOf("tja_") === 0); }
+  function refreshLocal() {
+    const keys = portalKeys();
+    const clients = (window.TJA_STORE ? window.TJA_STORE.list() : []).length;
+    const bytes = keys.reduce((s, k) => s + (localStorage.getItem(k) || "").length, 0);
+    $("localStatus").innerHTML = `<b>${clients}</b> clients · <b>${keys.length}</b> stored keys · ~<b>${(bytes / 1024).toFixed(0)} KB</b>`;
+  }
+  refreshLocal();
+
+  /* ---------- 1. export ---------- */
+  $("exportBtn").addEventListener("click", () => {
+    const data = {};
+    portalKeys().forEach(k => data[k] = localStorage.getItem(k));
+    const payload = { app: "tja-client-portal", exportedAt: new Date().toISOString(), origin: location.origin, keys: data };
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "tja-portal-backup-" + new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-") + ".json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  /* ---------- 2. import ---------- */
+  let pendingImport = null;
+  $("importFile").addEventListener("change", (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    f.text().then(t => {
+      try {
+        const j = JSON.parse(t);
+        if (!j || j.app !== "tja-client-portal" || !j.keys) throw new Error("not a portal backup");
+        pendingImport = j;
+        $("importBtn").disabled = false;
+        $("importBtn").textContent = "⬆ Restore " + Object.keys(j.keys).length + " keys (from " + (j.exportedAt || "?").slice(0, 10) + ")";
+      } catch (err) { alert("That file isn't a portal backup: " + err.message); }
+    });
+  });
+  $("importBtn").addEventListener("click", () => {
+    if (!pendingImport) return;
+    if (!confirm("Replace this browser's portal data with the backup? Current data will be overwritten.")) return;
+    portalKeys().forEach(k => localStorage.removeItem(k));
+    Object.entries(pendingImport.keys).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch (e) {} });
+    alert("Restored. Reloading…");
+    location.reload();
+  });
+
+  /* ---------- 3. push to cloud ---------- */
+  let cloudReady = false;
+  async function checkCloud() {
+    if (!(window.SUPA && window.SUPA.enabled)) { $("cloudStatus").innerHTML = '<span class="bk-warn">Supabase is not configured.</span>'; return; }
+    const cur = await window.SUPA.currentSession();
+    if (!cur || !cur.user) {
+      $("cloudStatus").innerHTML = '<span class="bk-warn">No cloud session.</span> Sign out, then log in with your real Supabase admin password (not the demo one) and come back.';
+      return;
+    }
+    const role = cur.profile && cur.profile.role;
+    if (role !== "admin") {
+      $("cloudStatus").innerHTML = `<span class="bk-warn">Signed in as ${cur.user.email}, but the cloud profile role is "${role || "none"}" — pushes would be rejected. Log in with the admin account.</span>`;
+      return;
+    }
+    cloudReady = true;
+    $("cloudStatus").innerHTML = `<span class="bk-ok">Cloud session OK</span> — ${cur.user.email} (admin)`;
+    $("pushBtn").disabled = false;
+  }
+  checkCloud();
+
+  $("pushBtn").addEventListener("click", async () => {
+    if (!cloudReady) return;
+    $("pushBtn").disabled = true;
+    const supa = window.SUPA.client;
+    const roster = window.TJA_STORE.list();
+    let ok = 0, fail = 0, skipped = 0;
+    log("Pushing " + roster.length + " clients + roster…");
+
+    // the roster itself (admin-added client registry)
+    try {
+      const added = JSON.parse(localStorage.getItem("tja_clients") || "[]");
+      const { error } = await supa.from("app_state").upsert(
+        { client_id: "_registry", scope: "clients", data: added, updated_at: new Date().toISOString() },
+        { onConflict: "client_id,scope" });
+      if (error) throw new Error(error.message);
+      log("✓ roster (" + added.length + " added clients)"); ok++;
+    } catch (e) { log("✗ roster — " + e.message + (e.message.indexOf("check") > -1 ? "  ← run supabase/schema-v3-registry.sql" : "")); fail++; }
+
+    for (const c of roster) {
+      for (const scope of ["dashboard", "files", "deliverables"]) {
+        const raw = localStorage.getItem("tja_" + scope + "_" + c.id);
+        if (!raw) { skipped++; continue; }
+        try {
+          const { error } = await supa.from("app_state").upsert(
+            { client_id: c.id, scope, data: JSON.parse(raw), updated_at: new Date().toISOString() },
+            { onConflict: "client_id,scope" });
+          if (error) throw new Error(error.message);
+          ok++; log("✓ " + c.id + " / " + scope);
+        } catch (e) { fail++; log("✗ " + c.id + " / " + scope + " — " + e.message); }
+      }
+    }
+    log("\nDone: " + ok + " pushed, " + fail + " failed, " + skipped + " empty scopes skipped.");
+    $("pushBtn").disabled = false;
+  });
+})();
+</script>
+</body>
+</html>

@@ -11,6 +11,6 @@ window.TJA_CLIENTS = [
     initials: "CE",
     logo: "assets/img/celtic-elevator-logo.png",
     tagline: "Commercial elevators · Arizona",
-    engagements: "Monthly Services · 2 projects",
+    engagements: "Monthly Services",
   },
 ];

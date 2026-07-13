@@ -33,8 +33,17 @@ const URL_M = cfgSrc.match(/url:\s*"([^"]+)"/);
 if (!URL_M) { console.error("Could not read the Supabase URL from assets/js/supabase-config.js"); process.exit(1); }
 const BASE = URL_M[1].replace(/\/$/, "");
 
-const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!KEY) { console.error("Set SUPABASE_SERVICE_ROLE_KEY in the environment first (Supabase → Project Settings → API → service_role)."); process.exit(1); }
+let KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!KEY) {
+  // fall back to the local key file (outside the repo): ~/.tja-supabase.env
+  try {
+    const { readFileSync: rf } = await import("node:fs");
+    const { homedir } = await import("node:os");
+    const env = rf(`${homedir()}/.tja-supabase.env`, "utf8");
+    KEY = (env.match(/SUPABASE_SERVICE_ROLE_KEY\s*=\s*"?([^"\n]+)"?/) || [])[1];
+  } catch {}
+}
+if (!KEY) { console.error("Set SUPABASE_SERVICE_ROLE_KEY (env var or ~/.tja-supabase.env). Supabase → Project Settings → API → service_role."); process.exit(1); }
 
 let users;
 try { users = JSON.parse(readFileSync(join(ROOT, "scripts/users.json"), "utf8")); }

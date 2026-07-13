@@ -480,6 +480,10 @@ function renderFilesBody() {
   const body = el("#filesBody"); if (!body) return;
   const seed = (D.files || []).map(f => ({ ...f, seed: true, by: "TJA" }));
   const all = seed.concat(loadFiles());
+  if (!all.length) {   // graceful empty state (every other tab has one)
+    body.innerHTML = `<tr><td colspan="7" style="color:var(--text-faint);padding:18px 16px">No files yet — drop agreements, working files and final deliverables here.</td></tr>`;
+    return;
+  }
   body.innerHTML = all.map(f => {
     const cls = f.status === "Signed" ? "complete" : (f.status === "Awaiting Signature" ? "on-hold" : "in-progress");
     const del = f.seed ? '<span class="stat-sub">—</span>' : `<button class="btn btn-ghost admin-only" data-filedel="${f.id}">Remove</button>`;

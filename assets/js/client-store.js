@@ -28,6 +28,28 @@
   } catch (e) {}
 })();
 
+/* One-time targeted sweep (2026-07): remove junk clients that a malformed WMJ
+   sheet row auto-created before the DROP_ROW time-pattern guard existed (e.g.
+   "10am-3:45pm (removed an hour for that lunch slot 12-1)"). Runs once per
+   browser; the transform guard prevents them from ever coming back. */
+(function () {
+  const SWEEP_TAG = "2026-07-junk-clients-v1";
+  const JUNK = (c) => /\b\d{1,2}(:\d{2})?\s*(a|p)m\b/i.test((c && c.name) || "");
+  try {
+    if (localStorage.getItem("tja_junk_sweep") === SWEEP_TAG) return;
+    const arr = JSON.parse(localStorage.getItem("tja_clients") || "[]");
+    if (Array.isArray(arr)) {
+      const junk = arr.filter(JUNK);
+      if (junk.length) {
+        localStorage.setItem("tja_clients", JSON.stringify(arr.filter(c => !JUNK(c))));
+        junk.forEach(c => ["tja_dashboard_", "tja_files_", "tja_deliverables_"]
+          .forEach(p => localStorage.removeItem(p + c.id)));
+      }
+    }
+    localStorage.setItem("tja_junk_sweep", SWEEP_TAG);
+  } catch (e) {}
+})();
+
 window.TJA_STORE = (function () {
   const LS_KEY = "tja_clients";
   const REG_CLIENT = "_registry";   // pseudo client_id for the roster row
