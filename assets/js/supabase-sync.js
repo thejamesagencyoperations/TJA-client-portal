@@ -63,6 +63,20 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA pull", scope, e); return null; }
   }
 
+  // Read EVERY client's row for a scope in one query (admin-only in practice — the RLS
+  // returns just your own rows for a client). Used by the admin Message Center.
+  async function pullAllScope(scope) {
+    if (!client) return [];
+    try {
+      const q = client.from("app_state").select("client_id,data").eq("scope", scope);
+      const r = await withTimeout(q, 4000, scope + "-all");
+      if (r && r.__timeout) { console.warn("SUPA pullAll timeout", scope); return []; }
+      const { data, error } = r;
+      if (error) { console.warn("SUPA pullAll", scope, error.message); return []; }
+      return data || [];
+    } catch (e) { console.warn("SUPA pullAll", scope, e); return []; }
+  }
+
   // debounced upsert per (client, scope) so rapid edits coalesce into one write.
   // MUST be keyed by clientId too — a bulk sync pushes every client under the same
   // scope ("dashboard") in quick succession; keying by scope alone let each call
@@ -93,5 +107,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pushScope, removeClient };
+  return { enabled, client, signIn, signOut, currentSession, pullScope, pullAllScope, pushScope, removeClient };
 })();

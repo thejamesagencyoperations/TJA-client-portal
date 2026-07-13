@@ -671,5 +671,8 @@ function applyEngagement() {
     if (ps.length === 1) selectProject(ps[0].id);          // single project → straight to its homepage
     else if (!selectedProject()) bootPage = "projectplan"; // none chosen → projects folder
   }
-  activate(bootPage);
+  // deep-link: a notification-center click asks to land on a specific page (e.g. Present Docs)
+  let openHint = null;
+  try { openHint = sessionStorage.getItem("tja_open_page"); sessionStorage.removeItem("tja_open_page"); } catch (e) {}
+  activate(openHint && document.querySelector(`.page[data-page="${openHint}"]`) ? openHint : bootPage);
 })();

@@ -1193,3 +1193,36 @@ body[data-role="admin"] .mom-chip:hover { border-color: var(--text-faint); }
 .module-title { display: inline-flex; align-items: center; gap: 7px; }
 .module-title svg { width: 14px; height: 14px; flex: none; color: var(--orange); }
 .ic { width: 14px; height: 14px; vertical-align: -2px; }
+
+/* ============================================================
+   NOTIFICATIONS — admin Message Center (bell + grouped panel)
+   ============================================================ */
+.notif-host { position: relative; display: inline-flex; }
+.notif-bell { position: relative; width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line);
+  background: transparent; color: var(--text-dim); cursor: pointer; display: grid; place-items: center; }
+.notif-bell:hover { border-color: var(--orange); color: var(--accent-text); }
+.notif-bell svg { width: 17px; height: 17px; }
+.notif-dot { position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: var(--bad); color: #fff; font-size: .6rem; font-weight: 800; display: grid; place-items: center; line-height: 1; }
+.notif-panel { position: absolute; top: 42px; right: 0; z-index: 60; width: min(360px, 86vw);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.notif-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.notif-head span { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; color: var(--text-dim); }
+.notif-allread { background: none; border: none; color: var(--accent-text); font: inherit; font-size: .72rem; font-weight: 700; cursor: pointer; }
+.notif-allread:hover { text-decoration: underline; }
+.notif-list { max-height: 60vh; overflow-y: auto; }
+.notif-empty { padding: 26px 14px; text-align: center; color: var(--text-faint); font-size: .84rem; }
+.notif-group { border-bottom: 1px solid var(--line); }
+.notif-group:last-child { border-bottom: none; }
+.notif-group-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px 4px;
+  cursor: pointer; }
+.notif-cname { font-size: .78rem; font-weight: 800; color: var(--text); }
+.notif-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--orange); color: #111;
+  font-size: .62rem; font-weight: 800; display: grid; place-items: center; }
+.notif-item { display: block; width: 100%; text-align: left; background: transparent; border: none; cursor: pointer;
+  padding: 7px 14px 9px; border-left: 3px solid transparent; }
+.notif-item:hover { background: var(--hover); }
+.notif-item.unread { border-left-color: var(--orange); background: rgba(246,142,33,.05); }
+.notif-line { display: block; font-size: .82rem; color: var(--text); line-height: 1.35; }
+.notif-line b { font-weight: 700; }
+.notif-meta { display: block; font-size: .68rem; color: var(--text-faint); margin-top: 2px; }

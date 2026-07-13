@@ -529,8 +529,17 @@ window.PresentDocs = (function () {
     $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"}${rev} · ${d.versions.length} version(s)`;
   }
   function finishSubmit() {
-    const v = active(deliv(curId));
+    const d = deliv(curId);
+    const v = active(d);
     if (v) { v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; }   // stamp date+time of this review submit
+    // Notify the TJA team when a CLIENT submits a review (not when an admin does).
+    if (v && d && window.TJA_NOTIFY && getSession && getSession() && getSession().role === "client") {
+      window.TJA_NOTIFY.record({
+        type: "review", docId: d.id, docName: d.name, versionLabel: v.label,
+        status: v.status || null, comments: (v.pins || []).length,
+        by: getSession().name || "Client",
+      });
+    }
     save(); renderGallery(); updateSignStatus(); updateMeta();
     const s = $("pdSaved"); s.classList.add("show");
     setTimeout(() => s.classList.remove("show"), 2200);
