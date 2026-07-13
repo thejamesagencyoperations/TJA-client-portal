@@ -111,6 +111,9 @@ window.TJA_NOTIFY = (function () {
     window.location.href = "dashboard.html";
   }
 
+  // Top-bar bell (admin). Unread badge; HOVER (or click) opens a quick dropdown
+  // preview grouped by client, with an "Open Notification Center →" button that
+  // goes to the full page. Clicking a preview item jumps to that client's docs.
   function initBell(host) {
     if (!host || host.dataset.notifyReady) return;
     host.dataset.notifyReady = "1";
@@ -120,68 +123,50 @@ window.TJA_NOTIFY = (function () {
          <span class="notif-dot" id="notifDot" style="display:none"></span>
        </button>
        <div class="notif-panel" id="notifPanel" style="display:none"></div>`;
-    const bell = host.querySelector("#notifBell");
     const panel = host.querySelector("#notifPanel");
-
     let cache = [];
     async function refresh() {
       cache = await adminFeed();
       const unread = cache.filter(e => !e.read).length;
       const dot = host.querySelector("#notifDot");
-      dot.style.display = unread ? "" : "none";
-      dot.textContent = unread > 9 ? "9+" : String(unread);
+      if (dot) { dot.style.display = unread ? "" : "none"; dot.textContent = unread > 9 ? "9+" : String(unread); }
       if (panel.style.display !== "none") renderPanel();
     }
-    const centerLink = `<a class="notif-center-link" href="notification-center.html">Open Notification Center →</a>`;
+    const centerBtn = `<a class="notif-center-link" href="notification-center.html">Open Notification Center →</a>`;
     function renderPanel() {
-      if (!cache.length) { panel.innerHTML = `<div class="notif-empty">No client activity yet.</div>${centerLink}`; return; }
-      // group by client, newest client first
+      if (!cache.length) { panel.innerHTML = `<div class="notif-empty">No client activity yet.</div>${centerBtn}`; return; }
       const groups = new Map();
       cache.forEach(e => { if (!groups.has(e.clientId)) groups.set(e.clientId, { name: e.clientName, events: [] }); groups.get(e.clientId).events.push(e); });
       let html = `<div class="notif-head"><span>Client activity</span><button class="notif-allread" id="notifAllRead">Mark all read</button></div><div class="notif-list">`;
-      groups.forEach((g, cid) => {
+      [...groups.entries()].slice(0, 6).forEach(([cid, g]) => {
         const unread = g.events.filter(e => !e.read).length;
-        html += `<div class="notif-group">
-            <div class="notif-group-head" data-open="${esc(cid)}"><span class="notif-cname">${esc(g.name)}</span>${unread ? `<span class="notif-badge">${unread}</span>` : ""}</div>`;
-        g.events.slice(0, 6).forEach(e => {
-          html += `<button class="notif-item ${e.read ? "" : "unread"}" data-open="${esc(cid)}">
-              <span class="notif-line">${eventLine(e)}</span>
-              <span class="notif-meta">${esc(e.by || "Client")} · ${when(e.ts)}</span>
-            </button>`;
+        html += `<div class="notif-group"><div class="notif-group-head" data-open="${esc(cid)}"><span class="notif-cname">${esc(g.name)}</span>${unread ? `<span class="notif-badge">${unread}</span>` : ""}</div>`;
+        g.events.slice(0, 4).forEach(e => {
+          html += `<button class="notif-item ${e.read ? "" : "unread"}" data-open="${esc(cid)}"><span class="notif-line">${eventLine(e)}</span><span class="notif-meta">${esc(e.by || "Client")} · ${when(e.ts)}</span></button>`;
         });
         html += `</div>`;
       });
-      html += `</div>` + centerLink;
+      html += `</div>` + centerBtn;
       panel.innerHTML = html;
     }
-    function toggle(show) {
-      const open = show == null ? panel.style.display === "none" : show;
-      panel.style.display = open ? "" : "none";
-      if (open) renderPanel();
-    }
-    bell.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const opening = panel.style.display === "none";
-      if (opening) await refresh();   // always show the latest when opened
-      toggle(opening);
-    });
-    document.addEventListener("click", (e) => { if (!host.contains(e.target)) toggle(false); });
-    window.addEventListener("focus", refresh);   // returning to the admin tab pulls fresh activity
+    // hover to open (with a small close delay so moving into the panel keeps it open),
+    // plus click to toggle for touch / deliberate use.
+    let hideTimer = null;
+    const open = () => { clearTimeout(hideTimer); panel.style.display = ""; renderPanel(); };
+    const close = () => { panel.style.display = "none"; };
+    host.addEventListener("mouseenter", () => { refresh(); open(); });
+    host.addEventListener("mouseleave", () => { clearTimeout(hideTimer); hideTimer = setTimeout(close, 220); });
+    host.querySelector("#notifBell").addEventListener("click", (e) => { e.stopPropagation(); panel.style.display === "none" ? (refresh(), open()) : close(); });
+    document.addEventListener("click", (e) => { if (!host.contains(e.target)) close(); });
+    window.addEventListener("focus", refresh);
     panel.addEventListener("click", async (e) => {
       const allread = e.target.closest("#notifAllRead");
-      if (allread) {
-        e.stopPropagation();
-        const ids = [...new Set(cache.filter(x => !x.read).map(x => x.clientId))];
-        for (const cid of ids) await markClientRead(cid);
-        await refresh();
-        return;
-      }
-      const open = e.target.closest("[data-open]");
-      if (open) { markClientRead(open.dataset.open); openClientDocs(open.dataset.open); }
+      if (allread) { e.stopPropagation(); const ids = [...new Set(cache.filter(x => !x.read).map(x => x.clientId))]; for (const cid of ids) await markClientRead(cid); await refresh(); return; }
+      const el = e.target.closest("[data-open]");
+      if (el && el.dataset.open) { markClientRead(el.dataset.open); openClientDocs(el.dataset.open); }
     });
-
     refresh();
-    setInterval(refresh, 45000);   // light poll so a teammate's session stays current
+    setInterval(refresh, 45000);
   }
 
   // doc-only line (no status verb) — for views that show a separate status badge

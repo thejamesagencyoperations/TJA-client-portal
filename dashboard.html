@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=212">
+<link rel="stylesheet" href="assets/css/styles.css?v=214">
 </head>
 <body>
 <div class="app">
@@ -42,14 +42,9 @@
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
         Backlog
       </div>
-      <!-- admin-only: cross-client Notification Center (hidden for clients + client-preview) -->
-      <a class="nav-item nav-admin" id="navNotifications" href="notification-center.html">
-        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
-        Notification Center
-      </a>
     </nav>
     <div class="sidebar-foot">
-      <div class="version-pill">Sandbox · v2.12</div>
+      <div class="version-pill">Sandbox · v2.14</div>
     </div>
   </aside>
 
@@ -96,20 +91,20 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=212"></script>
-<script src="assets/js/supabase-sync.js?v=212"></script>
-<script src="assets/js/auth.js?v=212"></script>
+<script src="assets/js/supabase-config.js?v=214"></script>
+<script src="assets/js/supabase-sync.js?v=214"></script>
+<script src="assets/js/auth.js?v=214"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=212"></script>
-<script src="assets/js/client-template.js?v=212"></script>
-<script src="assets/js/client-store.js?v=212"></script>
-<script src="assets/js/wmj-transform.js?v=212"></script>
-<script src="assets/js/retainer-transform.js?v=212"></script>
-<script src="assets/js/client-logos.js?v=212"></script>
-<script src="assets/js/client-pr-sheets.js?v=212"></script>
-<script src="assets/js/retainer-value.js?v=212"></script>
-<script src="assets/js/wmj-sync.js?v=212"></script>
-<script src="assets/data/celtic-elevator.js?v=212"></script>
+<script src="assets/js/clients.js?v=214"></script>
+<script src="assets/js/client-template.js?v=214"></script>
+<script src="assets/js/client-store.js?v=214"></script>
+<script src="assets/js/wmj-transform.js?v=214"></script>
+<script src="assets/js/retainer-transform.js?v=214"></script>
+<script src="assets/js/client-logos.js?v=214"></script>
+<script src="assets/js/client-pr-sheets.js?v=214"></script>
+<script src="assets/js/retainer-value.js?v=214"></script>
+<script src="assets/js/wmj-sync.js?v=214"></script>
+<script src="assets/data/celtic-elevator.js?v=214"></script>
 <script>
   /* bootstrap: resolve the selected client's data BEFORE app.js reads window.CLIENT_DATA.
      Built-in clients use their rich seed; added clients build from the registry template. */
@@ -135,11 +130,11 @@
     }
   })();
 </script>
-<script src="assets/js/slack-wins.js?v=212"></script>
-<script src="assets/js/notifications.js?v=212"></script>
-<script src="assets/js/present-docs.js?v=212"></script>
-<script src="assets/js/exec-summary.js?v=212"></script>
-<script src="assets/js/app.js?v=212"></script>
+<script src="assets/js/slack-wins.js?v=214"></script>
+<script src="assets/js/notifications.js?v=214"></script>
+<script src="assets/js/present-docs.js?v=214"></script>
+<script src="assets/js/exec-summary.js?v=214"></script>
+<script src="assets/js/app.js?v=214"></script>
 <script>
   // Admin-only notification bell (client Present-Docs activity, grouped by client)
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {

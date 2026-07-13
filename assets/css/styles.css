@@ -1207,7 +1207,7 @@ body[data-role="admin"] .mom-chip:hover { border-color: var(--text-faint); }
    NOTIFICATIONS — admin Message Center (bell + grouped panel)
    ============================================================ */
 .notif-host { position: relative; display: inline-flex; }
-.notif-bell { position: relative; width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line);
+.notif-bell { position: relative; text-decoration: none; width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line);
   background: transparent; color: var(--text-dim); cursor: pointer; display: grid; place-items: center; }
 .notif-bell:hover { border-color: var(--orange); color: var(--accent-text); }
 .notif-bell svg { width: 17px; height: 17px; }
