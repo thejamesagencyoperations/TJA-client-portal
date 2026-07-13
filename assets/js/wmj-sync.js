@@ -242,6 +242,47 @@ window.WMJ_SYNC = (function () {
     return { clients: done };
   }
 
+  // Derive each client's ACCOUNT MANAGER from WMJ and stamp it on the store entry.
+  // Signal: the "Client Services" person with the most hours on the account (retainers
+  // sheet has User_Department; projects sheet's account/client-services rows back it up).
+  // Never creates clients — only annotates existing ones (match by normName).
+  async function syncAccountManagers() {
+    try {
+      const [pc, rc] = await Promise.all([
+        fetch(CSV_URL, { cache: "no-store" }).then(r => r.ok ? r.text() : "").catch(() => ""),
+        fetch(RET_CSV_URL, { cache: "no-store" }).then(r => r.ok ? r.text() : "").catch(() => ""),
+      ]);
+      if (!T()) return { clients: 0 };
+      const tally = {};   // normClient -> { userName: hours }
+      const add = (client, user, hrs) => {
+        if (!client || !user) return;
+        const k = normName(client); (tally[k] || (tally[k] = {}));
+        tally[k][user] = (tally[k][user] || 0) + (parseFloat(hrs) || 1);
+      };
+      // retainers: department = "Client Services"
+      T().parseCSV(rc).forEach(r => {
+        if (String(r.User_Department || "").toLowerCase().indexOf("client service") > -1)
+          add((r.Client_Name || "").trim(), (r.User_Name || "").trim(), r.Actual_Hours_Worked);
+      });
+      // projects: account / client-services rows (no department column there)
+      T().parseCSV(pc).forEach(r => {
+        const svc = (r.Service || "").toLowerCase(), pn = (r.Project_Name || "").toLowerCase();
+        if (svc.indexOf("client service") > -1 || pn.indexOf("account") > -1 || pn.indexOf("client service") > -1)
+          add((r.Client_Name || "").trim(), (r.User_Full_Name || "").trim(), r.Allocated_Hours);
+      });
+      // pick the top person per client, stamp onto the matching store entry
+      const roster = (window.TJA_STORE && window.TJA_STORE.list && window.TJA_STORE.list()) || [];
+      const byNorm = {}; roster.forEach(c => { byNorm[normName(c.name)] = c; byNorm[normName(c.wmjName || "")] = byNorm[normName(c.wmjName || "")] || c; });
+      let n = 0;
+      Object.keys(tally).forEach(k => {
+        const ent = byNorm[k]; if (!ent) return;
+        const top = Object.keys(tally[k]).sort((a, b) => tally[k][b] - tally[k][a])[0];
+        if (top && ent.accountManager !== top) { window.TJA_STORE.update(ent.id, { accountManager: top }); n++; }
+      });
+      return { clients: n };
+    } catch (e) { console.warn("account-manager sync", e); return { clients: 0 }; }
+  }
+
   function lastSync() { try { return localStorage.getItem(LAST_KEY) || null; } catch (e) { return null; } }
 
   // auto-sync: once on load (always fresh when the page opens) + hourly while open.
@@ -262,6 +303,8 @@ window.WMJ_SYNC = (function () {
         .catch(err => { console.warn("PR sync", err); })
         .then(() => syncRetainerValue())
         .catch(err => { console.warn("retainer-value sync", err); })
+        .then(() => syncAccountManagers())
+        .catch(err => { console.warn("account-manager sync", err); })
         .then(() => {
           try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
           if (onDone) { try { onDone(window.__wmjProjResult || null); } catch (e) {} }
@@ -270,5 +313,5 @@ window.WMJ_SYNC = (function () {
     if (!timer) timer = setInterval(run, HOUR);
   }
 
-  return { sync, syncRetainers, syncPR, syncRetainerValue, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
+  return { sync, syncRetainers, syncPR, syncRetainerValue, syncAccountManagers, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
 })();

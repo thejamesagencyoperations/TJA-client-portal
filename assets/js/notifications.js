@@ -132,8 +132,9 @@ window.TJA_NOTIFY = (function () {
       dot.textContent = unread > 9 ? "9+" : String(unread);
       if (panel.style.display !== "none") renderPanel();
     }
+    const centerLink = `<a class="notif-center-link" href="notification-center.html">Open Notification Center →</a>`;
     function renderPanel() {
-      if (!cache.length) { panel.innerHTML = `<div class="notif-empty">No client activity yet.</div>`; return; }
+      if (!cache.length) { panel.innerHTML = `<div class="notif-empty">No client activity yet.</div>${centerLink}`; return; }
       // group by client, newest client first
       const groups = new Map();
       cache.forEach(e => { if (!groups.has(e.clientId)) groups.set(e.clientId, { name: e.clientName, events: [] }); groups.get(e.clientId).events.push(e); });
@@ -150,7 +151,7 @@ window.TJA_NOTIFY = (function () {
         });
         html += `</div>`;
       });
-      html += `</div><a class="notif-center-link" href="notification-center.html">Open Notification Center →</a>`;
+      html += `</div>` + centerLink;
       panel.innerHTML = html;
     }
     function toggle(show) {

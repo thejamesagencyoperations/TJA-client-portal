@@ -1285,3 +1285,18 @@ body[data-role="admin"] .mom-chip:hover { border-color: var(--text-faint); }
 .nc-mock-sub { font-size: .82rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nc-mock-time { font-size: .72rem; color: var(--text-faint); }
 @media (max-width: 620px) { .nc-mock-row { grid-template-columns: 1fr auto; } .nc-mock-sub { display: none; } }
+
+/* admin-only left-nav items (e.g. Notification Center) — hidden for clients + client-preview */
+.nav-admin { display: none !important; text-decoration: none; }
+body[data-role="admin"] .nav-admin { display: flex !important; }
+
+/* Notification Center — account-manager filter + AM label */
+.nc-sec-actions { display: inline-flex; align-items: center; gap: 14px; flex: none; }
+.nc-filter-wrap { display: inline-flex; align-items: center; gap: 8px; font-size: .72rem; text-transform: uppercase;
+  letter-spacing: .08em; font-weight: 700; color: var(--text-faint); white-space: nowrap; }
+.nc-filter { font: inherit; font-size: .82rem; font-weight: 600; text-transform: none; letter-spacing: 0;
+  color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+.nc-filter:focus { outline: none; border-color: var(--orange); }
+.nc-card-am { display: inline-block; margin-left: 10px; font-size: .64rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-faint); background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; vertical-align: middle; }
+@media (max-width: 620px) { .nc-sec-head { flex-direction: column; align-items: flex-start; gap: 12px; } }

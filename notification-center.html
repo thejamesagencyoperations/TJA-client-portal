@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=210">
+<link rel="stylesheet" href="assets/css/styles.css?v=211">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -41,7 +41,12 @@
     <section class="nc-section active" data-sec="reviews">
       <div class="nc-sec-head">
         <p class="nc-sec-desc">When a client approves, requests changes, or leaves comments on a Present Doc, it lands here.</p>
-        <button class="btn btn-ghost btn-sm" id="ncMarkAll">Mark all read</button>
+        <div class="nc-sec-actions">
+          <label class="nc-filter-wrap">Account manager
+            <select id="ncAmFilter" class="nc-filter"><option value="">All</option></select>
+          </label>
+          <button class="btn btn-ghost btn-sm" id="ncMarkAll">Mark all read</button>
+        </div>
       </div>
       <div id="ncReviews"><div class="nc-loading">Loading client activity…</div></div>
     </section>
@@ -75,17 +80,17 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=210"></script>
-<script src="assets/js/supabase-sync.js?v=210"></script>
-<script src="assets/js/auth.js?v=210"></script>
+<script src="assets/js/supabase-config.js?v=211"></script>
+<script src="assets/js/supabase-sync.js?v=211"></script>
+<script src="assets/js/auth.js?v=211"></script>
 <script>
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=210"></script>
-<script src="assets/js/client-template.js?v=210"></script>
-<script src="assets/js/client-store.js?v=210"></script>
-<script src="assets/js/notifications.js?v=210"></script>
+<script src="assets/js/clients.js?v=211"></script>
+<script src="assets/js/client-template.js?v=211"></script>
+<script src="assets/js/client-store.js?v=211"></script>
+<script src="assets/js/notifications.js?v=211"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -107,6 +112,17 @@
   });
 
   const STATUS_BADGE = { approved: "complete", changes: "on-hold", revisions: "blocked" };
+  // account manager for a client (from the WMJ-derived store field)
+  const amOf = (cid) => { try { const c = window.TJA_STORE.get(cid); return (c && c.accountManager) || "Unassigned"; } catch (e) { return "Unassigned"; } };
+  let amFilter = "";
+
+  // build the AM dropdown once, from whichever clients currently have activity
+  function fillAmFilter(clientIds) {
+    const sel = $("ncAmFilter"); if (!sel) return;
+    const ams = [...new Set(clientIds.map(amOf))].sort((a, b) => a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">All</option>` + ams.map(a => `<option value="${esc(a)}"${a === cur ? " selected" : ""}>${esc(a)}</option>`).join("");
+  }
 
   async function renderReviews() {
     const feed = await N.adminFeed();
@@ -118,12 +134,17 @@
     // group by client, newest client first
     const groups = new Map();
     feed.forEach(e => { if (!groups.has(e.clientId)) groups.set(e.clientId, { name: e.clientName, events: [] }); groups.get(e.clientId).events.push(e); });
+    fillAmFilter([...groups.keys()]);
+    // filter by the selected account manager (folder-style — shows only that AM's clients)
+    let shownClients = 0;
     let html = "";
     groups.forEach((g, cid) => {
+      if (amFilter && amOf(cid) !== amFilter) return;
+      shownClients++;
       const unread = g.events.filter(e => !e.read).length;
       html += `<div class="nc-card">
         <div class="nc-card-head">
-          <span class="nc-card-client">${esc(g.name)}</span>
+          <span class="nc-card-client">${esc(g.name)}<span class="nc-card-am">${esc(amOf(cid))}</span></span>
           <span class="nc-card-right">${unread ? `<span class="notif-badge">${unread} new</span>` : ""}
             <button class="nc-open" data-open="${esc(cid)}">Open Present Docs →</button></span>
         </div>
@@ -138,9 +159,10 @@
       });
       html += `</div></div>`;
     });
-    $("ncReviews").innerHTML = html;
+    $("ncReviews").innerHTML = html || `<div class="nc-empty">No activity for <b>${esc(amFilter)}</b>'s clients.</div>`;
   }
 
+  $("ncAmFilter").addEventListener("change", (e) => { amFilter = e.target.value; renderReviews(); });
   $("ncReviews").addEventListener("click", (e) => {
     const o = e.target.closest("[data-open]");
     if (o) { N.markClientRead(o.dataset.open); N.openClientDocs(o.dataset.open); }

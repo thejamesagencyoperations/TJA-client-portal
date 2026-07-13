@@ -537,7 +537,7 @@ function applyEngagement() {
   document.title = `${D.client.name} · TJA Portal`;
 
   document.getElementById("nav").addEventListener("click", e => {
-    const item = e.target.closest(".nav-item"); if (item) activate(item.dataset.page);
+    const item = e.target.closest(".nav-item"); if (item && item.dataset.page) activate(item.dataset.page);  // anchors (e.g. Notification Center) navigate on their own
   });
   document.getElementById("engToggle").addEventListener("click", e => {
     const seg = e.target.closest(".eng-seg"); if (!seg || !seg.dataset.engmode) return;
