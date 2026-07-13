@@ -1,12 +1,19 @@
 /* ============================================================
-   MOCK AUTH + ROLES — SANDBOX ONLY (NOT SECURE)
-   Client-side demo gate so the team can click through the concept.
+   AUTH + ROLES
    Roles:
      • admin  → internal TJA team: full edit, upload, manage versions
      • client → read-only on data tabs; may upload Files + review Present Docs
-   In production these become Firebase Auth custom claims, enforced
-   server-side. Here they just shape the UI.
+
+   Production: real Supabase auth (every account provisioned). The mock
+   password path below is now GATED OFF on any Supabase-configured
+   deployment (ALLOW_MOCK_FALLBACK = false) — real credentials only. It
+   is kept, not deleted, so an offline/no-Supabase build still works and
+   so it can be re-enabled in one line if ever needed.
    ============================================================ */
+
+// When Supabase is configured, accept ONLY real Supabase auth (no derivable
+// sandbox passwords). Flip to true only for offline demos with no backend.
+const ALLOW_MOCK_FALLBACK = false;
 
 // Reserved workspace id for the admin. The admin owns NO client workspace — this is a
 // sentinel (like _registry) that is never a real client, so the admin can never be
@@ -102,9 +109,12 @@ async function login(email, password) {
         try { window.SUPA.signOut(); } catch (e) {}
         return false;
       }
-    } catch (e) { /* fall through to mock */ }
+    } catch (e) { /* auth error — handled below */ }
+    // Supabase is configured: real credentials are the ONLY accepted path
+    // unless the mock fallback is explicitly enabled.
+    if (!ALLOW_MOCK_FALLBACK) return false;
   }
-  return attemptLogin(email, password);   // sandbox fallback (synchronous)
+  return attemptLogin(email, password);   // offline / no-backend fallback
 }
 
 /* ---------- session restore ----------
