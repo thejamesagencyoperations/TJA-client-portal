@@ -886,6 +886,15 @@ body[data-role="client"] .admin-only { display: none !important; }
 .burn-cond-row .cond-label { font-size: .9rem; margin-left: auto; text-align: right; }
 .burn-cond-row .cond-dots { flex: none; }
 .burn-cond .cond-note { margin-top: 7px; }
+/* condition note — admin single-line field opens a roomy popup (never squished) */
+.cond-note-btn { display: block; width: 100%; text-align: left; margin-top: 9px; font: inherit; font-size: .84rem;
+  color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cond-note-btn:hover { border-color: var(--orange); }
+.cond-note-btn.empty { color: var(--text-faint); }
+.note-pop .note-pop-ta { width: 100%; box-sizing: border-box; resize: vertical; min-height: 96px; font: inherit; font-size: .9rem;
+  color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; outline: none; }
+.note-pop .note-pop-ta:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(246,142,33,.14); }
 .mom-newmonth { margin-top: 12px; }
 .undo-btn:disabled { opacity: .4; cursor: default; }
 .undo-btn { font-weight: 700; }

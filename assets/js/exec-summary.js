@@ -89,11 +89,41 @@ window.ExecSummary = (function () {
     const due = (e.type === "project")
       ? `<div class="proj-due"><span class="proj-due-cal">${IC.cal}</span><span class="proj-due-label">Due date</span>${dueVal}</div>`
       : "";
+    // Admin edits the note in a roomy popup (a single-line field opens it, so it never
+    // gets squished inside the tile). Clients see the note read-only, exactly as before.
+    const noteHtml = canAdmin()
+      ? `<button class="cond-note-btn ${c.note ? "" : "empty"}" data-condnote title="Edit condition note">${c.note ? esc(c.note) : "＋ Add a condition note"}</button>`
+      : (c.note ? `<div class="cond-note">${esc(c.note)}</div>` : "");
     return `<div class="burn-cond">
       ${due}
       <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span><span class="cond-label ${lvl}">${labels[lvl] || "—"}</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span></div>
-      <div class="cond-note">${ed(c.note, "condition.note")}</div>
+      ${noteHtml}
     </div>`;
+  }
+  /* condition-note popup (admin) — roomy textarea instead of a squished inline field */
+  function openConditionNote() {
+    const eng = window.DASH.getEng();
+    const cur = (eng.condition && eng.condition.note) || "";
+    const old = document.getElementById("notePop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "notePop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop note-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Condition note</div>
+      <p class="bp-lead">A short line clients see with the status — e.g. "Moved to yellow — waiting on 2 interviews."</p>
+      <textarea class="note-pop-ta" rows="4" placeholder="Write a note…">${esc(cur)}</textarea>
+      <div class="bp-actions"><button type="button" class="btn btn-ghost" data-npcancel>Cancel</button><button type="button" class="btn btn-primary" data-npsave>Save note</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const ta = ov.querySelector(".note-pop-ta");
+    ta.focus(); try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+    const close = () => ov.remove();
+    ov.querySelector("[data-npcancel]").addEventListener("click", close);
+    ov.querySelector("[data-npsave]").addEventListener("click", () => {
+      eng.condition = eng.condition || {}; eng.condition.note = ta.value.trim();
+      window.DASH.saveState(); close(); rerender();
+    });
+    ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+    ov.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
   }
 
   /* ---- monthly history (retainer) — keep every past month so nothing is lost ---- */
@@ -869,6 +899,10 @@ window.ExecSummary = (function () {
       const eng = window.DASH.getEng();
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
+
+      // condition note → roomy popup editor (admin)
+      const cn = e.target.closest("[data-condnote]");
+      if (cn && canAdmin()) { openConditionNote(); return; }
 
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
