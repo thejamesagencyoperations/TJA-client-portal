@@ -7,13 +7,13 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=205">
+<link rel="stylesheet" href="assets/css/styles.css?v=206">
 <style>
   .bk-wrap { max-width: 780px; margin: 40px auto; padding: 0 20px; }
   .bk-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
   .bk-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
   .bk-sub { color: var(--text-dim); font-size: 0.88rem; margin: 4px 0 24px; max-width: 62ch; }
-  .bk-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+  .bk-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
   .bk-card h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint); margin: 0 0 6px; font-weight: 700; }
   .bk-card p { font-size: 0.84rem; color: var(--text-dim); margin: 0 0 12px; }
   .bk-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -22,7 +22,7 @@
   .bk-ok { color: #3f9d63; font-weight: 700; }
   .bk-warn { color: #d97706; font-weight: 700; }
   .bk-log { font-family: ui-monospace, Menlo, monospace; font-size: 0.72rem; line-height: 1.7;
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    background: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
     max-height: 260px; overflow-y: auto; margin-top: 12px; white-space: pre-wrap; display: none; }
   .bk-back { font-size: 0.8rem; color: var(--accent-text); text-decoration: none; font-weight: 600; }
   .bk-back:hover { text-decoration: underline; }
@@ -70,13 +70,13 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=205"></script>
-<script src="assets/js/supabase-sync.js?v=205"></script>
-<script src="assets/js/auth.js?v=205"></script>
+<script src="assets/js/supabase-config.js?v=206"></script>
+<script src="assets/js/supabase-sync.js?v=206"></script>
+<script src="assets/js/auth.js?v=206"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=205"></script>
-<script src="assets/js/client-template.js?v=205"></script>
-<script src="assets/js/client-store.js?v=205"></script>
+<script src="assets/js/clients.js?v=206"></script>
+<script src="assets/js/client-template.js?v=206"></script>
+<script src="assets/js/client-store.js?v=206"></script>
 <script>
 (async function () {
   if (!isAdmin()) { window.location.replace("dashboard.html"); return; }
