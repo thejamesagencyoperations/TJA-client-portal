@@ -150,7 +150,7 @@ window.TJA_NOTIFY = (function () {
         });
         html += `</div>`;
       });
-      html += `</div>`;
+      html += `</div><a class="notif-center-link" href="notification-center.html">Open Notification Center →</a>`;
       panel.innerHTML = html;
     }
     function toggle(show) {
@@ -183,5 +183,21 @@ window.TJA_NOTIFY = (function () {
     setInterval(refresh, 45000);   // light poll so a teammate's session stays current
   }
 
-  return { record, adminFeed, markClientRead, initBell, enabled: () => true };
+  // doc-only line (no status verb) — for views that show a separate status badge
+  function docLine(ev) {
+    const cmt = ev.comments ? ` · ${ev.comments} comment${ev.comments === 1 ? "" : "s"}` : "";
+    return `<b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")}${cmt}`;
+  }
+  const STATUS_BADGE = { approved: "Approved", changes: "Changes", revisions: "Revisions" };
+
+  return {
+    record, adminFeed, markClientRead, initBell, enabled: () => true,
+    // shared formatters so the bell and the Notification Center render identically
+    format: {
+      line: eventLine, docLine, when,
+      statusLabel: (s) => STATUS_LABEL[s] || "reviewed",
+      statusBadge: (s) => STATUS_BADGE[s] || "Reviewed",
+    },
+    openClientDocs,
+  };
 })();
