@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=224">
+<link rel="stylesheet" href="assets/css/styles.css?v=225">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -93,6 +93,20 @@
             <label class="cl-field cl-field-pw"><span>Password <em>*</em></span>
               <input type="text" id="clPassword" placeholder="Set a password"></label>
           </div>
+          <!-- Integrations: ONE per-client map of external destinations, read by every
+               connected service (Drive push, deliverable emails, Slack, Client Emails
+               matching). Optional — each blank field just disables that integration. -->
+          <details class="cl-integrations" id="clIntegrations">
+            <summary>Integrations <em class="cl-hint">— Drive folder, Slack channel, email routing (all optional)</em></summary>
+            <label class="cl-field"><span>Google Drive folder <em class="cl-hint">— paste the folder URL; client file uploads land here</em></span>
+              <input type="text" id="clDrive" placeholder="https://drive.google.com/drive/folders/…"></label>
+            <label class="cl-field"><span>Slack channel <em class="cl-hint">— where this client's review pings go</em></span>
+              <input type="text" id="clSlack" placeholder="#client-acme"></label>
+            <label class="cl-field"><span>Notification emails <em class="cl-hint">— comma-separated; deliverable emails go to these (falls back to the login email)</em></span>
+              <input type="text" id="clEmails" placeholder="jane@acme.com, mike@acme.com"></label>
+            <label class="cl-field"><span>Email domains <em class="cl-hint">— comma-separated; used to auto-match email threads to this client</em></span>
+              <input type="text" id="clDomains" placeholder="acme.com"></label>
+          </details>
         </div>
       </div>
       <div class="cl-svc-setup" id="clSvcSetup" style="display:none">
@@ -128,9 +142,9 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=224"></script>
-<script src="assets/js/supabase-sync.js?v=224"></script>
-<script src="assets/js/auth.js?v=224"></script>
+<script src="assets/js/supabase-config.js?v=225"></script>
+<script src="assets/js/supabase-sync.js?v=225"></script>
+<script src="assets/js/auth.js?v=225"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -143,16 +157,16 @@
     if (p && typeof isCreative === "function" && isCreative()) p.textContent = "Creative";
   });
 </script>
-<script src="assets/js/clients.js?v=224"></script>
-<script src="assets/js/client-template.js?v=224"></script>
-<script src="assets/js/client-store.js?v=224"></script>
-<script src="assets/js/wmj-transform.js?v=224"></script>
-<script src="assets/js/retainer-transform.js?v=224"></script>
-<script src="assets/js/client-logos.js?v=224"></script>
-<script src="assets/js/client-pr-sheets.js?v=224"></script>
-<script src="assets/js/retainer-value.js?v=224"></script>
-<script src="assets/js/wmj-sync.js?v=224"></script>
-<script src="assets/js/notifications.js?v=224"></script>
+<script src="assets/js/clients.js?v=225"></script>
+<script src="assets/js/client-template.js?v=225"></script>
+<script src="assets/js/client-store.js?v=225"></script>
+<script src="assets/js/wmj-transform.js?v=225"></script>
+<script src="assets/js/retainer-transform.js?v=225"></script>
+<script src="assets/js/client-logos.js?v=225"></script>
+<script src="assets/js/client-pr-sheets.js?v=225"></script>
+<script src="assets/js/retainer-value.js?v=225"></script>
+<script src="assets/js/wmj-sync.js?v=225"></script>
+<script src="assets/js/notifications.js?v=225"></script>
 <script>
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -364,6 +378,9 @@
     svcTotal: document.getElementById("clSvcTotal"), svcAdd: document.getElementById("clSvcAdd"),
     mgrChips: document.getElementById("clMgrChips"), mgrInput: document.getElementById("clMgrInput"),
     mgrList: document.getElementById("clMgrList"),
+    integrations: document.getElementById("clIntegrations"),
+    drive: document.getElementById("clDrive"), slack: document.getElementById("clSlack"),
+    emails: document.getElementById("clEmails"), domains: document.getElementById("clDomains"),
   };
   let editingId = null, logoData = "";
 
@@ -453,6 +470,13 @@
     // managers: existing tags, else seed from the WMJ-derived lead so it's never empty-by-default
     mgrTags = c ? (Array.isArray(c.managers) ? c.managers.slice() : (c.accountManager ? [c.accountManager] : [])) : [];
     f.mgrInput.value = ""; renderMgrTags();
+    // integrations — a Drive folder ID round-trips back as a full URL for recognizability
+    const ig = (c && c.integrations) || {};
+    f.drive.value = ig.driveFolderId ? "https://drive.google.com/drive/folders/" + ig.driveFolderId : "";
+    f.slack.value = ig.slackChannel || "";
+    f.emails.value = Array.isArray(ig.emailRecipients) ? ig.emailRecipients.join(", ") : "";
+    f.domains.value = Array.isArray(ig.domains) ? ig.domains.join(", ") : "";
+    f.integrations.open = !!(ig.driveFolderId || ig.slackChannel || (ig.emailRecipients || []).length || (ig.domains || []).length);
     discRows = (window.tjaDefaultDisciplines ? window.tjaDefaultDisciplines() : []);   // start from the standard set (add mode)
     renderSvcRows(); toggleSvcSetup();
     ov.style.display = "flex"; setTimeout(() => f.name.focus(), 30);
@@ -486,12 +510,25 @@
     const initials = window.tjaInitialsFrom(name).trim().toUpperCase().slice(0, 3);   // kept as a fallback
     const login = { email, password };
     addMgr(f.mgrInput.value);   // catch a name typed but not yet committed
+    // integrations: parse the Drive URL down to its folder ID; split the comma lists
+    const driveRaw = f.drive.value.trim();
+    const driveFolderId = driveRaw
+      ? ((driveRaw.match(/folders\/([A-Za-z0-9_-]+)/) || [])[1] || (/^[A-Za-z0-9_-]{10,}$/.test(driveRaw) ? driveRaw : ""))
+      : "";
+    if (driveRaw && !driveFolderId) { f.err.textContent = "That doesn't look like a Drive folder URL or ID."; return; }
+    const csv = (s) => s.split(",").map(x => x.trim()).filter(Boolean);
+    const integrations = {
+      driveFolderId,
+      slackChannel: f.slack.value.trim(),
+      emailRecipients: csv(f.emails.value),
+      domains: csv(f.domains.value).map(d => d.toLowerCase().replace(/^@/, "")),
+    };
     if (editingId) {
-      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, login, managers: mgrTags.slice() });
+      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, login, managers: mgrTags.slice(), integrations });
       closeModal(); renderGrid();
       return;
     }
-    const entry = window.TJA_STORE.add({ name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login, managers: mgrTags.slice() });
+    const entry = window.TJA_STORE.add({ name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login, managers: mgrTags.slice(), integrations });
     window.TJA_STORE.seedWorkspace(entry);
     // fold the admin-entered contracted hours into the new client's retainer engagement
     if (f.kind.value !== "project") {
