@@ -42,6 +42,9 @@ window.TJA_NOTIFY = (function () {
       return `${verb} on <b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")}${cmt}`;
     }
     if (ev.type === "comment") return `left a comment on <b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")}`;
+    // waiting-room lifecycle (staff-facing — the bell is admin-only)
+    if (ev.type === "upload") return `uploaded <b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")} for approval`;
+    if (ev.type === "sent") return `sent <b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")} to the client`;
     return esc(ev.docName || "activity");
   }
 
@@ -52,13 +55,29 @@ window.TJA_NOTIFY = (function () {
     if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(id, "notifications", feed);
   }
 
-  /* ---------- CLIENT side: record an event ---------- */
+  /* ---------- record an event (clients, creatives AND admins write these now) ----------
+     PULL-MERGE-PUSH, not blind push: the feed is one whole-blob row per client, and with
+     creatives + several admins writing it, a localStorage-only read would clobber events
+     recorded on other devices. Union by event id (same trick adminFeed uses), then write. */
   function record(ev) {
     const id = curClient();
-    const feed = loadFeed(id);
-    feed.unshift(Object.assign({ id: nid(), ts: now(), read: false }, ev));
-    if (feed.length > 200) feed.length = 200;
-    saveFeed(id, feed);
+    const entry = Object.assign({ id: nid(), ts: now(), read: false }, ev);
+    // local first — the feed must work offline / before schema-v6
+    const local = loadFeed(id);
+    local.unshift(entry);
+    if (local.length > 200) local.length = 200;
+    try { localStorage.setItem(key(id), JSON.stringify(local)); } catch (e) {}
+    if (window.SUPA && window.SUPA.enabled && window.SUPA.pullScope) {
+      window.SUPA.pullScope(id, "notifications").then(cloud => {
+        const merged = Array.isArray(cloud) ? cloud.slice() : [];
+        const ids = new Set(merged.map(e => e.id));
+        local.forEach(e => { if (!ids.has(e.id)) merged.push(e); });
+        merged.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        if (merged.length > 200) merged.length = 200;
+        try { localStorage.setItem(key(id), JSON.stringify(merged)); } catch (e) {}
+        window.SUPA.pushScope(id, "notifications", merged);
+      }).catch(() => { window.SUPA.pushScope(id, "notifications", local); });
+    }
     try { sendExternal(id, ev); } catch (e) {}
   }
 

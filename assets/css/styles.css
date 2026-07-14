@@ -444,6 +444,20 @@ body[data-role="creative"] .admin-only { display: none !important; }
 /* Feedback-due strip — the latest round's date, so it reads as the card's live deadline. */
 .pd-card-due { padding: 0 14px 12px; margin-top: -4px; font-size: .72rem; font-weight: 600; color: var(--text-dim); }
 .pd-card-due.overdue { color: #ef5350; }
+
+/* ---- Waiting room (drafts pending AM/PM release) ---- */
+.pd-card-draft { border: 1px dashed #d97706; }
+.pd-card-pending { padding: 0 14px 12px; margin-top: -4px; font-size: .72rem; font-weight: 700; color: #d97706; }
+.pd-send-btn { margin: 10px 14px 0; }
+.pd-card-draft .badge.pending { background: rgba(217,119,6,.14); color: #d97706; }   /* amber ONLY on waiting-room cards — .badge.pending elsewhere is the gray "Pending Review" */
+/* Creative opening a SENT deliverable: look, don't review — the status/notes rail is
+   the client's (and admin's) tool. Draft items stay fully editable for markup. */
+.pd-modal.pd-ro .pd-status-opts,
+.pd-modal.pd-ro .pd-revdue-row,
+.pd-modal.pd-ro #pdSubmit,
+.pd-modal.pd-ro #pdClientNotes,
+.pd-modal.pd-ro #pdAgencyNotes,
+.pd-modal.pd-ro #pdClearComments { pointer-events: none; opacity: .55; }
 .pd-card-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-del {
   position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;

@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=221">
+<link rel="stylesheet" href="assets/css/styles.css?v=222">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -128,9 +128,9 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=221"></script>
-<script src="assets/js/supabase-sync.js?v=221"></script>
-<script src="assets/js/auth.js?v=221"></script>
+<script src="assets/js/supabase-config.js?v=222"></script>
+<script src="assets/js/supabase-sync.js?v=222"></script>
+<script src="assets/js/auth.js?v=222"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -138,16 +138,16 @@
   requireAuth();
   if (typeof isStaff === "function" && !isStaff()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=221"></script>
-<script src="assets/js/client-template.js?v=221"></script>
-<script src="assets/js/client-store.js?v=221"></script>
-<script src="assets/js/wmj-transform.js?v=221"></script>
-<script src="assets/js/retainer-transform.js?v=221"></script>
-<script src="assets/js/client-logos.js?v=221"></script>
-<script src="assets/js/client-pr-sheets.js?v=221"></script>
-<script src="assets/js/retainer-value.js?v=221"></script>
-<script src="assets/js/wmj-sync.js?v=221"></script>
-<script src="assets/js/notifications.js?v=221"></script>
+<script src="assets/js/clients.js?v=222"></script>
+<script src="assets/js/client-template.js?v=222"></script>
+<script src="assets/js/client-store.js?v=222"></script>
+<script src="assets/js/wmj-transform.js?v=222"></script>
+<script src="assets/js/retainer-transform.js?v=222"></script>
+<script src="assets/js/client-logos.js?v=222"></script>
+<script src="assets/js/client-pr-sheets.js?v=222"></script>
+<script src="assets/js/retainer-value.js?v=222"></script>
+<script src="assets/js/wmj-sync.js?v=222"></script>
+<script src="assets/js/notifications.js?v=222"></script>
 <script>
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);

@@ -98,6 +98,25 @@ window.SUPA = (function () {
     }, 600);
   }
 
+  // IMMEDIATE push (no debounce) that the caller can await — used for ordered writes
+  // like the waiting-room draft→sent move, where the sequencing matters. It MUST also
+  // clear any queued debounced write for the same key (timer AND its pending value):
+  // otherwise a pushScope() fired just before Send would re-run 600ms later and
+  // resurrect data this call just replaced.
+  async function pushScopeNow(clientId, scope, value) {
+    if (!client) return { ok: false, error: "supabase-not-configured" };
+    const key = clientId + "::" + scope;
+    clearTimeout(timers[key]); delete timers[key]; delete latest[key];
+    try {
+      const { error } = await client.from("app_state").upsert(
+        { client_id: clientId, scope, data: value, updated_at: new Date().toISOString() },
+        { onConflict: "client_id,scope" }
+      );
+      if (error) { console.warn("SUPA pushNow", scope, error.message); return { ok: false, error: error.message }; }
+      return { ok: true };
+    } catch (e) { console.warn("SUPA pushNow", scope, e); return { ok: false, error: String(e) }; }
+  }
+
   // delete every scope row for a client (used when an admin removes a workspace)
   async function removeClient(clientId) {
     if (!client) return;
@@ -107,5 +126,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pullAllScope, pushScope, removeClient };
+  return { enabled, client, signIn, signOut, currentSession, pullScope, pullAllScope, pushScope, pushScopeNow, removeClient };
 })();

@@ -16,6 +16,9 @@ window.PresentDocs = (function () {
   const sess = (typeof getSession === "function" && getSession()) || { client: "demo" };
   const KEY = "tja_deliverables_" + sess.client;
   const OLD_KEY = "tja_creatives_" + sess.client;
+  // WAITING ROOM: creative uploads land here (scope 'deliverables_draft' — a row RLS
+  // never lets the client read). An admin's Send moves the item into KEY/'deliverables'.
+  const DRAFT_KEY = "tja_deliverables_draft_" + sess.client;
 
   const STATUS = {
     approved:  { label: "Approved as Shown",   badge: "complete" },
@@ -24,6 +27,7 @@ window.PresentDocs = (function () {
   };
 
   let items = [];
+  let draftItems = [];   // waiting-room deliverables (staff-only; clients can't even pull the scope)
   let curId = null;
   let tool = "draw";
   let color = "#ef5350";
@@ -52,11 +56,39 @@ window.PresentDocs = (function () {
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(items)); }
     catch (e) { console.warn("Portal sandbox: storage full — keeping deliverables in memory only.", e); }
-    if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(sess.client, "deliverables", items);
+    // Creatives can't write the deliverables scope (RLS) — their only write is the
+    // draft scope via saveDrafts(). Skipping the push avoids guaranteed-rejected calls.
+    if (window.SUPA && window.SUPA.enabled && !(typeof isCreative === "function" && isCreative()))
+      window.SUPA.pushScope(sess.client, "deliverables", items);
+  }
+  const isStaffFn = () => (typeof isStaff === "function" ? isStaff() : true);
+  function loadDrafts() {
+    if (!isStaffFn()) { draftItems = []; return; }   // clients never even look locally
+    try { draftItems = JSON.parse(localStorage.getItem(DRAFT_KEY)) || []; }
+    catch { draftItems = []; }
+    dedupeDrafts();
+  }
+  function saveDrafts() {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); }
+    catch (e) { console.warn("Portal sandbox: storage full — keeping drafts in memory only.", e); }
+    if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(sess.client, "deliverables_draft", draftItems);
+  }
+  // Self-heal for a crash between the two Send pushes (sent write landed, draft removal
+  // didn't): any draft whose version already exists in `items` is a stale duplicate.
+  function dedupeDrafts() {
+    const sentVids = new Set();
+    items.forEach(d => (d.versions || []).forEach(v => { if (v.vid) sentVids.add(v.vid); }));
+    const before = draftItems.length;
+    draftItems = draftItems.filter(d => !(d.versions || []).some(v => v.vid && sentVids.has(v.vid)));
+    if (draftItems.length !== before) saveDrafts();
   }
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   const uid = () => "d_" + Date.now() + "_" + (seq++);
-  const deliv = (id) => items.find(d => d.id === id);
+  const deliv = (id) => items.find(d => d.id === id) || draftItems.find(d => d.id === id);
+  const isDraft = (d) => !!(d && d.versions && d.versions.some(v => v.state === "pending_approval"));
+  // Modal edits (pins, notes, annotations, rename) hit whichever store the OPEN item
+  // lives in — a draft being marked up before release must persist to the draft scope.
+  function saveCur() { if (isDraft(deliv(curId))) saveDrafts(); else save(); }
   const active = (d) => d && d.versions[d.active];
   const $ = (id) => document.getElementById(id);
 
@@ -68,7 +100,10 @@ window.PresentDocs = (function () {
       <div class="page-desc">Upload creative deliverables for client review — versions, markup, pinned comments &amp; approvals.</div>
     </div>
 
-    <div class="pd-toolbar admin-only">
+    <!-- Upload is a STAFF capability, not admin-only: creatives keep the toolbar (their
+         uploads route to the waiting room), so the admin-only class is applied only when
+         the current viewer can't upload (clients + anyone previewing as a client). -->
+    <div class="pd-toolbar${(typeof canUploadDocs === "function" && canUploadDocs()) ? "" : " admin-only"}">
       <button class="btn btn-upload" id="pdUploadBtn">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
           <path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
@@ -76,7 +111,9 @@ window.PresentDocs = (function () {
       </button>
       <input type="file" id="pdFile" accept="image/*" multiple hidden>
       <input type="file" id="pdVerFile" accept="image/*" hidden>
-      <span class="pd-hint">PNG / JPG · logos, banners, ad sets, messaging — anything you design</span>
+      <span class="pd-hint">${(typeof isCreative === "function" && isCreative())
+        ? "PNG / JPG · your upload goes to the account manager for release — the client sees it after they hit Send"
+        : "PNG / JPG · logos, banners, ad sets, messaging — anything you design"}</span>
     </div>
 
     <div class="pd-gallery" id="pdGallery"></div>
@@ -132,7 +169,7 @@ window.PresentDocs = (function () {
             <div class="pd-ver-row">
               <span class="pd-review-label">Versions</span>
               <div class="pd-ver-chips" id="pdVers"></div>
-              <button class="pd-tool-btn admin-only" id="pdResubmit">＋ New Version</button>
+              <button class="pd-tool-btn${(typeof canUploadDocs === "function" && canUploadDocs()) ? "" : " admin-only"}" id="pdResubmit">＋ New Version</button>
             </div>
 
             <div class="pd-brief" id="pdBrief" style="display:none">
@@ -245,18 +282,47 @@ window.PresentDocs = (function () {
     const over = isOverdue(v.revisionsDue);
     return `<div class="pd-card-due ${over ? "overdue" : ""}">${over ? "Feedback overdue" : "Feedback due"} ${esc(fmtDue(v.revisionsDue))}</div>`;
   }
+  // What this viewer gets to see: clients + anyone PREVIEWING as a client see only the
+  // sent items; staff also see the waiting room. (RLS already keeps drafts out of a real
+  // client's browser — this is the same rule applied to preview mode.)
+  function visibleDrafts() {
+    const clientEyes = (typeof effectiveRole === "function") ? effectiveRole() === "client" : false;
+    return clientEyes ? [] : draftItems;
+  }
+  function draftStrip(d) {
+    const v = d.versions[d.versions.length - 1];
+    const who = v.uploadedBy ? ` · ${esc(v.uploadedBy)}` : "";
+    return `<div class="pd-card-pending">⏳ Awaiting release — not visible to client${who}</div>`;
+  }
   function renderGallery() {
     const g = $("pdGallery"); if (!g) return;
-    if (!items.length) {
-      const adminView = (typeof canEdit === "function") ? canEdit() : true;
+    const drafts = visibleDrafts();
+    if (!items.length && !drafts.length) {
+      const canUp = (typeof canUploadDocs === "function") ? canUploadDocs() : true;
       g.innerHTML = `<div class="pd-empty" style="grid-column:1/-1">
         <div class="big">＋</div>
-        ${adminView
+        ${canUp
           ? `No deliverables yet. Click <b>Upload Deliverable</b> to add your first proof.`
           : `No creative deliverables to review yet — your team will post them here.`}</div>`;
       return;
     }
-    g.innerHTML = items.map(d => {
+    const canSend = (typeof canSendDocs === "function") ? canSendDocs() : true;
+    const draftCards = drafts.map(d => {
+      const v = active(d);
+      return `<div class="pd-card pd-card-draft" data-id="${d.id}">
+        <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
+        <span class="pd-enlarge-cue">Click to review</span>
+        <div class="pd-thumb"><img src="${v.dataUrl}" alt="${esc(d.name)}"></div>
+        ${canSend ? `<button class="btn btn-primary pd-send-btn" data-send="${d.id}">📤 Send to client</button>` : ""}
+        <div class="pd-card-foot">
+          <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
+          <span class="pd-ver-tag">${esc(v.label)}</span>
+          <span class="badge pending">Awaiting release</span>
+        </div>
+        ${draftStrip(d)}
+      </div>`;
+    }).join("");
+    const sentCards = items.map(d => {
       const v = active(d);
       // The due date always comes from the LATEST round, not the version being viewed — once V2
       // is up, the card shows V2's date even if someone left the viewer parked on V1.
@@ -274,6 +340,7 @@ window.PresentDocs = (function () {
         ${dueLine(last)}
       </div>`;
     }).join("");
+    g.innerHTML = draftCards + sentCards;   // waiting room first — it's the actionable pile
   }
 
   /* ---------- image processing ---------- */
@@ -305,8 +372,13 @@ window.PresentDocs = (function () {
     } catch (e) { return new Date().toLocaleString(); }
   }
   function newVersion(dataUrl, label) {
+    // `state` is ROUTING (pending_approval | sent; ABSENT = sent, so every pre-existing
+    // version needs no migration). `status` stays the client's review verdict — the two
+    // look similar and must never be merged. `vid` is a per-version id (versions had
+    // none) used by dedupeDrafts to self-heal a crashed Send.
     return { label, dataUrl, annotation: null, pins: [], status: null, clientNotes: "", agencyNotes: "",
-      uploaded: stamp(), revisionsDue: "", subject: "", message: "" };
+      uploaded: stamp(), revisionsDue: "", subject: "", message: "",
+      state: "sent", vid: uid() + "_v", uploadedBy: sess.name || sess.email || "" };
   }
 
   /* ---------- upload brief (V1) ----------
@@ -332,25 +404,107 @@ window.PresentDocs = (function () {
     const ov = $("pdUpOverlay"); if (ov) ov.style.display = "none";
     pendingUpload = null;
   }
+  // Upload routing: an ADMIN'S upload goes straight to the client (today's behavior,
+  // still no notification — Send is what notifies, and admin uploads ARE the send).
+  // A CREATIVE'S upload lands in the waiting room until an admin releases it.
+  const uploadsToDraft = () => (typeof isCreative === "function" && isCreative());
   function commitUpload() {
     const subject = $("pdUpSubject") ? $("pdUpSubject").value.trim() : "";
     const message = $("pdUpMsg") ? $("pdUpMsg").value.trim() : "";
     const due = $("pdUpDue") ? $("pdUpDue").value : "";
+    const toDraft = uploadsToDraft();
     (pendingUpload || []).forEach(p => {
       const v = newVersion(p.dataUrl, "V1");
       v.subject = subject; v.message = message; v.revisionsDue = due;
-      items.unshift({ id: uid(), name: p.name, active: 0, versions: [v] });
+      if (toDraft) {
+        v.state = "pending_approval";
+        draftItems.unshift({ id: uid(), name: p.name, active: 0, versions: [v] });
+      } else {
+        items.unshift({ id: uid(), name: p.name, active: 0, versions: [v] });
+      }
+      if (toDraft && window.TJA_NOTIFY) {
+        // admin-bell discovery of pending work (the client-facing notification fires at Send)
+        try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: p.name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
+      }
     });
     closeUploadDialog();
-    save(); renderGallery();
+    if (toDraft) saveDrafts(); else save();
+    renderGallery();
   }
   async function handleResubmit(file) {
     const d = deliv(curId); if (!d || !file) return;
     persistCanvas();
     const p = await processFile(file);
-    d.versions.push(newVersion(p.dataUrl, "V" + (d.versions.length + 1)));
+    if (uploadsToDraft() && !isDraft(d)) {
+      // Creative adds a round to an already-SENT deliverable: the new version becomes a
+      // standalone waiting-room card carrying parentId; Send merges it onto the parent
+      // and recomputes the V-label then (an admin may add V2 in the meantime).
+      const v = newVersion(p.dataUrl, "V" + (d.versions.length + 1) + " (proposed)");
+      v.state = "pending_approval";
+      draftItems.unshift({ id: uid(), name: d.name, active: 0, versions: [v], parentId: d.id });
+      if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: d.name, versionLabel: v.label, by: sess.name || "Creative" }); } catch (e) {} }
+      saveDrafts(); renderGallery();
+      return;
+    }
+    const v = newVersion(p.dataUrl, "V" + (d.versions.length + 1));
+    if (isDraft(d)) v.state = "pending_approval";   // extra round on a not-yet-sent draft stays a draft
+    d.versions.push(v);
     d.active = d.versions.length - 1;
-    save(); loadVersionIntoModal(); renderGallery();
+    if (isDraft(d)) saveDrafts(); else save();
+    loadVersionIntoModal(); renderGallery();
+  }
+
+  /* ---------- Send (admin releases a waiting-room draft to the client) ----------
+     Ordering is deliberate: write the SENT copy first, remove the draft second. If we
+     crash in between, the deliverable exists in both stores (dedupeDrafts cleans that
+     on next staff load) — the failure mode duplicates, it never loses. */
+  async function sendDraft(draftId) {
+    if (!(typeof canSendDocs === "function" ? canSendDocs() : true)) return;
+    const idx = draftItems.findIndex(d => d.id === draftId); if (idx < 0) return;
+    const draft = draftItems[idx];
+    const sentStamp = stamp();
+    const sentBy = sess.name || sess.email || "TJA";
+    let revert;
+    const parent = draft.parentId ? items.find(x => x.id === draft.parentId) : null;
+    if (parent) {
+      const v = draft.versions[draft.versions.length - 1];
+      v.state = "sent"; v.sentAt = sentStamp; v.sentBy = sentBy;
+      v.label = "V" + (parent.versions.length + 1);   // recompute — parent may have grown
+      parent.versions.push(v);
+      parent.active = parent.versions.length - 1;
+      revert = () => { parent.versions.pop(); parent.active = Math.min(parent.active, parent.versions.length - 1); v.state = "pending_approval"; };
+    } else {
+      draft.versions.forEach(v => { v.state = "sent"; v.sentAt = sentStamp; v.sentBy = sentBy; });
+      items.unshift(draft);
+      revert = () => { items.shift(); draft.versions.forEach(v => { v.state = "pending_approval"; }); };
+    }
+    // 1. the client-visible write — this is the one that must not fail silently
+    if (window.SUPA && window.SUPA.enabled) {
+      const r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items);
+      if (!r.ok) {
+        revert();
+        alert("Send failed (" + (r.error || "network") + ") — the deliverable is still in the waiting room.");
+        renderGallery();
+        return;
+      }
+    }
+    try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+    // 2. drop the draft (failure here is safe — dedupeDrafts self-heals on next load)
+    draftItems.splice(idx, 1);
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {}
+    if (window.SUPA && window.SUPA.enabled) await window.SUPA.pushScopeNow(sess.client, "deliverables_draft", draftItems);
+    // 3. notify — THE client-facing moment (upload never notifies)
+    const sentV = parent ? parent.versions[parent.versions.length - 1] : draft.versions[draft.versions.length - 1];
+    const sentName = parent ? parent.name : draft.name;
+    if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "sent", docId: (parent || draft).id, docName: sentName, versionLabel: sentV.label, by: sentBy }); } catch (e) {} }
+    // 4. email hook — no-op until the mail module ships (Phase 6)
+    if (window.TJA_MAIL && window.TJA_MAIL.sendDeliverable) {
+      try {
+        window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docName: sentName,
+          versionLabel: sentV.label, subject: sentV.subject, message: sentV.message, dueDate: sentV.revisionsDue });
+      } catch (e) { console.warn("deliverable email failed", e); }
+    }
+    renderGallery();
   }
 
   /* ---------- overlay geometry (object-fit contain → exact picture rect) ---------- */
@@ -456,7 +610,7 @@ window.PresentDocs = (function () {
     const p = { id: "p_" + Date.now() + "_" + (seq++), x: xFrac, y: yFrac, text: "", resolved: false };
     v.pins.push(p);
     history.push({ type: "pinAdd", id: p.id });
-    save(); renderPins(); renderPinList();
+    saveCur(); renderPins(); renderPinList();
     const ta = document.querySelector(`[data-pintext="${p.id}"]`);
     if (ta) ta.focus();
   }
@@ -467,17 +621,17 @@ window.PresentDocs = (function () {
     const [pin] = v.pins.splice(index, 1);
     history.push({ type: "pinDel", pin, index });
     const pop = $("pdPopup"); if (pop && pop.dataset.pin === id) hidePopup();
-    save(); renderPins(); renderPinList();
+    saveCur(); renderPins(); renderPinList();
   }
   function clearComments() {
     const v = active(deliv(curId)); if (!v.pins.length) return;
     history.push({ type: "pinClear", pins: v.pins.slice() });
     v.pins = [];
-    hidePopup(); save(); renderPins(); renderPinList();
+    hidePopup(); saveCur(); renderPins(); renderPinList();
   }
   function toggleResolve(id) {
     const v = active(deliv(curId)); const p = v.pins.find(x => x.id === id); if (!p) return;
-    p.resolved = !p.resolved; save(); renderPins(); renderPinList();
+    p.resolved = !p.resolved; saveCur(); renderPins(); renderPinList();
   }
   function selectPin(id) {
     document.querySelectorAll(".pd-pin").forEach(m => m.classList.toggle("sel", m.dataset.pin === id));
@@ -519,15 +673,15 @@ window.PresentDocs = (function () {
     } else if (a.type === "pinAdd") {
       const v = active(deliv(curId));
       v.pins = v.pins.filter(p => p.id !== a.id);
-      save(); renderPins(); renderPinList();
+      saveCur(); renderPins(); renderPinList();
     } else if (a.type === "pinDel") {
       const v = active(deliv(curId));
       v.pins.splice(Math.min(a.index, v.pins.length), 0, a.pin);
-      save(); renderPins(); renderPinList();
+      saveCur(); renderPins(); renderPinList();
     } else if (a.type === "pinClear") {
       const v = active(deliv(curId));
       v.pins = a.pins;
-      save(); renderPins(); renderPinList();
+      saveCur(); renderPins(); renderPinList();
     }
   }
 
@@ -539,7 +693,7 @@ window.PresentDocs = (function () {
   }
   function switchVersion(i) {
     const d = deliv(curId); if (i === d.active) return;
-    persistCanvas(); save();
+    persistCanvas(); saveCur();
     d.active = i;
     loadVersionIntoModal();
   }
@@ -578,13 +732,22 @@ window.PresentDocs = (function () {
     if (img.complete && img.naturalWidth) paint(0);   // already-loaded / cached / same-src
   }
   function openModal(id) {
-    if (!deliv(id)) return;
+    const d = deliv(id); if (!d) return;
     curId = id; setTool("draw");
-    $("pdModal").classList.add("open");
+    const m = $("pdModal");
+    m.classList.add("open");
+    // Creatives review nothing — the status/notes/submit rail is the CLIENT's (and the
+    // admin's) tool. Their modal is look-and-annotate-your-own-draft only.
+    m.classList.toggle("pd-ro", typeof isCreative === "function" && isCreative() && !isDraft(d));
     $("pdSaved").classList.remove("show");
     loadVersionIntoModal();
   }
-  function closeModal() { persistCanvas(); save(); renderGallery(); hidePopup(); resetZoom(); closeSignaturePad(); $("pdModal").classList.remove("open"); curId = null; }
+  function closeModal() {
+    persistCanvas();
+    // Draft annotations live in draftItems — persist whichever store the open item is in.
+    if (isDraft(deliv(curId))) saveDrafts(); else save();
+    renderGallery(); hidePopup(); resetZoom(); closeSignaturePad(); $("pdModal").classList.remove("open"); curId = null;
+  }
 
   function setTool(t) {
     tool = t;
@@ -624,7 +787,7 @@ window.PresentDocs = (function () {
         by: getSession().name || "Client",
       });
     }
-    save(); renderGallery(); updateSignStatus(); updateMeta();
+    saveCur(); renderGallery(); updateSignStatus(); updateMeta();
     const s = $("pdSaved"); s.classList.add("show");
     setTimeout(() => s.classList.remove("show"), 2200);
   }
@@ -789,7 +952,7 @@ window.PresentDocs = (function () {
     input.className = "pd-rename-input"; input.value = d.name;
     titleEl.replaceWith(input); input.focus(); input.select();
     const commit = () => {
-      d.name = input.value.trim() || d.name; save();
+      d.name = input.value.trim() || d.name; saveCur();
       input.replaceWith(titleEl); titleEl.textContent = d.name; renderGallery();
     };
     input.addEventListener("blur", commit);
@@ -805,7 +968,7 @@ window.PresentDocs = (function () {
   // element listeners must re-attach each time; document/window listeners attach once.
   let wiredGlobal = false;
   function init() {
-    load(); renderGallery();
+    load(); loadDrafts(); renderGallery();
     wireElements();
     if (wiredGlobal) return;
     wiredGlobal = true;
@@ -838,8 +1001,16 @@ window.PresentDocs = (function () {
     $("pdGallery").addEventListener("click", e => {
       const exp = e.target.closest("[data-export]");
       if (exp) { e.stopPropagation(); exportPDF(deliv(exp.dataset.export)); return; }
+      const snd = e.target.closest("[data-send]");
+      if (snd) { e.stopPropagation(); snd.disabled = true; sendDraft(snd.dataset.send); return; }
       const del = e.target.closest("[data-del]");
-      if (del) { e.stopPropagation(); items = items.filter(x => x.id !== del.dataset.del); save(); renderGallery(); return; }
+      if (del) {
+        e.stopPropagation();
+        const id = del.dataset.del;
+        if (draftItems.some(x => x.id === id)) { draftItems = draftItems.filter(x => x.id !== id); saveDrafts(); }
+        else { items = items.filter(x => x.id !== id); save(); }
+        renderGallery(); return;
+      }
       const card = e.target.closest(".pd-card");
       if (card) openModal(card.dataset.id);
     });
@@ -864,13 +1035,13 @@ window.PresentDocs = (function () {
       const v = active(deliv(curId)); if (!v) return;
       v.status = (v.status === opt.dataset.val) ? null : opt.dataset.val;
       document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
-      save();
+      saveCur();
     });
 
     $("pdPinList").addEventListener("input", e => {
       const ta = e.target.closest("[data-pintext]"); if (!ta) return;
       const v = active(deliv(curId)); const p = v.pins.find(x => x.id === ta.dataset.pintext);
-      if (p) { p.text = ta.value; save(); syncPopup(p); }
+      if (p) { p.text = ta.value; saveCur(); syncPopup(p); }
     });
     $("pdPinList").addEventListener("click", e => {
       const res = e.target.closest("[data-resolve]"); if (res) { toggleResolve(res.dataset.resolve); return; }
@@ -895,7 +1066,7 @@ window.PresentDocs = (function () {
       pop.querySelector("[data-popuptext]").addEventListener("input", e => {
         const id = pop.dataset.pin; if (!id) return;
         const v = active(deliv(curId)); const p = v && v.pins.find(x => x.id === id);
-        if (p) { p.text = e.target.value; save(); const ta = document.querySelector(`[data-pintext="${id}"]`); if (ta) ta.value = p.text; }
+        if (p) { p.text = e.target.value; saveCur(); const ta = document.querySelector(`[data-pintext="${id}"]`); if (ta) ta.value = p.text; }
       });
       $("pdPopupClose").addEventListener("click", hidePopup);
     }
@@ -926,9 +1097,9 @@ window.PresentDocs = (function () {
     cv.addEventListener("pointerup", () => { drawing = false; });
     cv.addEventListener("pointerleave", () => { drawing = false; });
 
-    $("pdClientNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.clientNotes = e.target.value; save(); } });
-    $("pdAgencyNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.agencyNotes = e.target.value; save(); } });
-    $("pdRevDue").addEventListener("change", e => { const v = active(deliv(curId)); if (v) { v.revisionsDue = e.target.value; save(); } });
+    $("pdClientNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.clientNotes = e.target.value; saveCur(); } });
+    $("pdAgencyNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.agencyNotes = e.target.value; saveCur(); } });
+    $("pdRevDue").addEventListener("change", e => { const v = active(deliv(curId)); if (v) { v.revisionsDue = e.target.value; saveCur(); } });
 
     $("pdSubmit").addEventListener("click", submitReview);
     $("pdExport").addEventListener("click", () => exportPDF(deliv(curId)));

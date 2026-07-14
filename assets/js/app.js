@@ -648,19 +648,24 @@ function applyEngagement() {
   });
 
   // Live data: pull from Supabase when configured (otherwise stay on localStorage).
-  // The three scopes pull IN PARALLEL (each self-times-out in the sync layer), so a slow
-  // or unreachable backend delays boot by at most one timeout, never the sum of three.
+  // The scopes pull IN PARALLEL (each self-times-out in the sync layer), so a slow
+  // or unreachable backend delays boot by at most one timeout, never the sum.
+  // The waiting-room scope is STAFF-ONLY: a client's pull would be an RLS-guaranteed
+  // null (they can't read the row), so don't even ask.
   if (window.SUPA && window.SUPA.enabled) {
     try {
       const cid = clientId();
-      const [dash, files, dels] = await Promise.all([
+      const staff = (typeof isStaff === "function") && isStaff();
+      const [dash, files, dels, drafts] = await Promise.all([
         window.SUPA.pullScope(cid, "dashboard"),
         window.SUPA.pullScope(cid, "files"),
         window.SUPA.pullScope(cid, "deliverables"),
+        staff ? window.SUPA.pullScope(cid, "deliverables_draft") : Promise.resolve(null),
       ]);
       if (dash && dash.engagements) { STATE = migrate(dash); lastSnapshot = clone(STATE); try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch {} }
       if (files) { try { localStorage.setItem(FILES_KEY, JSON.stringify(files)); } catch {} }
       if (dels) { try { localStorage.setItem("tja_deliverables_" + cid, JSON.stringify(dels)); } catch {} }
+      if (drafts) { try { localStorage.setItem("tja_deliverables_draft_" + cid, JSON.stringify(drafts)); } catch {} }
     } catch (e) { console.warn("Supabase boot sync failed; using local data.", e); }
   }
 
