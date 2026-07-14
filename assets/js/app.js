@@ -513,8 +513,9 @@ function applyEngagement() {
   tog.innerHTML = segs;
   // Nothing to switch between (single engagement in client view) → hide the toggle entirely.
   tog.style.display = (hasRet && hasProj) ? "" : "none";
-  // topbar identity: client name (set once) + engagement label. North Star now lives in its own
-  // full-width banner at the top of the Executive Summary (see exec-summary.js northStarBanner).
+  // topbar identity: client name (set once) + engagement label. The headline goal lives in its own
+  // full-width banner at the top of the Executive Summary, and only on projects — retainers carry
+  // their direction in the Sprint Goals tile instead (see exec-summary.js goalBanner).
   const eng = getEng();
   const onFolder = !isRetainer() && !selectedProject();
   el("#clientMeta").textContent = "· " + (isRetainer() ? "Monthly Services" : (onFolder ? "Projects" : (eng.label || eng.name)));

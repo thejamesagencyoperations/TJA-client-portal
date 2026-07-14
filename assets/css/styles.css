@@ -267,6 +267,37 @@ a { color: inherit; text-decoration: none; }
 .client-northstar:empty { display: none; }
 
 .topbar-right { display: flex; align-items: center; gap: 14px; }
+
+/* ---- Topbar squeeze rule ----
+   Same discipline as the exec tiles: pin the geometry and make ONE element absorb the squeeze.
+   The action cluster never shrinks or wraps (that's what pushed buttons into each other on
+   narrow windows); the client identity on the left gives up the space and ellipses instead. */
+.topbar { gap: 16px; flex-wrap: nowrap; }
+.topbar-left { flex: 1 1 auto; }
+.topbar-right { flex: 0 0 auto; flex-wrap: nowrap; }   /* the action cluster never shrinks or wraps */
+/* The identity block absorbs ALL of the squeeze — but only its TEXT may shrink. The avatar was
+   being flexed down to 7px and the text, with overflow visible, spilled out of its crushed box
+   and printed straight over the "All clients" button. Both halves are pinned now. */
+.client-avatar { flex: none; }
+.client-id-text { flex: 1 1 auto; overflow: hidden; }
+.client-line { flex-wrap: nowrap; min-width: 0; }
+.client-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-eng { flex: none; white-space: nowrap; }
+/* Below this the action cluster (~795px) leaves the client name unreadable, so the two
+   REDUNDANT labels go first — each is already stated by a control next to it: the engagement
+   by the Monthly Services / Projects toggle, and the role pill by the active Admin /
+   Client view segment. That buys back enough width for the client name to stay legible. */
+@media (max-width: 1300px) {
+  .client-eng { display: none; }
+  .role-pill { display: none; }
+  .topbar { padding: 16px 18px; gap: 12px; }
+  .topbar-right { gap: 10px; }
+}
+@media (max-width: 760px) {
+  .topbar { padding: 12px 16px; gap: 10px; }
+  .topbar-right { gap: 8px; }
+  .client-id-text { max-width: none; }
+}
 .icon-btn {
   width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line);
   background: transparent; color: var(--text-dim); cursor: pointer; flex: none;
@@ -407,6 +438,9 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pd-thumb { aspect-ratio: 4 / 3; background: #0c0c0e; display: grid; place-items: center; overflow: hidden; }
 .pd-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .pd-card-foot { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Feedback-due strip — the latest round's date, so it reads as the card's live deadline. */
+.pd-card-due { padding: 0 14px 12px; margin-top: -4px; font-size: .72rem; font-weight: 600; color: var(--text-dim); }
+.pd-card-due.overdue { color: #ef5350; }
 .pd-card-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-del {
   position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
@@ -510,6 +544,28 @@ body[data-role="client"] .admin-only { display: none !important; }
 .pd-sign-name { flex: 1; background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--text); font: inherit; font-size: .85rem; outline: none; }
 .pd-sign-name:focus { border-color: var(--orange); }
 .pd-sign-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* ---- Upload brief dialog (subject + message that ship with V1) ----
+   Fixed, not absolute like .pd-sign-overlay: this one is raised from the gallery, not from
+   inside the viewer modal, so it has no positioned ancestor to sit against. */
+.pd-up-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(3px); padding: 20px; }
+.pd-up-card { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 20px; box-shadow: var(--shadow); max-height: 90vh; overflow-y: auto; }
+.pd-up-card .pd-review-label { display: block; margin: 12px 0 6px; }
+.pd-up-card .pd-revdue-row .pd-review-label { margin: 0; }
+.pd-up-subject, .pd-up-msg { width: 100%; padding: 9px 11px; background: var(--input); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--text); font-family: inherit; font-size: .85rem; }
+.pd-up-msg { min-height: 96px; resize: vertical; line-height: 1.5; }
+.pd-up-subject:focus, .pd-up-msg:focus { outline: none; border-color: var(--orange); }
+
+/* The brief as the client sees it, at the top of the review rail. */
+.pd-brief { background: var(--input); border: 1px solid var(--line); border-left: 3px solid var(--orange);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; }
+.pd-brief-subject { font-weight: 700; font-size: .84rem; }
+.pd-brief-subject:empty { display: none; }
+.pd-brief-msg { font-size: .8rem; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; margin-top: 4px; }
+.pd-brief-msg:empty { display: none; }
 
 .pd-draw-tools {
   display: flex; align-items: center; gap: 10px; padding: 11px 18px;
@@ -980,9 +1036,14 @@ body[data-role="client"] .admin-only { display: none !important; }
 /* Bottom tiles */
 .tile-list { display: flex; flex-direction: column; gap: 9px; }
 .tile-item { display: flex; align-items: flex-start; gap: 9px; font-size: .84rem; }
-.tile-item .owner-tag { font-size: .58rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; flex: none; margin-top: 1px; }
+.tile-item .owner-tag,
+.ms-item .owner-tag { font-size: .58rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; flex: none; margin-top: 1px; }
 .owner-tag.tja { background: rgba(246,142,33,.18); color: var(--orange); }   /* TJA = always TJA orange (#F68E21), not the muted accent-text */
 .owner-tag.client { background: rgba(106,166,255,.16); color: #6aa6ff; }          /* Client = configurable (admin overrides inline) */
+/* Sprint ticker on retainer Sprint Goals — same chip as the to-do owner tag. */
+.owner-tag.sprint1 { background: rgba(246,142,33,.18); color: var(--orange); }
+.owner-tag.sprint2 { background: rgba(106,166,255,.16); color: #6aa6ff; }
+.ms-meta { display: flex; align-items: center; gap: 7px; }
 .todo-colorpick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
   font-size: .58rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--text-faint); }
 .todo-colorpick input[type="color"] { width: 18px; height: 18px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }

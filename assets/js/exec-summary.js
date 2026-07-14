@@ -424,12 +424,21 @@ window.ExecSummary = (function () {
   }
 
   function milestoneModule(e) {
+    // Retainers run in two-week sprints, so the same list is "Sprint Goals" there and each
+    // row carries a Sprint 1 / Sprint 2 ticker. Projects run to fixed dated milestones — no ticker.
+    const isRet = e.type !== "project";
+    const sprintOf = (m) => (+m.sprint === 2 ? 2 : 1);
+    const sprintTag = (m, i) => {
+      if (!isRet) return "";
+      const n = sprintOf(m);
+      return `<span class="owner-tag sprint${n} ${canAdmin() ? "admin-edit" : ""}" data-sprint="${i}" ${canAdmin() ? `title="Switch sprint (1 / 2)"` : ""}>Sprint ${n}</span>`;
+    };
     const items = (e.milestones || []).map((m, i) => `
       <div class="ms-item ${m.done ? "done" : ""}">
         <button class="ms-check ${m.done ? "done" : ""}" ${canAdmin() ? `data-mstoggle="${i}"` : "disabled"} title="${m.done ? "Mark not done" : "Mark done"}"></button>
         <div class="ms-body">
           <div class="tl-label">${ed(m.label, "milestones." + i + ".label")}</div>
-          <div class="tl-date">${ed(m.date, "milestones." + i + ".date")}</div>
+          <div class="ms-meta">${sprintTag(m, i)}<span class="tl-date">${ed(m.date, "milestones." + i + ".date")}</span></div>
         </div>
         ${canAdmin() ? `<button class="ms-del" data-listdel="milestones" data-idx="${i}" title="Remove milestone">✕</button>` : ""}
       </div>`).join("");
@@ -437,9 +446,9 @@ window.ExecSummary = (function () {
     // page (it force-redirects to exec), so the link only shows for projects.
     const planLink = e.type === "project" ? `<span class="module-link" data-go="projectplan">View plan →</span>` : "";
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.flag}Milestones</span>${planLink}</div>
+      <div class="module-head"><span class="module-title">${IC.flag}${isRet ? "Sprint Goals" : "Milestones"}</span>${planLink}</div>
       <div class="ms-list">${items}</div>
-      ${listAdd("milestones", "Add milestone")}
+      ${listAdd("milestones", isRet ? "Add sprint goal" : "Add milestone")}
     </div>`;
   }
 
@@ -591,10 +600,31 @@ window.ExecSummary = (function () {
     todos:        { x: 823,  y: 378, w: 424, h: 380 },
     milestones:   { x: 1263, y: 0,   w: 363, h: 760 },
   };
+  /* ---- Does this retainer carry PR? ----
+     The signal is the SOW (contracted PR hours), NOT actuals — a PR client with nothing logged
+     yet this month still has PR. Auto-detect is only the DEFAULT: an explicit admin choice
+     (e.prTile true/false, set by the buttons) always wins, so the auto-rule can never undo it. */
+  function prInSow(e) {
+    const canon = window.tjaCanonDiscipline;
+    const contracted = (e.serviceDisciplines || []).some(d => canon && canon(d.name) === "pr" && (+d.contracted || 0) > 0);
+    return contracted || (e.prCoverage || []).length > 0;
+  }
+  function prTileOn(e) {
+    if (e.prTile === true || e.prTile === false) return e.prTile;   // admin override
+    return prInSow(e);
+  }
   function defaultLayout(e) {
-    return (e.type === "project")
-      ? { free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() }
-      : { free: JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE)), hidden: [] };
+    if (e.type === "project") return { free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() };
+    const free = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
+    if (!prTileOn(e)) {
+      // No PR: drop the tile and let Service Lines take the whole middle column. Width is
+      // untouched — only the height grows, down to the exact floor the PR tile used to reach,
+      // so every other tile keeps its geometry and the canvas height is unchanged.
+      const R = DEFAULT_RETAINER_FREE;
+      free.service.h = R.pr.y + R.pr.h - R.service.y;   // 467 + 293 - 0 = 760
+      return { free, hidden: ["pr"] };
+    }
+    return { free, hidden: [] };
   }
   // Always return the fixed layout — stored/Supabase layouts are ignored entirely, so nothing
   // can drift or be changed by saved state. Layout changes happen in code only, on request.
@@ -606,13 +636,14 @@ window.ExecSummary = (function () {
     return L;
   }
 
-  /* ---- North Star banner (full-width strip across all 3 columns) ---- */
-  function northStarBanner(e) {
-    // Projects call it "Goal"; the due date lives only in the Project Progress tile.
-    const label = e.type === "project" ? "Goal" : "North Star";
+  /* ---- Goal banner (full-width strip across all 3 columns) ----
+     PROJECTS ONLY. Retainers don't carry a single headline goal — their direction lives in
+     the Sprint Goals tile — so the banner is suppressed there and the canvas starts flush
+     at the top (see render()). e.northStar is still stored on retainers, just not surfaced. */
+  function goalBanner(e) {
     return `<div class="ns-banner">
       <span class="ns-banner-bolt">${IC.bolt}</span>
-      <span class="ns-banner-label">${label}</span>
+      <span class="ns-banner-label">Goal</span>
       <span class="ns-banner-text">${ed(e.northStar, "northStar")}</span>
     </div>`;
   }
@@ -628,12 +659,19 @@ window.ExecSummary = (function () {
       const style = `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`;
       return `<div class="exec-tile" data-key="${k}" style="${style}">${MODULES[k].fn(e)}</div>`;
     }).join("");
-    const actualsBtn = (canAdmin() && hasActualsOverride(e))
-      ? `<div class="exec-controls"><button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button></div>` : "";
+    // Admin-only control bar. Both controls are data/visibility overrides, not layout drag.
+    const ctl = [];
+    if (canAdmin() && hasActualsOverride(e))
+      ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>`);
+    if (canAdmin() && e.type !== "project")
+      ctl.push(prTileOn(e)
+        ? `<button class="exec-actuals-btn" data-prtile="off" title="Hide the PR Coverage tile — Service Lines extends to fill the column">✕ Remove PR Coverage</button>`
+        : `<button class="exec-actuals-btn" data-prtile="on" title="Show the PR Coverage tile — Service Lines shrinks back to make room">＋ Add PR Coverage</button>`);
+    const controls = ctl.length ? `<div class="exec-controls">${ctl.join("")}</div>` : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
-    ${northStarBanner(e)}
-    ${actualsBtn}
+    ${e.type === "project" ? goalBanner(e) : ""}
+    ${controls}
     <div class="exec-canvas locked">${tiles}</div>`;
   }
   function rerender() {
@@ -759,7 +797,8 @@ window.ExecSummary = (function () {
   const defaults = {
     serviceDisciplines: () => ({ name: "New discipline", contracted: 0 }),
     serviceLines: () => ({ name: "New service line", allocationPct: 0, status: "not-started" }),
-    milestones: () => ({ label: "New milestone", date: "", done: false }),
+    // the only default that cares about engagement type — retainers call these Sprint Goals
+    milestones: (e) => ({ label: (e && e.type !== "project") ? "New sprint goal" : "New milestone", date: "", done: false, sprint: 1 }),
     todos: () => ({ text: "New to-do", owner: "Client" }),
     dependencies: () => ({ text: "New dependency" }),
     kpis: () => ({ label: "New KPI", target: "", current: "" }),
@@ -928,7 +967,7 @@ window.ExecSummary = (function () {
       }
 
       const add = e.target.closest("[data-listadd]");
-      if (add) { const k = add.dataset.listadd; (eng[k] || (eng[k] = [])).push(defaults[k]()); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
+      if (add) { const k = add.dataset.listadd; (eng[k] || (eng[k] = [])).push(defaults[k](eng)); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
 
       const del = e.target.closest("[data-listdel]");
       if (del) { const k = del.dataset.listdel; (eng[k] || []).splice(+del.dataset.idx, 1); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
@@ -967,6 +1006,10 @@ window.ExecSummary = (function () {
 
       const own = e.target.closest("[data-owner]");
       if (own && canAdmin()) { const t = eng.todos[+own.dataset.owner]; t.owner = t.owner === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
+      const spr = e.target.closest("[data-sprint]");
+      if (spr && canAdmin()) { const m = eng.milestones[+spr.dataset.sprint]; m.sprint = (+m.sprint === 2) ? 1 : 2; window.DASH.saveState(); rerender(); return; }
+      const prT = e.target.closest("[data-prtile]");
+      if (prT && canAdmin()) { eng.prTile = prT.dataset.prtile === "on"; window.DASH.saveState(); rerender(); return; }
 
       const ms = e.target.closest("[data-mstoggle]");
       if (ms && canAdmin()) { const m = eng.milestones[+ms.dataset.mstoggle]; m.done = !m.done; window.DASH.saveState(); rerender(); return; }

@@ -135,6 +135,11 @@ window.PresentDocs = (function () {
               <button class="pd-tool-btn admin-only" id="pdResubmit">＋ New Version</button>
             </div>
 
+            <div class="pd-brief" id="pdBrief" style="display:none">
+              <div class="pd-brief-subject" id="pdBriefSubject"></div>
+              <div class="pd-brief-msg" id="pdBriefMsg"></div>
+            </div>
+
             <div class="pd-review-label">Status</div>
             <div class="pd-status-opts" id="pdStatus">
               <div class="pd-status-opt approved"  data-val="approved"><span class="tick">✓</span> Approve</div>
@@ -143,7 +148,7 @@ window.PresentDocs = (function () {
             </div>
 
             <div class="pd-revdue-row">
-              <label class="pd-review-label" for="pdRevDue">Revisions due</label>
+              <label class="pd-review-label" for="pdRevDue">Feedback due</label>
               <input type="date" id="pdRevDue" class="pd-revdue">
             </div>
 
@@ -190,6 +195,28 @@ window.PresentDocs = (function () {
           </div>
         </div>
       </div>
+
+    </div>
+
+    <!-- Upload brief — a SIBLING of #pdModal, never a child: the modal is display:none until a
+         deliverable is opened, and this dialog is raised from the gallery, before one exists. -->
+    <div class="pd-up-overlay" id="pdUpOverlay" style="display:none">
+      <div class="pd-up-card">
+        <div class="pd-sign-title">Send deliverable</div>
+        <div class="pd-sign-sub" id="pdUpSub"></div>
+        <label class="pd-review-label" for="pdUpSubject">Subject</label>
+        <input type="text" id="pdUpSubject" class="pd-up-subject" placeholder="e.g. Logo concepts — round 1">
+        <label class="pd-review-label" for="pdUpMsg">Message to client</label>
+        <textarea id="pdUpMsg" class="pd-up-msg" placeholder="Context for this round — what you'd like feedback on…"></textarea>
+        <div class="pd-revdue-row">
+          <label class="pd-review-label" for="pdUpDue">Feedback due</label>
+          <input type="date" id="pdUpDue" class="pd-revdue">
+        </div>
+        <div class="pd-sign-actions">
+          <button class="pd-tool-btn" id="pdUpCancel">Cancel</button>
+          <button class="btn btn-primary" id="pdUpSend">Add deliverable</button>
+        </div>
+      </div>
     </div>`;
   }
 
@@ -198,6 +225,25 @@ window.PresentDocs = (function () {
     if (!status) return `<span class="badge pending">Pending Review</span>`;
     const s = STATUS[status];
     return `<span class="badge ${s.badge}">${esc(s.label)}</span>`;
+  }
+  // "2026-07-20" → "Jul 20". Parsed as local parts, never Date("...") — that reads ISO as UTC
+  // and lands a day early for anyone west of Greenwich.
+  function fmtDue(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+    if (!m) return "";
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  function isOverdue(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+    if (!m) return false;
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    return new Date(+m[1], +m[2] - 1, +m[3]) < t;
+  }
+  // Feedback-due strip on a gallery card. Settled versions have nothing outstanding, so it hides.
+  function dueLine(v) {
+    if (!v || !v.revisionsDue || v.status === "approved") return "";
+    const over = isOverdue(v.revisionsDue);
+    return `<div class="pd-card-due ${over ? "overdue" : ""}">${over ? "Feedback overdue" : "Feedback due"} ${esc(fmtDue(v.revisionsDue))}</div>`;
   }
   function renderGallery() {
     const g = $("pdGallery"); if (!g) return;
@@ -212,6 +258,9 @@ window.PresentDocs = (function () {
     }
     g.innerHTML = items.map(d => {
       const v = active(d);
+      // The due date always comes from the LATEST round, not the version being viewed — once V2
+      // is up, the card shows V2's date even if someone left the viewer parked on V1.
+      const last = d.versions[d.versions.length - 1] || v;
       return `<div class="pd-card" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
         <button class="pd-card-export" data-export="${d.id}" title="Export PDF">⬇</button>
@@ -222,6 +271,7 @@ window.PresentDocs = (function () {
           <span class="pd-ver-tag">${esc(v.label)}</span>
           ${badge(v.status)}
         </div>
+        ${dueLine(last)}
       </div>`;
     }).join("");
   }
@@ -256,14 +306,42 @@ window.PresentDocs = (function () {
   }
   function newVersion(dataUrl, label) {
     return { label, dataUrl, annotation: null, pins: [], status: null, clientNotes: "", agencyNotes: "",
-      uploaded: stamp(), revisionsDue: "" };
+      uploaded: stamp(), revisionsDue: "", subject: "", message: "" };
   }
+
+  /* ---------- upload brief (V1) ----------
+     Files are processed first, then held here until the admin writes the subject + message that
+     go out with them. Cancelling drops them — nothing is added to the gallery until Send. */
+  let pendingUpload = null;
   async function handleNewDeliverables(fileList) {
     const files = Array.from(fileList).filter(f => f.type.startsWith("image/"));
-    for (const f of files) {
-      const p = await processFile(f);
-      items.unshift({ id: uid(), name: p.name, active: 0, versions: [newVersion(p.dataUrl, "V1")] });
-    }
+    if (!files.length) return;
+    const processed = [];
+    for (const f of files) processed.push(await processFile(f));
+    pendingUpload = processed;
+    const ov = $("pdUpOverlay");
+    if (!ov) { commitUpload(); return; }   // no dialog in the DOM → don't strand the files
+    $("pdUpSub").textContent = processed.length === 1
+      ? `${processed[0].name} · V1`
+      : `${processed.length} files · V1 each`;
+    $("pdUpSubject").value = ""; $("pdUpMsg").value = ""; $("pdUpDue").value = "";
+    ov.style.display = "flex";
+    setTimeout(() => $("pdUpSubject").focus(), 0);
+  }
+  function closeUploadDialog() {
+    const ov = $("pdUpOverlay"); if (ov) ov.style.display = "none";
+    pendingUpload = null;
+  }
+  function commitUpload() {
+    const subject = $("pdUpSubject") ? $("pdUpSubject").value.trim() : "";
+    const message = $("pdUpMsg") ? $("pdUpMsg").value.trim() : "";
+    const due = $("pdUpDue") ? $("pdUpDue").value : "";
+    (pendingUpload || []).forEach(p => {
+      const v = newVersion(p.dataUrl, "V1");
+      v.subject = subject; v.message = message; v.revisionsDue = due;
+      items.unshift({ id: uid(), name: p.name, active: 0, versions: [v] });
+    });
+    closeUploadDialog();
     save(); renderGallery();
   }
   async function handleResubmit(file) {
@@ -474,6 +552,12 @@ window.PresentDocs = (function () {
     $("pdClientNotes").value = (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
     $("pdAgencyNotes").value = v.agencyNotes || "";
     $("pdRevDue").value = v.revisionsDue || "";
+    const brief = $("pdBrief");
+    if (brief) {
+      brief.style.display = (v.subject || v.message) ? "" : "none";
+      $("pdBriefSubject").textContent = v.subject || "";
+      $("pdBriefMsg").textContent = v.message || "";
+    }
     updateMeta();
     document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
     renderVersions();
@@ -745,6 +829,9 @@ window.PresentDocs = (function () {
   function wireElements() {
     $("pdUploadBtn").addEventListener("click", () => $("pdFile").click());
     $("pdFile").addEventListener("change", e => { handleNewDeliverables(e.target.files); e.target.value = ""; });
+    $("pdUpCancel").addEventListener("click", closeUploadDialog);
+    $("pdUpSend").addEventListener("click", commitUpload);
+    $("pdUpOverlay").addEventListener("click", e => { if (e.target.id === "pdUpOverlay") closeUploadDialog(); });
     $("pdResubmit").addEventListener("click", () => $("pdVerFile").click());
     $("pdVerFile").addEventListener("change", e => { handleResubmit(e.target.files[0]); e.target.value = ""; });
 
