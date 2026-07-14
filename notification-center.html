@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=215">
+<link rel="stylesheet" href="assets/css/styles.css?v=217">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -42,7 +42,7 @@
       <div class="nc-sec-head">
         <p class="nc-sec-desc">When a client approves, requests changes, or leaves comments on a Present Doc, it lands here.</p>
         <div class="nc-sec-actions">
-          <label class="nc-filter-wrap">Account manager
+          <label class="nc-filter-wrap">Manager
             <select id="ncAmFilter" class="nc-filter"><option value="">All</option></select>
           </label>
           <button class="btn btn-ghost btn-sm" id="ncMarkAll">Mark all read</button>
@@ -80,17 +80,17 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=215"></script>
-<script src="assets/js/supabase-sync.js?v=215"></script>
-<script src="assets/js/auth.js?v=215"></script>
+<script src="assets/js/supabase-config.js?v=217"></script>
+<script src="assets/js/supabase-sync.js?v=217"></script>
+<script src="assets/js/auth.js?v=217"></script>
 <script>
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=215"></script>
-<script src="assets/js/client-template.js?v=215"></script>
-<script src="assets/js/client-store.js?v=215"></script>
-<script src="assets/js/notifications.js?v=215"></script>
+<script src="assets/js/clients.js?v=217"></script>
+<script src="assets/js/client-template.js?v=217"></script>
+<script src="assets/js/client-store.js?v=217"></script>
+<script src="assets/js/notifications.js?v=217"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -112,17 +112,33 @@
   });
 
   const STATUS_BADGE = { approved: "complete", changes: "on-hold", revisions: "blocked" };
-  // account manager for a client (from the WMJ-derived store field)
-  const amOf = (cid) => { try { const c = window.TJA_STORE.get(cid); return (c && c.accountManager) || "Unassigned"; } catch (e) { return "Unassigned"; } };
+  // managers on a client — the admin-set tags (a client can have any number).
+  // Falls back to the WMJ-derived suggestion if it's never been tagged.
+  const mgrsOf = (cid) => {
+    try {
+      const c = window.TJA_STORE.get(cid); if (!c) return [];
+      if (Array.isArray(c.managers) && c.managers.length) return c.managers;
+      return c.accountManager ? [c.accountManager] : [];
+    } catch (e) { return []; }
+  };
+  const mgrLabel = (cid) => { const m = mgrsOf(cid); return m.length ? m.join(" · ") : "Unassigned"; };
   let amFilter = "";
 
-  // build the AM dropdown once, from whichever clients currently have activity
+  // build the manager dropdown from every manager tagged on a client that has activity
   function fillAmFilter(clientIds) {
     const sel = $("ncAmFilter"); if (!sel) return;
-    const ams = [...new Set(clientIds.map(amOf))].sort((a, b) => a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
+    const set = new Set();
+    clientIds.forEach(cid => { const m = mgrsOf(cid); m.length ? m.forEach(x => set.add(x)) : set.add("Unassigned"); });
+    const ams = [...set].sort((a, b) => a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
     const cur = sel.value;
     sel.innerHTML = `<option value="">All</option>` + ams.map(a => `<option value="${esc(a)}"${a === cur ? " selected" : ""}>${esc(a)}</option>`).join("");
   }
+  // a client matches if ANY of its managers is the selected one
+  const matchesFilter = (cid) => {
+    if (!amFilter) return true;
+    const m = mgrsOf(cid);
+    return amFilter === "Unassigned" ? m.length === 0 : m.includes(amFilter);
+  };
 
   async function renderReviews() {
     const feed = await N.adminFeed();
@@ -139,12 +155,12 @@
     let shownClients = 0;
     let html = "";
     groups.forEach((g, cid) => {
-      if (amFilter && amOf(cid) !== amFilter) return;
+      if (!matchesFilter(cid)) return;
       shownClients++;
       const unread = g.events.filter(e => !e.read).length;
       html += `<div class="nc-card">
         <div class="nc-card-head">
-          <span class="nc-card-client">${esc(g.name)}<span class="nc-card-am">${esc(amOf(cid))}</span></span>
+          <span class="nc-card-client">${esc(g.name)}<span class="nc-card-am">${esc(mgrLabel(cid))}</span></span>
           <span class="nc-card-right">${unread ? `<span class="notif-badge">${unread} new</span>` : ""}
             <button class="nc-open" data-open="${esc(cid)}">Open Present Docs →</button></span>
         </div>

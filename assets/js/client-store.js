@@ -33,7 +33,9 @@
    "10am-3:45pm (removed an hour for that lunch slot 12-1)"). Runs once per
    browser; the transform guard prevents them from ever coming back. */
 (function () {
-  const SWEEP_TAG = "2026-07-junk-clients-v1";
+  // v2: the guard was only on the projects transform, so the retainers sheet kept
+  // re-creating the junk client. Both transforms now drop it — sweep once more.
+  const SWEEP_TAG = "2026-07-junk-clients-v2";
   const JUNK = (c) => /\b\d{1,2}(:\d{2})?\s*(a|p)m\b/i.test((c && c.name) || "");
   try {
     if (localStorage.getItem("tja_junk_sweep") === SWEEP_TAG) return;

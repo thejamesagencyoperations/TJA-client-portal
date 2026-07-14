@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=215">
+<link rel="stylesheet" href="assets/css/styles.css?v=217">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -38,9 +38,14 @@
         <button class="wmj-refresh" id="wmjSync" title="Sync Workamajig now">↻</button>
       </div>
     </div>
-    <div class="cl-tabs" id="clTabs">
-      <button class="cl-tab active" data-bucket="current">Current <span class="cl-tab-n" id="nCurrent">0</span></button>
-      <button class="cl-tab" data-bucket="archived">Archived <span class="cl-tab-n" id="nArchived">0</span></button>
+    <div class="cl-tabs-row">
+      <div class="cl-tabs" id="clTabs">
+        <button class="cl-tab active" data-bucket="current">Current <span class="cl-tab-n" id="nCurrent">0</span></button>
+        <button class="cl-tab" data-bucket="archived">Archived <span class="cl-tab-n" id="nArchived">0</span></button>
+      </div>
+      <label class="nc-filter-wrap">Manager
+        <select id="clMgrFilter" class="nc-filter"><option value="">All</option></select>
+      </label>
     </div>
     <div class="proj-grid" id="clientGrid"></div>
   </main>
@@ -75,6 +80,12 @@
               <option value="project">Project only</option>
               <option value="both">Both</option>
             </select></label>
+          <label class="cl-field"><span>Managers <em class="cl-hint">— anyone who works this account</em></span>
+            <div class="cl-mgr-box" id="clMgrBox">
+              <span class="cl-mgr-chips" id="clMgrChips"></span>
+              <input type="text" id="clMgrInput" list="clMgrList" placeholder="Type a name + Enter…" autocomplete="off">
+              <datalist id="clMgrList"></datalist>
+            </div></label>
           <div class="cl-login-head">Client login</div>
           <div class="cl-field-2">
             <label class="cl-field"><span>Email <em>*</em></span>
@@ -117,24 +128,24 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=215"></script>
-<script src="assets/js/supabase-sync.js?v=215"></script>
-<script src="assets/js/auth.js?v=215"></script>
+<script src="assets/js/supabase-config.js?v=217"></script>
+<script src="assets/js/supabase-sync.js?v=217"></script>
+<script src="assets/js/auth.js?v=217"></script>
 <script>
   // gate: must be signed in, and this picker is admin-only (clients go straight to their workspace)
   requireAuth();
   if (typeof isAdmin === "function" && !isAdmin()) window.location.replace("dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=215"></script>
-<script src="assets/js/client-template.js?v=215"></script>
-<script src="assets/js/client-store.js?v=215"></script>
-<script src="assets/js/wmj-transform.js?v=215"></script>
-<script src="assets/js/retainer-transform.js?v=215"></script>
-<script src="assets/js/client-logos.js?v=215"></script>
-<script src="assets/js/client-pr-sheets.js?v=215"></script>
-<script src="assets/js/retainer-value.js?v=215"></script>
-<script src="assets/js/wmj-sync.js?v=215"></script>
-<script src="assets/js/notifications.js?v=215"></script>
+<script src="assets/js/clients.js?v=217"></script>
+<script src="assets/js/client-template.js?v=217"></script>
+<script src="assets/js/client-store.js?v=217"></script>
+<script src="assets/js/wmj-transform.js?v=217"></script>
+<script src="assets/js/retainer-transform.js?v=217"></script>
+<script src="assets/js/client-logos.js?v=217"></script>
+<script src="assets/js/client-pr-sheets.js?v=217"></script>
+<script src="assets/js/retainer-value.js?v=217"></script>
+<script src="assets/js/wmj-sync.js?v=217"></script>
+<script src="assets/js/notifications.js?v=217"></script>
 <script>
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -195,12 +206,32 @@
     return parts.join(" · ") || c.engagements || "";
   }
 
+  // managers on a client (admin tags; falls back to the WMJ-derived suggestion)
+  function mgrsOf(c) {
+    if (Array.isArray(c.managers) && c.managers.length) return c.managers;
+    return c.accountManager ? [c.accountManager] : [];
+  }
+  let mgrFilter = "";
+  function fillMgrFilter(all) {
+    const sel = document.getElementById("clMgrFilter"); if (!sel) return;
+    const set = new Set();
+    all.forEach(c => { const m = mgrsOf(c); m.length ? m.forEach(x => set.add(x)) : set.add("Unassigned"); });
+    const names = [...set].sort((a, b) => a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b));
+    sel.innerHTML = `<option value="">All</option>` + names.map(n => `<option value="${esc(n)}"${n === mgrFilter ? " selected" : ""}>${esc(n)}</option>`).join("");
+  }
+  function matchesMgr(c) {
+    if (!mgrFilter) return true;
+    const m = mgrsOf(c);
+    return mgrFilter === "Unassigned" ? m.length === 0 : m.includes(mgrFilter);
+  }
+
   function renderGrid() {
     const all = window.TJA_STORE.list();
     const nCur = all.filter(c => !isArchived(c)).length, nArc = all.length - nCur;
     document.getElementById("nCurrent").textContent = nCur;
     document.getElementById("nArchived").textContent = nArc;
-    const clients = all.filter(c => isArchived(c) === (bucket === "archived"));
+    fillMgrFilter(all);
+    const clients = all.filter(c => isArchived(c) === (bucket === "archived")).filter(matchesMgr);
     grid.innerHTML = clients.map(c => `
       <div class="proj-tile client-tile" data-client="${esc(c.id)}" role="button" tabindex="0" draggable="true">
         <div class="client-tile-actions">
@@ -231,6 +262,7 @@
     [...tabs.querySelectorAll(".cl-tab")].forEach(x => x.classList.toggle("active", x === t));
     renderGrid();
   });
+  document.getElementById("clMgrFilter").addEventListener("change", e => { mgrFilter = e.target.value; renderGrid(); });
   tabs.addEventListener("dragover", e => { const t = e.target.closest(".cl-tab"); if (t) { e.preventDefault(); t.classList.add("drop-hover"); } });
   tabs.addEventListener("dragleave", e => { const t = e.target.closest(".cl-tab"); if (t) t.classList.remove("drop-hover"); });
   tabs.addEventListener("drop", e => {
@@ -291,8 +323,47 @@
     err: document.getElementById("clErr"), title: document.getElementById("clModalTitle"), save: document.getElementById("clSave"),
     svcSetup: document.getElementById("clSvcSetup"), svcRows: document.getElementById("clSvcRows"),
     svcTotal: document.getElementById("clSvcTotal"), svcAdd: document.getElementById("clSvcAdd"),
+    mgrChips: document.getElementById("clMgrChips"), mgrInput: document.getElementById("clMgrInput"),
+    mgrList: document.getElementById("clMgrList"),
   };
   let editingId = null, logoData = "";
+
+  /* ---- Managers (multi-tag, no limit) ----
+     The manager roster IS the tags themselves: the picker suggests everyone already
+     tagged on any client, plus the Workamajig-derived lead as a starting point. Typing
+     a new name simply creates that manager. */
+  let mgrTags = [];
+  function knownManagers() {
+    const s = new Set();
+    (window.TJA_STORE.list() || []).forEach(c => {
+      (Array.isArray(c.managers) ? c.managers : []).forEach(m => m && s.add(m));
+      if (c.accountManager) s.add(c.accountManager);   // WMJ-derived suggestion
+    });
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }
+  function renderMgrTags() {
+    f.mgrChips.innerHTML = mgrTags.map((m, i) =>
+      `<span class="cl-mgr-chip">${esc(m)}<button type="button" class="cl-mgr-x" data-mgr-del="${i}" title="Remove">✕</button></span>`).join("");
+    // suggest names not already on this client
+    f.mgrList.innerHTML = knownManagers().filter(m => !mgrTags.includes(m))
+      .map(m => `<option value="${esc(m)}"></option>`).join("");
+  }
+  function addMgr(raw) {
+    const name = String(raw || "").trim();
+    if (!name) return;
+    if (!mgrTags.some(m => m.toLowerCase() === name.toLowerCase())) mgrTags.push(name);
+    f.mgrInput.value = ""; renderMgrTags();
+  }
+  f.mgrInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addMgr(f.mgrInput.value); }
+    else if (e.key === "Backspace" && !f.mgrInput.value && mgrTags.length) { mgrTags.pop(); renderMgrTags(); }
+  });
+  f.mgrInput.addEventListener("change", () => addMgr(f.mgrInput.value));   // datalist pick
+  f.mgrInput.addEventListener("blur", () => addMgr(f.mgrInput.value));
+  f.mgrChips.addEventListener("click", e => {
+    const d = e.target.closest("[data-mgr-del]"); if (!d) return;
+    mgrTags.splice(+d.dataset.mgrDel, 1); renderMgrTags();
+  });
 
   /* ---- Monthly-Services disciplines (contracted hours) ---- */
   let discRows = [];   // [{name, contracted}]
@@ -340,6 +411,9 @@
     f.password.value = c && c.login ? (c.login.password || "") : "";
     logoData = c && c.logo ? c.logo : "";
     setLogoPreview();
+    // managers: existing tags, else seed from the WMJ-derived lead so it's never empty-by-default
+    mgrTags = c ? (Array.isArray(c.managers) ? c.managers.slice() : (c.accountManager ? [c.accountManager] : [])) : [];
+    f.mgrInput.value = ""; renderMgrTags();
     discRows = (window.tjaDefaultDisciplines ? window.tjaDefaultDisciplines() : []);   // start from the standard set (add mode)
     renderSvcRows(); toggleSvcSetup();
     ov.style.display = "flex"; setTimeout(() => f.name.focus(), 30);
@@ -372,12 +446,13 @@
     const code = f.initials.value.trim();   // the "Client code" field
     const initials = window.tjaInitialsFrom(name).trim().toUpperCase().slice(0, 3);   // kept as a fallback
     const login = { email, password };
+    addMgr(f.mgrInput.value);   // catch a name typed but not yet committed
     if (editingId) {
-      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, login });
+      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, login, managers: mgrTags.slice() });
       closeModal(); renderGrid();
       return;
     }
-    const entry = window.TJA_STORE.add({ name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login });
+    const entry = window.TJA_STORE.add({ name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login, managers: mgrTags.slice() });
     window.TJA_STORE.seedWorkspace(entry);
     // fold the admin-entered contracted hours into the new client's retainer engagement
     if (f.kind.value !== "project") {

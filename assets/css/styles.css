@@ -1309,3 +1309,18 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 .nc-card-am { display: inline-block; margin-left: 10px; font-size: .64rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: .06em; color: var(--text-faint); background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; vertical-align: middle; }
 @media (max-width: 620px) { .nc-sec-head { flex-direction: column; align-items: flex-start; gap: 12px; } }
+
+/* ---- Managers: multi-tag input (client modal) + clients-page filter row ---- */
+.cl-hint { font-style: normal; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+.cl-mgr-box { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; background: var(--input);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 38px; }
+.cl-mgr-box:focus-within { border-color: var(--orange); }
+.cl-mgr-chips { display: contents; }
+.cl-mgr-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(246,142,33,.14); color: var(--accent-text);
+  border-radius: 20px; padding: 3px 4px 3px 10px; font-size: .76rem; font-weight: 700; white-space: nowrap; }
+.cl-mgr-x { background: none; border: none; color: inherit; cursor: pointer; font-size: .7rem; line-height: 1; padding: 2px 4px; border-radius: 50%; opacity: .7; }
+.cl-mgr-x:hover { opacity: 1; background: rgba(0,0,0,.12); }
+#clMgrInput { flex: 1; min-width: 130px; background: transparent; border: none; outline: none; font: inherit;
+  font-size: .86rem; color: var(--text); padding: 3px 2px; }
+.cl-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+@media (max-width: 620px) { .cl-tabs-row { align-items: flex-start; flex-direction: column; } }

@@ -277,7 +277,14 @@ window.WMJ_SYNC = (function () {
       Object.keys(tally).forEach(k => {
         const ent = byNorm[k]; if (!ent) return;
         const top = Object.keys(tally[k]).sort((a, b) => tally[k][b] - tally[k][a])[0];
-        if (top && ent.accountManager !== top) { window.TJA_STORE.update(ent.id, { accountManager: top }); n++; }
+        if (!top) return;
+        const patch = {};
+        if (ent.accountManager !== top) patch.accountManager = top;   // the WMJ suggestion
+        // Seed the manual `managers` tags ONCE from the suggestion so the filter has data
+        // out of the box. Never touch it again — the tags are admin-owned truth after that
+        // (WMJ can't tell an account manager from a project manager).
+        if (!Array.isArray(ent.managers)) patch.managers = [top];
+        if (Object.keys(patch).length) { window.TJA_STORE.update(ent.id, patch); n++; }
       });
       return { clients: n };
     } catch (e) { console.warn("account-manager sync", e); return { clients: 0 }; }

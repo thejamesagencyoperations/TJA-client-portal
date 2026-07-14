@@ -42,6 +42,10 @@
   function num(s) { const v = parseFloat(s); return isFinite(v) ? v : 0; }
   function isNonBillable(r) {
     const cm = (r.Campaign_Name || "").toLowerCase(), cl = (r.Client_Name || "").toLowerCase();
+    // junk guard (mirrors wmj-transform's DROP_ROW): malformed sheet rows leak note text
+    // into Client_Name (e.g. "10am-3:45pm (removed an hour…)") and would auto-create a
+    // garbage client. No real client name contains a clock time.
+    if (/\b\d{1,2}(:\d{2})?\s*(a|p)m\b/i.test(r.Client_Name || "")) return true;
     return !cl || cm.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1;
   }
 
