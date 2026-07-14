@@ -271,20 +271,20 @@ window.ExecSummary = (function () {
   function sowTargetUsable(e) {
     return e.retainerValueMonthly === true && e.retainerValueTarget != null && +e.retainerValueTarget > 0;
   }
+  // THE DENOMINATOR. The SOW/WMJ figure is the month's full allocated retainer hours and
+  // ALWAYS wins — discipline hours are only the internal split *within* that total and must
+  // never change it. A partial split is normal and expected: the shares simply won't add up
+  // to 100% until every discipline is filled in.
   function retainerTotalContracted(e) {
+    if (sowTargetUsable(e)) return +e.retainerValueTarget;
+    // No SOW figure for this client/month (not in the revenue workbook, or not signed yet)
+    // → fall back to the hand-entered disciplines, then to the last stored total.
     const d = e.serviceDisciplines;
     const disc = (Array.isArray(d) && d.length) ? d.reduce((s, x) => s + (+x.contracted || 0), 0) : 0;
     if (disc > 0) return disc;
-    if (sowTargetUsable(e)) return +e.retainerValueTarget;
     return (e.burn && +e.burn.contractedHours) || 0;
   }
-  // is the total currently coming from the SOW feed (no discipline hours entered yet)?
-  function usingSowTotal(e) {
-    const d = e.serviceDisciplines;
-    const disc = (Array.isArray(d) && d.length) ? d.reduce((s, x) => s + (+x.contracted || 0), 0) : 0;
-    return disc <= 0 && sowTargetUsable(e);
-  }
-  // keep the burn denominator in step with the disciplines (total contracted = their sum)
+  // keep the stored burn denominator in step with the source of truth above
   function syncContracted(e) { e.burn = e.burn || {}; e.burn.contractedHours = retainerTotalContracted(e); }
   // set the shown burn %: WMJ retainers store a manual OVERRIDE (real used hrs stay from the
   // timesheet, cleared by "Reset to actuals"); manual retainers set used hours directly.
