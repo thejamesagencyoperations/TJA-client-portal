@@ -393,9 +393,13 @@ function renderFilesBody() {
     return;
   }
   body.innerHTML = all.map(f => {
-    const cls = f.status === "Signed" ? "complete" : (f.status === "Awaiting Signature" ? "on-hold" : "in-progress");
+    const cls = f.status === "Uploading…" ? "pending" : f.status === "Signed" ? "complete" : (f.status === "Awaiting Signature" ? "on-hold" : "in-progress");
     const del = f.seed ? '<span class="stat-sub">—</span>' : `<button class="btn btn-ghost admin-only" data-filedel="${f.id}">Remove</button>`;
-    return `<tr><td style="font-weight:600">${esc(f.name)}</td><td>${esc(f.type)}</td>
+    // files pushed to Drive render their name as the Drive link
+    const name = f.driveLink
+      ? `<a href="${esc(f.driveLink)}" target="_blank" rel="noopener" class="file-drive-link">${esc(f.name)} ↗</a>`
+      : esc(f.name);
+    return `<tr><td style="font-weight:600">${name}</td><td>${esc(f.type)}</td>
       <td><span class="badge ${cls}">${esc(f.status)}</span></td><td>${esc(f.date)}</td>
       <td style="color:var(--text-dim)">${esc(f.size)}</td><td style="color:var(--text-dim)">${esc(f.by || "—")}</td>
       <td style="text-align:right">${del}</td></tr>`;
@@ -406,13 +410,28 @@ function initFiles() {
   renderFilesBody();
   if (filesWired) return; filesWired = true;
   el("#filesUploadBtn").addEventListener("click", () => el("#filesInput").click());
-  el("#filesInput").addEventListener("change", e => {
+  el("#filesInput").addEventListener("change", async e => {
     const f = e.target.files[0]; if (!f) return;
-    const arr = loadFiles();
-    arr.push({ id: "f_" + Date.now(), name: f.name, type: (f.name.split(".").pop() || "file").toUpperCase(),
+    e.target.value = "";
+    if (f.size > 10 * 1024 * 1024) { alert("Files over 10 MB can't be uploaded here yet — share big files via your Drive folder directly."); return; }
+    const row = { id: "f_" + Date.now(), name: f.name, type: (f.name.split(".").pop() || "file").toUpperCase(),
       status: "Uploaded", date: new Date().toLocaleDateString(), size: fmtSize(f.size),
-      by: (typeof effectiveRole === "function" && effectiveRole() === "client") ? D.client.name : "TJA Team" });
-    saveFiles(arr); renderFilesBody(); e.target.value = "";
+      by: (typeof effectiveRole === "function" && effectiveRole() === "client") ? D.client.name : "TJA Team" };
+    // Push the actual bytes to the client's Drive folder via the Edge Function — Drive
+    // is the store of record; the portal row keeps metadata + the link. EVERY failure
+    // path (no function deployed, no folder configured, no session, network) degrades
+    // to today's metadata-only row: the upload never blocks on Drive.
+    const arr = loadFiles();
+    if (window.TJA_DRIVE && window.TJA_DRIVE.enabled()) {
+      row.status = "Uploading…";
+      arr.push(row); saveFiles(arr); renderFilesBody();
+      const r = await window.TJA_DRIVE.upload(f, clientId());
+      row.status = "Uploaded";
+      if (r.ok) { row.driveLink = r.driveLink; row.driveId = r.driveId; }
+      saveFiles(arr); renderFilesBody();
+      return;
+    }
+    arr.push(row); saveFiles(arr); renderFilesBody();
   });
   el("#filesBody").addEventListener("click", e => {
     const del = e.target.closest("[data-filedel]"); if (!del) return;

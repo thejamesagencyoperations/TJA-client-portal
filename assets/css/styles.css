@@ -356,6 +356,10 @@ body[data-role="creative"] .admin-only { display: none !important; }
 .conflict-banner button { font: inherit; background: transparent; border: 1px solid currentColor;
   color: inherit; border-radius: 7px; padding: 3px 10px; cursor: pointer; }
 
+/* Files pushed to Drive link out to the stored copy */
+.file-drive-link { color: var(--accent-text); text-decoration: none; font-weight: 600; }
+.file-drive-link:hover { text-decoration: underline; }
+
 /* Integrations section in the client Add/Edit modal (collapsed by default) */
 .cl-integrations { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .cl-integrations summary { cursor: pointer; font-size: .78rem; font-weight: 700; color: var(--text-dim); }
