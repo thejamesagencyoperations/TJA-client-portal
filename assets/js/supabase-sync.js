@@ -63,6 +63,21 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA pull", scope, e); return null; }
   }
 
+  // pullScope + the row's updated_at stamp — seeds the guarded-write baseline below.
+  async function pullScopeFull(clientId, scope) {
+    if (!client) return null;
+    try {
+      const q = client.from("app_state").select("data,updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle();
+      const r = await withTimeout(q, 3500, scope);
+      if (r && r.__timeout) { console.warn("SUPA pullFull timeout", scope); return null; }
+      const { data, error } = r;
+      if (error) { console.warn("SUPA pullFull", scope, error.message); return null; }
+      if (!data) return null;
+      lastKnown[clientId + "::" + scope] = data.updated_at;
+      return { data: data.data, updated_at: data.updated_at };
+    } catch (e) { console.warn("SUPA pullFull", scope, e); return null; }
+  }
+
   // Read EVERY client's row for a scope in one query (admin-only in practice — the RLS
   // returns just your own rows for a client). Used by the admin Message Center.
   async function pullAllScope(scope) {
@@ -98,6 +113,54 @@ window.SUPA = (function () {
     }, 600);
   }
 
+  /* ---- GUARDED writes (compare-and-set on updated_at) ----
+     For scopes where two humans may edit the same client at once (today: 'dashboard').
+     The write only lands if the row still carries the stamp we last saw; otherwise
+     someone else wrote in between and onConflict(remoteData, remoteStamp) fires so the
+     caller can re-pull + warn instead of silently clobbering. NOT used for machine
+     writes (WMJ sync, registry) — those re-derive every poll and CAS would warn-spam. */
+  const lastKnown = {};   // clientId::scope -> updated_at we last saw
+  function pushScopeGuarded(clientId, scope, value, onConflict) {
+    if (!client) return;
+    const key = clientId + "::" + scope;
+    latest[key] = value;
+    clearTimeout(timers[key]);
+    timers[key] = setTimeout(async () => {
+      try {
+        const nowIso = new Date().toISOString();
+        if (!lastKnown[key]) {
+          // never seen the row (fresh client) — plain upsert, then remember its stamp
+          const { data, error } = await client.from("app_state")
+            .upsert({ client_id: clientId, scope, data: latest[key], updated_at: nowIso }, { onConflict: "client_id,scope" })
+            .select("updated_at");
+          if (error) { console.warn("SUPA pushGuarded", scope, error.message); return; }
+          if (data && data[0]) lastKnown[key] = data[0].updated_at;
+          return;
+        }
+        const { data, error } = await client.from("app_state")
+          .update({ data: latest[key], updated_at: nowIso })
+          .eq("client_id", clientId).eq("scope", scope).eq("updated_at", lastKnown[key])
+          .select("updated_at");
+        if (error) { console.warn("SUPA pushGuarded", scope, error.message); return; }
+        if (data && data.length) { lastKnown[key] = data[0].updated_at; return; }   // CAS won
+        // 0 rows: either the row vanished or someone else wrote. Look.
+        const cur = await client.from("app_state").select("data,updated_at")
+          .eq("client_id", clientId).eq("scope", scope).maybeSingle();
+        if (!cur.data) {
+          const ins = await client.from("app_state")
+            .upsert({ client_id: clientId, scope, data: latest[key], updated_at: nowIso }, { onConflict: "client_id,scope" })
+            .select("updated_at");
+          if (ins.data && ins.data[0]) lastKnown[key] = ins.data[0].updated_at;
+          return;
+        }
+        // CONFLICT — the caller decides (re-pull + warn); remember the remote stamp so
+        // the next save can land on top of what the user now sees.
+        lastKnown[key] = cur.data.updated_at;
+        if (typeof onConflict === "function") { try { onConflict(cur.data.data, cur.data.updated_at); } catch (e) {} }
+      } catch (e) { console.warn("SUPA pushGuarded", scope, e); }
+    }, 600);
+  }
+
   // IMMEDIATE push (no debounce) that the caller can await — used for ordered writes
   // like the waiting-room draft→sent move, where the sequencing matters. It MUST also
   // clear any queued debounced write for the same key (timer AND its pending value):
@@ -126,5 +189,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pullAllScope, pushScope, pushScopeNow, removeClient };
+  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
 })();

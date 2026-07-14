@@ -46,8 +46,36 @@ function persistState() {
   // The dashboard scope is admin-writable ONLY (RLS). Clients/creatives still hit
   // saveState() through boot self-heals (PR refresh, discipline seeding) — their
   // localStorage copy updates, but pushing would just be an RLS-rejected write.
-  if (window.SUPA && window.SUPA.enabled && (typeof isAdmin !== "function" || isAdmin()))
-    window.SUPA.pushScope(clientId(), "dashboard", STATE);
+  // GUARDED push: if another admin wrote this client since our last pull, the CAS
+  // fails and onDashboardConflict re-pulls + warns instead of silently clobbering.
+  if (window.SUPA && window.SUPA.enabled && (typeof isAdmin !== "function" || isAdmin())) {
+    if (window.SUPA.pushScopeGuarded) window.SUPA.pushScopeGuarded(clientId(), "dashboard", STATE, onDashboardConflict);
+    else window.SUPA.pushScope(clientId(), "dashboard", STATE);
+  }
+}
+// Another admin's write beat ours: show THEIR version (the truth on the server) and
+// tell the user their last edit didn't stick. No merge — re-apply the edit by hand.
+function onDashboardConflict(remoteData) {
+  if (!remoteData || !remoteData.engagements) return;
+  STATE = migrate(remoteData);
+  lastSnapshot = clone(STATE);
+  try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) {}
+  applyEngagement();
+  repaintAll();
+  showConflictBanner();
+}
+function showConflictBanner() {
+  let b = el("#conflictBanner");
+  if (!b) {
+    b = document.createElement("div");
+    b.id = "conflictBanner";
+    b.className = "conflict-banner";
+    b.innerHTML = `<span>⚠ This client was just updated by someone else — the page now shows their version; your last edit was not saved.</span><button id="conflictDismiss">Dismiss</button>`;
+    const anchor = el("#previewBanner");
+    anchor.parentNode.insertBefore(b, anchor.nextSibling);
+    b.querySelector("#conflictDismiss").addEventListener("click", () => { b.style.display = "none"; });
+  }
+  b.style.display = "";
 }
 function saveState() {
   undoStack.push(lastSnapshot);
@@ -656,12 +684,14 @@ function applyEngagement() {
     try {
       const cid = clientId();
       const staff = (typeof isStaff === "function") && isStaff();
-      const [dash, files, dels, drafts] = await Promise.all([
-        window.SUPA.pullScope(cid, "dashboard"),
+      const [dashFull, files, dels, drafts] = await Promise.all([
+        // FULL pull for the dashboard: seeds the guarded-write baseline (updated_at)
+        window.SUPA.pullScopeFull ? window.SUPA.pullScopeFull(cid, "dashboard") : window.SUPA.pullScope(cid, "dashboard").then(d => d && { data: d }),
         window.SUPA.pullScope(cid, "files"),
         window.SUPA.pullScope(cid, "deliverables"),
         staff ? window.SUPA.pullScope(cid, "deliverables_draft") : Promise.resolve(null),
       ]);
+      const dash = dashFull && dashFull.data;
       if (dash && dash.engagements) { STATE = migrate(dash); lastSnapshot = clone(STATE); try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch {} }
       if (files) { try { localStorage.setItem(FILES_KEY, JSON.stringify(files)); } catch {} }
       if (dels) { try { localStorage.setItem("tja_deliverables_" + cid, JSON.stringify(dels)); } catch {} }

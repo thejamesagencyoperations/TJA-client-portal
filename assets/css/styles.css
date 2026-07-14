@@ -339,6 +339,22 @@ body[data-role="creative"] .admin-only { display: none !important; }
   color: var(--orange-soft); font-size: .72rem; letter-spacing: .05em; font-weight: 700;
   padding: 8px 14px;
 }
+/* "someone else is editing this client" — same strip, amber */
+.presence-banner {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(217,119,6,.12); border-bottom: 1px solid rgba(217,119,6,.4);
+  color: #d97706; font-size: .72rem; letter-spacing: .04em; font-weight: 600;
+  padding: 8px 14px;
+}
+/* "your save lost a race" — same strip, red, dismissible */
+.conflict-banner {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(239,83,80,.12); border-bottom: 1px solid rgba(239,83,80,.45);
+  color: #ef5350; font-size: .72rem; letter-spacing: .04em; font-weight: 700;
+  padding: 8px 14px;
+}
+.conflict-banner button { font: inherit; background: transparent; border: 1px solid currentColor;
+  color: inherit; border-radius: 7px; padding: 3px 10px; cursor: pointer; }
 .preview-banner button {
   background: transparent; border: 1px solid var(--orange); color: var(--orange);
   border-radius: 6px; padding: 4px 11px; font-size: .66rem; cursor: pointer;
