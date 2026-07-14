@@ -698,6 +698,26 @@ body[data-role="client"] .admin-only { display: none !important; }
 .bar > span { display: block; height: 100%; border-radius: 20px;
   background: var(--tja-grad-h); }
 
+/* Project Plan page — full-page phases + tasks (projects only) */
+.plan-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-top: 4px; }
+.plan-row { display: flex; align-items: center; gap: 14px; }
+.plan-row + .plan-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.plan-lbl { flex: none; width: 74px; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); }
+.plan-outcome { flex: 1; min-width: 0; font-size: .92rem; font-weight: 600; }
+.plan-bar { flex: 1; }
+.plan-pct { flex: none; font-size: .8rem; font-weight: 700; color: var(--accent-text); min-width: 38px; text-align: right; }
+.plan-phases { margin-top: 16px; display: flex; flex-direction: column; gap: 14px; }
+.plan-phase { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.plan-phase-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 16px; background: var(--input); border-bottom: 1px solid var(--line); }
+.plan-phase-name { font-weight: 700; font-size: .86rem; }
+.plan-task { display: flex; align-items: center; gap: 11px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.plan-task:last-child { border-bottom: none; }
+.plan-task.is-internal { background: var(--input); }
+.plan-task-name { flex: 1; min-width: 0; font-size: .84rem; }
+.plan-task-status { flex: none; font-size: .72rem; color: var(--text-dim); }
+@media (max-width: 620px) { .plan-task-status { display: none; } }
+
 /* Projects tab — tile / folder picker */
 .proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-top: 4px; }
 .proj-tile { font: inherit; color: inherit; text-align: left; background: var(--panel-2);

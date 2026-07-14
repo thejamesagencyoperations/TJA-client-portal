@@ -444,7 +444,7 @@ window.ExecSummary = (function () {
       </div>`).join("");
     // Projects: header links to the full Project Plan. Retainers have no project-plan
     // page (it force-redirects to exec), so the link only shows for projects.
-    const planLink = e.type === "project" ? `<span class="module-link" data-go="projectplan">View plan →</span>` : "";
+    const planLink = e.type === "project" ? `<span class="module-link" data-go="plan">View plan →</span>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.flag}${isRet ? "Sprint Goals" : "Milestones"}</span>${planLink}</div>
       <div class="ms-list">${items}</div>
@@ -1032,5 +1032,7 @@ window.ExecSummary = (function () {
     });
   }
 
-  return { render, init };
+  // taskInternal is exported so the Project Plan page can honour the SAME client-visibility rule
+  // rather than keeping a second copy of it.
+  return { render, init, taskInternal };
 })();

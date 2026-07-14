@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=219">
+<link rel="stylesheet" href="assets/css/styles.css?v=220">
 </head>
 <body>
 <div class="app">
@@ -25,6 +25,10 @@
       <div class="nav-item" data-page="status">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
         Status
+      </div>
+      <div class="nav-item" data-page="plan" id="navPlan">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6a1 1 0 0 1 1 1v1H8V4a1 1 0 0 1 1-1z"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M8 11h8M8 15h5"/></svg>
+        Project Plan
       </div>
       <div class="nav-item" data-page="docs">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
@@ -44,7 +48,7 @@
       </div>
     </nav>
     <div class="sidebar-foot">
-      <div class="version-pill">Sandbox · v2.19</div>
+      <div class="version-pill">Sandbox · v2.20</div>
     </div>
   </aside>
 
@@ -82,6 +86,7 @@
       <section class="page active" data-page="exec"></section>
       <section class="page" data-page="projectplan"></section>
       <section class="page" data-page="status"></section>
+      <section class="page" data-page="plan"></section>
       <section class="page" data-page="docs"></section>
       <section class="page" data-page="reporting"></section>
       <section class="page" data-page="files"></section>
@@ -91,20 +96,20 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=219"></script>
-<script src="assets/js/supabase-sync.js?v=219"></script>
-<script src="assets/js/auth.js?v=219"></script>
+<script src="assets/js/supabase-config.js?v=220"></script>
+<script src="assets/js/supabase-sync.js?v=220"></script>
+<script src="assets/js/auth.js?v=220"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=219"></script>
-<script src="assets/js/client-template.js?v=219"></script>
-<script src="assets/js/client-store.js?v=219"></script>
-<script src="assets/js/wmj-transform.js?v=219"></script>
-<script src="assets/js/retainer-transform.js?v=219"></script>
-<script src="assets/js/client-logos.js?v=219"></script>
-<script src="assets/js/client-pr-sheets.js?v=219"></script>
-<script src="assets/js/retainer-value.js?v=219"></script>
-<script src="assets/js/wmj-sync.js?v=219"></script>
-<script src="assets/data/celtic-elevator.js?v=219"></script>
+<script src="assets/js/clients.js?v=220"></script>
+<script src="assets/js/client-template.js?v=220"></script>
+<script src="assets/js/client-store.js?v=220"></script>
+<script src="assets/js/wmj-transform.js?v=220"></script>
+<script src="assets/js/retainer-transform.js?v=220"></script>
+<script src="assets/js/client-logos.js?v=220"></script>
+<script src="assets/js/client-pr-sheets.js?v=220"></script>
+<script src="assets/js/retainer-value.js?v=220"></script>
+<script src="assets/js/wmj-sync.js?v=220"></script>
+<script src="assets/data/celtic-elevator.js?v=220"></script>
 <script>
   /* bootstrap: resolve the selected client's data BEFORE app.js reads window.CLIENT_DATA.
      Built-in clients use their rich seed; added clients build from the registry template. */
@@ -130,11 +135,11 @@
     }
   })();
 </script>
-<script src="assets/js/slack-wins.js?v=219"></script>
-<script src="assets/js/notifications.js?v=219"></script>
-<script src="assets/js/present-docs.js?v=219"></script>
-<script src="assets/js/exec-summary.js?v=219"></script>
-<script src="assets/js/app.js?v=219"></script>
+<script src="assets/js/slack-wins.js?v=220"></script>
+<script src="assets/js/notifications.js?v=220"></script>
+<script src="assets/js/present-docs.js?v=220"></script>
+<script src="assets/js/exec-summary.js?v=220"></script>
+<script src="assets/js/app.js?v=220"></script>
 <script>
   // Admin-only notification bell (client Present-Docs activity, grouped by client)
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {

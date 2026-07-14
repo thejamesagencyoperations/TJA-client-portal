@@ -391,11 +391,78 @@ function initFiles() {
 /* ---------- routing ---------- */
 const RENDERERS = {
   exec: () => window.ExecSummary.render(getEng()),
-  projectplan: renderProjectFolder, status: renderStatus,
+  // NOTE "projectplan" is the projects FOLDER (the tile picker), not a plan — historic name.
+  // The actual plan is "plan" below.
+  projectplan: renderProjectFolder, status: renderStatus, plan: renderPlan,
   docs: () => (window.PresentDocs ? window.PresentDocs.render() : ""),
   reporting: renderReporting,
   files: renderFiles, backlog: renderBacklog,
 };
+
+/* ---------- Project Plan (projects only) ----------
+   The full-page view of a project's plan: phases + tasks + progress, fed by Workamajig.
+   Sits under Status and may later replace it. Tasks are read-only here (WMJ is the source of
+   truth); only the outcome is admin-editable. */
+function renderPlan() {
+  const e = getEng();
+  const admin = ppAdmin();
+  const pp = e.projectPlan || {};
+  const all = Array.isArray(e.wmjTasks) ? e.wmjTasks : [];
+  // Client visibility is ONE rule, owned by exec-summary. Reuse it — never re-implement a
+  // permissions predicate in a second place, or the two drift and a client sees internal work.
+  const isInternal = (t) => window.ExecSummary.taskInternal(e, t);
+  const tasks = admin ? all : all.filter(t => !isInternal(t));
+
+  const order = (e.pizza && e.pizza.phases) ? e.pizza.phases.map(p => p.label) : [];
+  const groups = {};
+  tasks.forEach(t => { (groups[t.phase] = groups[t.phase] || []).push(t); });
+  const names = Object.keys(groups)
+    .sort((a, b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
+
+  const stCls = { Completed: "complete", Production: "in-progress", "On Hold": "on-hold" };
+  const pct = projectPct(e);
+  const body = names.map(pn => {
+    const rows = groups[pn];
+    const done = rows.filter(t => t.status === "Completed").length;
+    return `<div class="plan-phase">
+      <div class="plan-phase-head">
+        <span class="plan-phase-name">${esc(pn || "Unphased")}</span>
+        <span class="grp-count">${done}/${rows.length} complete</span>
+      </div>
+      ${rows.map(t => { const internal = isInternal(t); return `
+        <div class="plan-task${internal ? " is-internal" : ""}">
+          <span class="task-dot ${stCls[t.status] || "pending"}" title="${esc(t.status || "")}"></span>
+          <span class="plan-task-name">${esc(t.name)}${internal ? ` <span class="task-int">internal</span>` : ""}</span>
+          ${t.service ? `<span class="task-svc">${esc(t.service)}</span>` : ""}
+          <span class="plan-task-status">${esc(t.status || "")}</span>
+        </div>`; }).join("")}
+    </div>`;
+  }).join("");
+
+  const outcome = admin
+    ? `<span class="ed" contenteditable="true" data-plan="projectPlan.outcome">${esc(pp.outcome || "")}</span>`
+    : esc(pp.outcome || "");
+  return `
+  ${admin ? `<div class="admin-hint">✎ Admin — the outcome is editable here. Phases &amp; tasks come from Workamajig; set task visibility on the Executive Summary.</div>` : ""}
+  <div class="page-head">
+    <div class="page-title">Project Plan</div>
+    <div class="page-desc">${esc(e.label || e.name || "Project")} — phases, tasks and progress.</div>
+  </div>
+  <div class="plan-card">
+    <div class="plan-row"><span class="plan-lbl">Outcome</span><span class="plan-outcome">${outcome}</span></div>
+    <div class="plan-row"><span class="plan-lbl">Progress</span>
+      <div class="bar plan-bar"><span style="width:${pct}%"></span></div><span class="plan-pct">${pct}%</span></div>
+  </div>
+  <div class="plan-phases">${body || `<div class="placeholder-note" style="margin-top:10px">No tasks yet — this plan fills in from Workamajig.</div>`}</div>`;
+}
+let planWired = false;
+function initPlan() {
+  if (planWired) return; planWired = true;
+  document.querySelector('.page[data-page="plan"]').addEventListener("focusout", e => {
+    const f = e.target.closest("[data-plan]"); if (!f) return;
+    setPath(getEng(), f.dataset.plan, f.textContent.trim()); saveState();
+  });
+}
 function renderReporting() {
   return `
   <div class="page-head">
@@ -411,6 +478,7 @@ function paint(page) {
     sec.dataset.painted = "1";
     if (page === "exec" && window.ExecSummary) window.ExecSummary.init();
     if (page === "projectplan") initProjectPlan();
+    if (page === "plan") initPlan();
     if (page === "docs" && window.PresentDocs) window.PresentDocs.init();
     if (page === "files") initFiles();
     if (page === "status") initStatus();
@@ -522,6 +590,10 @@ function applyEngagement() {
   const ns = el("#clientNorthstar");
   if (ns) ns.innerHTML = "";
   el("#navBacklog").style.display = isRetainer() ? "" : "none";   // Backlog = Monthly-Services-only
+  // Project Plan needs a project actually open — it's meaningless on a retainer or on the folder.
+  const planOk = !isRetainer() && !onFolder;
+  el("#navPlan").style.display = planOk ? "" : "none";
+  if (!planOk && currentPage() === "plan") activate("exec");
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");
 }
