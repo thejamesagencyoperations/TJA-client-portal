@@ -43,7 +43,11 @@ let undoStack = [];
 let lastSnapshot = clone(STATE);
 function persistState() {
   try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) { console.warn("state storage full", e); }
-  if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(clientId(), "dashboard", STATE);
+  // The dashboard scope is admin-writable ONLY (RLS). Clients/creatives still hit
+  // saveState() through boot self-heals (PR refresh, discipline seeding) — their
+  // localStorage copy updates, but pushing would just be an RLS-rejected write.
+  if (window.SUPA && window.SUPA.enabled && (typeof isAdmin !== "function" || isAdmin()))
+    window.SUPA.pushScope(clientId(), "dashboard", STATE);
 }
 function saveState() {
   undoStack.push(lastSnapshot);
@@ -520,15 +524,20 @@ function toggleTheme() {
 function applyRole() {
   const effRole = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
   document.body.dataset.role = effRole;
-  // "All clients" is an admin nav — hide it in client view (incl. admin previewing as client)
-  const cb = el("#clientsBack"); if (cb) cb.style.display = (effRole === "admin") ? "" : "none";
+  // "All clients" is a staff nav — hide it in client view (incl. staff previewing as client)
+  const staffRole = effRole === "admin" || effRole === "creative";
+  const cb = el("#clientsBack"); if (cb) cb.style.display = staffRole ? "" : "none";
   const rc = el("#roleControls");
-  if (typeof isAdmin === "function" && isAdmin()) {
+  if (typeof isStaff === "function" && isStaff()) {
     const prev = isPreviewing();
-    rc.innerHTML = `${!prev ? `<button class="btn btn-ghost undo-btn" id="undoBtn" title="Undo last action (⌘Z)" disabled>↶ Undo</button>` : ""}
-      <span class="role-pill">${prev ? "Admin · previewing" : "Admin"}</span>
+    const admin = isAdmin();
+    const pillBase = admin ? "Admin" : "Creative";
+    // Undo drives saveState() → dashboard-scope writes that RLS rejects for creatives,
+    // so only admins get the button.
+    rc.innerHTML = `${!prev && admin ? `<button class="btn btn-ghost undo-btn" id="undoBtn" title="Undo last action (⌘Z)" disabled>↶ Undo</button>` : ""}
+      <span class="role-pill">${prev ? pillBase + " · previewing" : pillBase}</span>
       <div class="role-switch">
-        <button class="role-seg ${!prev ? "active" : ""}" id="modeAdmin">Admin</button>
+        <button class="role-seg ${!prev ? "active" : ""}" id="modeAdmin">${pillBase}</button>
         <button class="role-seg ${prev ? "active" : ""}" id="modeClient">Client view</button>
       </div>`;
     // applyEngagement() must re-run on a role switch: a client only sees engagements with
@@ -536,7 +545,7 @@ function applyRole() {
     // (e.g. Celtic's empty retainer must disappear in the client preview).
     el("#modeAdmin").addEventListener("click", () => { setPreview(false); applyRole(); applyEngagement(); repaintAll(); });
     el("#modeClient").addEventListener("click", () => { setPreview(true); applyRole(); applyEngagement(); repaintAll(); });
-    if (!prev) { const ub = el("#undoBtn"); if (ub) ub.addEventListener("click", undo); updateUndoBtn(); }
+    if (!prev && admin) { const ub = el("#undoBtn"); if (ub) ub.addEventListener("click", undo); updateUndoBtn(); }
   } else { rc.innerHTML = ""; }
   const banner = el("#previewBanner");
   const show = (typeof isPreviewing === "function") && isPreviewing();

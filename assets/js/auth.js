@@ -1,8 +1,12 @@
 /* ============================================================
    AUTH + ROLES
    Roles:
-     • admin  → internal TJA team: full edit, upload, manage versions
-     • client → read-only on data tabs; may upload Files + review Present Docs
+     • admin    → internal TJA team: full edit, upload, manage versions,
+                  releases waiting-room drafts to the client
+     • creative → internal mid-tier: opens ANY client read-only and uploads
+                  Present Docs into the waiting room (never straight to the
+                  client — an admin sends). No other edit rights.
+     • client   → read-only on data tabs; may upload Files + review Present Docs
 
    Production: real Supabase auth (every account provisioned). The mock
    password path below is now GATED OFF on any Supabase-configured
@@ -20,6 +24,8 @@ const ALLOW_MOCK_FALLBACK = false;
 // confused with, or land inside, an actual client's data. Admins always route to the
 // client picker; their data access comes from role === "admin" (RLS), not this id.
 const ADMIN_CLIENT_ID = "_admin";
+// Same idea for creatives: staff sentinel, never a real client workspace.
+const CREATIVE_CLIENT_ID = "_creative";
 
 const ACCOUNTS = {
   "celticelevator@thejamesagency.com": {
@@ -74,13 +80,23 @@ function getSession() {
    trigger's old celtic-elevator default; once profiles are provisioned correctly
    (scripts/provision-supabase-users.mjs + schema v2) this order can flip.
    Returns null when the email maps to nothing — callers must DENY, never default. */
-function resolveIdentity(email, profile) {
+function resolveIdentity(email, profile, meta) {
   const em = (email || "").trim().toLowerCase();
   const hard = ACCOUNTS[em];
   if (hard) return { email: em, client: hard.client, name: hard.name, role: hard.role };
+  // ⚠ The roster hardcodes role:"client" and outranks the profile — a staff email must
+  //   never double as a registry client login.email, or that person logs in AS the client
+  //   (the provisioning script warns on collisions).
   const reg = registryAccount(em);
   if (reg) return { email: em, client: reg.client, name: reg.name, role: reg.role };
-  if (profile && profile.client_id) return { email: em, client: profile.client_id, name: profile.role === "admin" ? "TJA Client Services" : "Client", role: profile.role || "client" };
+  if (profile && profile.client_id) {
+    // Display name: user_metadata.name when provisioned (managers get their real
+    // name — it also drives the Clients-page default filter), else a role default.
+    const fallback = profile.role === "admin" ? "TJA Team"
+      : profile.role === "creative" ? "TJA Creative" : "Client";
+    return { email: em, client: profile.client_id,
+             name: (meta && meta.name) || fallback, role: profile.role || "client" };
+  }
   return null;
 }
 function setSession(identity) {
@@ -103,7 +119,7 @@ async function login(email, password) {
     try {
       const res = await window.SUPA.signIn(email, password);
       if (res.ok) {
-        const who = resolveIdentity(email, res.profile);
+        const who = resolveIdentity(email, res.profile, res.user && res.user.user_metadata);
         if (who) { setSession(who); return true; }
         console.warn("login: authenticated but no workspace mapping for", email);
         try { window.SUPA.signOut(); } catch (e) {}
@@ -128,7 +144,7 @@ async function restoreSession() {
     if (window.TJA_STORE && window.TJA_STORE.hydrate) { try { await window.TJA_STORE.hydrate(); } catch (e) {} }
     const cur = await window.SUPA.currentSession();
     if (!cur || !cur.user || !cur.user.email) return false;
-    const who = resolveIdentity(cur.user.email, cur.profile);
+    const who = resolveIdentity(cur.user.email, cur.profile, cur.user.user_metadata);
     if (!who) return false;
     setSession(who);
     return true;
@@ -153,15 +169,25 @@ async function logout() {
 /* ---------- roles ---------- */
 // The account's REAL role (drives whether the admin tools exist at all).
 function isAdmin() { const s = getSession(); return !!s && s.role === "admin"; }
+function isCreative() { const s = getSession(); return !!s && s.role === "creative"; }
+// Any internal TJA person (admin or creative) — gates the client picker + doc upload.
+function isStaff() { return isAdmin() || isCreative(); }
 
-// Admin-only toggle: preview the client experience without logging out.
-function isPreviewing() { return isAdmin() && sessionStorage.getItem(PREVIEW_KEY) === "1"; }
+// Staff toggle: preview the client experience without logging out. For a creative
+// this IS the client view — drafts and the upload button vanish, exactly what
+// the client would see.
+function isPreviewing() { return isStaff() && sessionStorage.getItem(PREVIEW_KEY) === "1"; }
 function setPreview(on) {
-  if (!isAdmin()) return;
+  if (!isStaff()) return;
   if (on) sessionStorage.setItem(PREVIEW_KEY, "1");
   else sessionStorage.removeItem(PREVIEW_KEY);
 }
 
 // The EFFECTIVE role the UI should render as right now.
 function effectiveRole() { return isPreviewing() ? "client" : (getSession() ? getSession().role : "client"); }
+// canEdit stays ADMIN-ONLY on purpose: creatives edit nothing — they only upload.
 function canEdit() { return effectiveRole() === "admin"; }
+// Present Docs capabilities. Upload = any staff (admin → straight to the client,
+// creative → into the waiting room). Send/release = admins only.
+function canUploadDocs() { return !isPreviewing() && isStaff(); }
+function canSendDocs() { return canEdit(); }
