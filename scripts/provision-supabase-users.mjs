@@ -16,11 +16,23 @@
      repo and never commit it.
    - scripts/users.json is gitignored (it holds plaintext passwords).
      Format: [{ "email": "...", "password": "...", "client_id": "...",
-                "role": "client" }, ...]
+                "role": "client", "name": "Jane Doe" }, ...]
+   - Roles: "client" (client_id = their workspace id), "admin"
+     (client_id "_admin" — managers go here), "creative" (client_id
+     "_creative"). admin/creative roles REQUIRE schema-v6 to be run
+     first or the profiles upsert 400s on the role CHECK.
+   - "name" (optional) becomes user_metadata.name → the portal display
+     name. FOR MANAGERS IT MUST EXACTLY MATCH their manager-tag
+     spelling on the Clients page — it drives the default "my clients"
+     filter (a mismatch just fails open to All).
    - Idempotent: existing users get their password + metadata updated;
      profiles are upserted. Safe to re-run.
    - The admin user (clientservices@) already exists — leave it out of
      users.json unless you intend to reset its password.
+   - Collision guard: any users.json email that is ALSO a client
+     login.email in the portal registry gets flagged and skipped —
+     the front-end roster outranks the Supabase profile and hardcodes
+     role "client", so that person would log in AS the client.
    ============================================================ */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -74,8 +86,22 @@ async function findUser(email) {
   return (await allUsers()).find(u => (u.email || "").toLowerCase() === target) || null;
 }
 
+// Registry client login emails — auth.js's registryAccount() resolves these FIRST
+// (before the Supabase profile) and hardcodes role "client". A staff account on a
+// colliding email would silently log in as that client, so we refuse to provision it.
+async function registryLoginEmails() {
+  try {
+    const r = await fetch(`${BASE}/rest/v1/app_state?client_id=eq._registry&scope=eq.clients&select=data`, { headers: H });
+    if (!r.ok) return new Set();
+    const rows = await r.json();
+    const arr = (rows[0] && rows[0].data) || [];
+    return new Set(arr.map(c => (c.login && c.login.email || "").toLowerCase()).filter(Boolean));
+  } catch { return new Set(); }
+}
+
 async function upsertUser(u) {
   const meta = { role: u.role || "client", client_id: u.client_id };
+  if (u.name) meta.name = u.name;
   const existing = await findUser(u.email);
   let id;
   if (existing) {
@@ -104,9 +130,15 @@ async function upsertUser(u) {
 }
 
 let ok = 0, fail = 0;
+const regEmails = await registryLoginEmails();
 for (const u of users) {
-  if (!u.email || !u.password || !u.client_id) { console.error(`✗ skipped (missing fields): ${JSON.stringify(u)}`); fail++; continue; }
-  try { console.log(`✓ ${await upsertUser(u)}  ${u.email} → ${u.client_id}`); ok++; }
+  if (!u.email || !u.password || !u.client_id) { console.error(`✗ skipped (missing fields): ${JSON.stringify({ ...u, password: "***" })}`); fail++; continue; }
+  const role = u.role || "client";
+  if (role !== "client" && regEmails.has((u.email || "").toLowerCase())) {
+    console.error(`✗ COLLISION: ${u.email} is a registry client login — a ${role} account on this email would log in AS that client. Use a different email.`);
+    fail++; continue;
+  }
+  try { console.log(`✓ ${await upsertUser(u)}  ${u.email} → ${u.client_id}${u.name ? ` (${u.name})` : ""}`); ok++; }
   catch (e) { console.error(`✗ ${e.message}`); fail++; }
 }
 console.log(`\nDone: ${ok} ok, ${fail} failed.`);

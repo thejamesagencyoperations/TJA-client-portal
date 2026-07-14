@@ -7,7 +7,7 @@
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=222">
+<link rel="stylesheet" href="assets/css/styles.css?v=223">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -22,7 +22,7 @@
     <div class="topbar-right">
       <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
       <div class="notif-host" id="notifHost"></div>
-      <span class="role-pill">Admin</span>
+      <span class="role-pill" id="rolePill">Admin</span>
       <button class="btn btn-ghost" onclick="logout()">Sign Out</button>
     </div>
   </header>
@@ -128,26 +128,31 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=222"></script>
-<script src="assets/js/supabase-sync.js?v=222"></script>
-<script src="assets/js/auth.js?v=222"></script>
+<script src="assets/js/supabase-config.js?v=223"></script>
+<script src="assets/js/supabase-sync.js?v=223"></script>
+<script src="assets/js/auth.js?v=223"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
   // straight to their workspace.
   requireAuth();
   if (typeof isStaff === "function" && !isStaff()) window.location.replace("dashboard.html");
+  // the topbar pill is hardcoded "Admin" in the markup — correct it for creatives
+  document.addEventListener("DOMContentLoaded", () => {
+    const p = document.getElementById("rolePill");
+    if (p && typeof isCreative === "function" && isCreative()) p.textContent = "Creative";
+  });
 </script>
-<script src="assets/js/clients.js?v=222"></script>
-<script src="assets/js/client-template.js?v=222"></script>
-<script src="assets/js/client-store.js?v=222"></script>
-<script src="assets/js/wmj-transform.js?v=222"></script>
-<script src="assets/js/retainer-transform.js?v=222"></script>
-<script src="assets/js/client-logos.js?v=222"></script>
-<script src="assets/js/client-pr-sheets.js?v=222"></script>
-<script src="assets/js/retainer-value.js?v=222"></script>
-<script src="assets/js/wmj-sync.js?v=222"></script>
-<script src="assets/js/notifications.js?v=222"></script>
+<script src="assets/js/clients.js?v=223"></script>
+<script src="assets/js/client-template.js?v=223"></script>
+<script src="assets/js/client-store.js?v=223"></script>
+<script src="assets/js/wmj-transform.js?v=223"></script>
+<script src="assets/js/retainer-transform.js?v=223"></script>
+<script src="assets/js/client-logos.js?v=223"></script>
+<script src="assets/js/client-pr-sheets.js?v=223"></script>
+<script src="assets/js/retainer-value.js?v=223"></script>
+<script src="assets/js/wmj-sync.js?v=223"></script>
+<script src="assets/js/notifications.js?v=223"></script>
 <script>
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -213,7 +218,22 @@
     if (Array.isArray(c.managers) && c.managers.length) return c.managers;
     return c.accountManager ? [c.accountManager] : [];
   }
+  // The manager filter. Managers' own logins default it to THEIR tag (matched by the
+  // session display name from user_metadata — a spelling drift fails open to "All").
+  // An explicit choice, including "All", is remembered for the session and always wins.
+  const MGR_FILTER_KEY = "tja_mgr_filter";
   let mgrFilter = "";
+  try { const s = sessionStorage.getItem(MGR_FILTER_KEY); if (s !== null) mgrFilter = s; } catch (e) {}
+  let mgrFilterChosen = (() => { try { return sessionStorage.getItem(MGR_FILTER_KEY) !== null; } catch (e) { return false; } })();
+  function defaultMgrFilter(all) {
+    if (mgrFilterChosen) return;   // the user already picked — never override
+    const me = ((typeof getSession === "function" && getSession()) || {}).name || "";
+    if (!me) return;
+    const set = new Set();
+    all.forEach(c => mgrsOf(c).forEach(x => set.add(x)));
+    const hit = [...set].find(n => n.toLowerCase() === me.toLowerCase());
+    if (hit) mgrFilter = hit;   // canonical tag spelling
+  }
   function fillMgrFilter(all) {
     const sel = document.getElementById("clMgrFilter"); if (!sel) return;
     const set = new Set();
@@ -232,6 +252,7 @@
     const nCur = all.filter(c => !isArchived(c)).length, nArc = all.length - nCur;
     document.getElementById("nCurrent").textContent = nCur;
     document.getElementById("nArchived").textContent = nArc;
+    defaultMgrFilter(all);
     fillMgrFilter(all);
     const clients = all.filter(c => isArchived(c) === (bucket === "archived")).filter(matchesMgr);
     // Creatives get the picker to OPEN clients, nothing else: no tile actions,
@@ -267,7 +288,12 @@
     [...tabs.querySelectorAll(".cl-tab")].forEach(x => x.classList.toggle("active", x === t));
     renderGrid();
   });
-  document.getElementById("clMgrFilter").addEventListener("change", e => { mgrFilter = e.target.value; renderGrid(); });
+  document.getElementById("clMgrFilter").addEventListener("change", e => {
+    mgrFilter = e.target.value;
+    mgrFilterChosen = true;   // explicit pick (incl. "All") sticks for the session
+    try { sessionStorage.setItem(MGR_FILTER_KEY, mgrFilter); } catch (err) {}
+    renderGrid();
+  });
   tabs.addEventListener("dragover", e => { const t = e.target.closest(".cl-tab"); if (t) { e.preventDefault(); t.classList.add("drop-hover"); } });
   tabs.addEventListener("dragleave", e => { const t = e.target.closest(".cl-tab"); if (t) t.classList.remove("drop-hover"); });
   tabs.addEventListener("drop", e => {
