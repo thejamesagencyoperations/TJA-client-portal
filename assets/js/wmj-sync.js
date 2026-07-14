@@ -165,7 +165,32 @@ window.WMJ_SYNC = (function () {
       const tot = e.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
       if (cr && +cr.contracted === 33 && tot === 100) cr.contracted = 34.63;
     }
-    e.burn.contractedHours = e.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
+    // Auto-ADD a discipline for any WMJ department with real billable hours that has no
+    // matching discipline yet (e.g. Web -> "Web/SEO Management"), so real work stops
+    // hiding in "Unallocated". ADDITIVE ONLY, and only ONCE per department (tracked in
+    // e.autoDisciplines) so a manager who removes it is respected. We never auto-REMOVE:
+    // a contracted discipline with no hours logged yet this month is still real, so an
+    // absence of hours proves nothing.
+    (function ensureDisciplinesForActuals() {
+      const canon = window.tjaCanonDiscipline; if (!canon) return;
+      const DEPT_LABEL = { web: "Web/SEO Management", pr: "Public Relations", media: "Paid Media", creative: "Creative", oversight: "Strategic Oversight" };
+      if (!Array.isArray(e.autoDisciplines)) e.autoDisciplines = [];
+      const have = new Set((e.serviceDisciplines || []).map(d => canon(d.name)));
+      (rc.serviceLines || []).forEach(sl => {
+        if ((+sl.billable || 0) <= 0) return;                       // no real hours → nothing to surface
+        const key = canon(sl.name || "");
+        if (!key || have.has(key) || e.autoDisciplines.indexOf(key) > -1) return;
+        const label = DEPT_LABEL[key]; if (!label) return;          // unknown dept → leave it in Unallocated
+        e.serviceDisciplines.push({ name: label, contracted: 0 });  // 0 = admin still sets the budget
+        e.autoDisciplines.push(key); have.add(key);
+      });
+    })();
+    // DENOMINATOR: the SOW figure owns it (mirrors exec-summary's retainerTotalContracted).
+    // Only fall back to the discipline sum when there's no usable SOW figure — the sum of
+    // service lines must NEVER become the total.
+    const sowOk = e.retainerValueMonthly === true && e.retainerValueTarget != null && +e.retainerValueTarget > 0;
+    e.burn.contractedHours = sowOk ? +e.retainerValueTarget
+      : e.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
     if (e.burn.periodLabel == null) e.burn.periodLabel = "";
     e.condition = e.condition || { level: "green", note: "" };
     e.milestones = e.milestones || []; e.todos = e.todos || []; e.dependencies = e.dependencies || [];

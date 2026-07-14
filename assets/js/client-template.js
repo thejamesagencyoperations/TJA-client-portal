@@ -57,7 +57,7 @@
     if (/public relation|(^|[^a-z])pr([^a-z]|$)/.test(s)) return "pr";
     if (/paid media|(^|[^a-z])media/.test(s)) return "media";
     if (/creativ|design/.test(s)) return "creative";
-    if (/web|develop|coding/.test(s)) return "web";
+    if (/web|seo|develop|coding/.test(s)) return "web";   // WMJ's dept is just "Web"; "Web/SEO Management" + bare "SEO" both land here
     if (/strateg|oversight|account|client service|management|leadership|project manage/.test(s)) return "oversight";
     return s.replace(/[^a-z0-9]/g, "");
   }
