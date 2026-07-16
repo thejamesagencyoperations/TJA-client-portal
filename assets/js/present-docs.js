@@ -404,9 +404,9 @@ window.PresentDocs = (function () {
     const ov = $("pdUpOverlay"); if (ov) ov.style.display = "none";
     pendingUpload = null;
   }
-  // Upload routing: an ADMIN'S upload goes straight to the client (today's behavior,
-  // still no notification — Send is what notifies, and admin uploads ARE the send).
-  // A CREATIVE'S upload lands in the waiting room until an admin releases it.
+  // Upload routing: an admin/AM-PM upload goes STRAIGHT to the client — so it is itself
+  // a send, and announces (notification + email) via announceSend. A CREATIVE'S upload
+  // lands in the waiting room and stays silent to the client until an AM/PM releases it.
   const uploadsToDraft = () => (typeof isCreative === "function" && isCreative());
   function commitUpload() {
     const subject = $("pdUpSubject") ? $("pdUpSubject").value.trim() : "";
@@ -426,17 +426,41 @@ window.PresentDocs = (function () {
       if (toDraft) {
         v.state = "pending_approval";
         draftItems.unshift({ id: uid(), name: name, active: 0, versions: [v] });
+        if (window.TJA_NOTIFY) {
+          // admin-bell discovery of pending work (the CLIENT hears nothing until release)
+          try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
+        }
       } else {
+        // Straight to the client — so this IS the send, and must tell them exactly as
+        // releasing a draft does. It previously did neither: an AM/PM uploading directly
+        // (the common path — not everything goes via a creative) silently notified nobody.
+        v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
         items.unshift({ id: uid(), name: name, active: 0, versions: [v] });
-      }
-      if (toDraft && window.TJA_NOTIFY) {
-        // admin-bell discovery of pending work (the client-facing notification fires at Send)
-        try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
+        announceSend({ id: v.vid, name: name, version: v });
       }
     });
     closeUploadDialog();
     if (toDraft) saveDrafts(); else save();
     renderGallery();
+  }
+
+  /* The client-facing moment, shared by BOTH routes to the client: an admin/AM-PM
+     uploading straight to them, and an AM/PM releasing a creative's draft. Anything
+     that reaches the client goes through here, so the two can't drift apart. */
+  function announceSend({ id, name, version }) {
+    if (window.TJA_NOTIFY) {
+      try {
+        window.TJA_NOTIFY.record({ type: "sent", docId: id, docName: name,
+          versionLabel: version.label, by: version.sentBy || sess.name || "TJA" });
+      } catch (e) {}
+    }
+    if (window.TJA_MAIL && window.TJA_MAIL.sendDeliverable) {
+      try {
+        window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docName: name,
+          versionLabel: version.label, subject: version.subject, message: version.message,
+          dueDate: version.revisionsDue });
+      } catch (e) { console.warn("deliverable email failed", e); }
+    }
   }
   async function handleResubmit(file) {
     const d = deliv(curId); if (!d || !file) return;
@@ -454,10 +478,15 @@ window.PresentDocs = (function () {
       return;
     }
     const v = newVersion(p.dataUrl, "V" + (d.versions.length + 1));
-    if (isDraft(d)) v.state = "pending_approval";   // extra round on a not-yet-sent draft stays a draft
+    const stillDraft = isDraft(d);
+    if (stillDraft) v.state = "pending_approval";   // extra round on a not-yet-sent draft stays a draft
+    else { v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA"; }
     d.versions.push(v);
     d.active = d.versions.length - 1;
-    if (isDraft(d)) saveDrafts(); else save();
+    if (stillDraft) saveDrafts(); else save();
+    // A new round on an ALREADY-SENT deliverable reaches the client immediately, so it's a
+    // send and must announce itself. Only the draft case stays silent.
+    if (!stillDraft) announceSend({ id: d.id, name: d.name, version: v });
     loadVersionIntoModal(); renderGallery();
   }
 
@@ -500,17 +529,10 @@ window.PresentDocs = (function () {
     draftItems.splice(idx, 1);
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {}
     if (window.SUPA && window.SUPA.enabled) await window.SUPA.pushScopeNow(sess.client, "deliverables_draft", draftItems);
-    // 3. notify — THE client-facing moment (upload never notifies)
+    // 3. tell the client — the same announcement a direct upload makes
     const sentV = parent ? parent.versions[parent.versions.length - 1] : draft.versions[draft.versions.length - 1];
     const sentName = parent ? parent.name : draft.name;
-    if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "sent", docId: (parent || draft).id, docName: sentName, versionLabel: sentV.label, by: sentBy }); } catch (e) {} }
-    // 4. email hook — no-op until the mail module ships (Phase 6)
-    if (window.TJA_MAIL && window.TJA_MAIL.sendDeliverable) {
-      try {
-        window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docName: sentName,
-          versionLabel: sentV.label, subject: sentV.subject, message: sentV.message, dueDate: sentV.revisionsDue });
-      } catch (e) { console.warn("deliverable email failed", e); }
-    }
+    announceSend({ id: (parent || draft).id, name: sentName, version: sentV });
     renderGallery();
   }
 
