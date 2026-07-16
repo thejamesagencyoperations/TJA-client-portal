@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team · TJA Portal</title>
+<link rel="icon" href="assets/img/favicon.ico?v=229" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=229">
+<script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/styles.css?v=229">
+</head>
+<body data-role="admin">
+<div class="clients-page">
+  <header class="topbar">
+    <div class="client-id">
+      <div class="brand-logo brand-logo--sm">
+        <svg viewBox="0 0 474 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The James Agency"><rect width="474" height="218" rx="6" fill="#F68E21"/><text x="237" y="158" text-anchor="middle" fill="#fff" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="170" letter-spacing="-6">tja</text></svg>
+        <img src="assets/img/tja-logo.svg" alt="The James Agency" onerror="this.remove()">
+      </div>
+      <div class="client-id-text"><div class="client-line"><span class="client-name">Team</span></div></div>
+    </div>
+    <div class="topbar-right">
+      <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
+      <a class="btn btn-ghost" href="clients.html">← All clients</a>
+      <button class="btn btn-ghost" onclick="logout()">Sign Out</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <div class="page-head page-head-row">
+      <div>
+        <div class="page-title">Team &amp; logins</div>
+        <div class="page-desc">Everyone who can sign in to the portal — your team and your clients.</div>
+      </div>
+      <div class="tm-actions">
+        <label class="nc-filter-wrap">Show
+          <select id="tmFilter" class="nc-filter">
+            <option value="staff">Team only</option>
+            <option value="admin">Admins</option>
+            <option value="creative">Creatives</option>
+            <option value="client">Clients</option>
+            <option value="">Everyone</option>
+          </select>
+        </label>
+        <button class="btn btn-primary btn-sm" id="tmAdd">＋ Add login</button>
+      </div>
+    </div>
+
+    <div class="tm-note" id="tmNote" style="display:none"></div>
+
+    <div class="card"><table class="table">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Workspace</th><th>Last signed in</th><th></th></tr></thead>
+      <tbody id="tmBody"><tr><td colspan="6" style="padding:18px 16px;color:var(--text-faint)">Loading team…</td></tr></tbody>
+    </table></div>
+  </main>
+</div>
+
+<!-- Add login -->
+<div class="cl-overlay" id="tmOverlay" style="display:none">
+  <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
+    <div class="cl-card-head">
+      <div class="cl-title">Add a login</div>
+      <button class="cl-x" id="tmCancel" title="Close">✕</button>
+    </div>
+    <form id="tmForm" autocomplete="off">
+      <label class="cl-field"><span>Role</span>
+        <select id="tmRole">
+          <option value="admin">Admin — full access, manages everything</option>
+          <option value="creative">Creative — uploads deliverables for approval only</option>
+          <option value="client">Client — sees only their own workspace</option>
+        </select></label>
+      <label class="cl-field" id="tmNameField"><span>Full name <em class="cl-hint">— must match their manager tag exactly</em></span>
+        <input type="text" id="tmName" placeholder="e.g. Alex Duggan"></label>
+      <label class="cl-field" id="tmClientField" style="display:none"><span>Client workspace <em>*</em></span>
+        <select id="tmClient"></select></label>
+      <label class="cl-field"><span>Email <em>*</em></span>
+        <input type="email" id="tmEmail" placeholder="name@thejamesagency.com"></label>
+      <label class="cl-field"><span>Password <em>*</em> <em class="cl-hint">— 8+ characters</em></span>
+        <input type="text" id="tmPassword" placeholder="Set a password"></label>
+      <div class="cl-err" id="tmErr"></div>
+      <div class="cl-actions">
+        <button type="button" class="btn btn-ghost" id="tmCancel2">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="tmSave">Create login</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/js/supabase-config.js?v=229"></script>
+<script src="assets/js/supabase-sync.js?v=229"></script>
+<script src="assets/js/auth.js?v=229"></script>
+<script>
+  requireAuth();
+  // Admin-only. Creatives → picker (they own no workspace, dashboard would re-bounce).
+  if (typeof isAdmin === "function" && !isAdmin())
+    window.location.replace(typeof isCreative === "function" && isCreative() ? "clients.html" : "dashboard.html");
+</script>
+<script src="assets/js/clients.js?v=229"></script>
+<script src="assets/js/client-template.js?v=229"></script>
+<script src="assets/js/client-store.js?v=229"></script>
+<script>
+(async function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+  // theme toggle (mirrors the other pages)
+  const applyTheme = (t) => document.documentElement.setAttribute("data-theme", t);
+  const curTheme = () => (localStorage.getItem("tja_theme") === "dark" ? "dark" : "light");
+  applyTheme(curTheme());
+  $("themeToggle").innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
+  $("themeToggle").addEventListener("click", () => { const n = curTheme() === "dark" ? "light" : "dark"; localStorage.setItem("tja_theme", n); applyTheme(n); });
+
+  const FN = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.url)
+    ? window.SUPABASE_CONFIG.url.replace(/\/$/, "") + "/functions/v1/manage-users" : "";
+  let users = [], filter = "staff";
+
+  function note(html, kind) {
+    const n = $("tmNote");
+    if (!html) { n.style.display = "none"; return; }
+    n.className = "tm-note " + (kind || "");
+    n.innerHTML = html; n.style.display = "";
+  }
+
+  async function token() {
+    try { const { data } = await window.SUPA.client.auth.getSession(); return data?.session?.access_token || null; }
+    catch (e) { return null; }
+  }
+  // Every action goes through the Edge Function — the service key it needs can
+  // never exist in this page.
+  async function call(payload) {
+    if (!FN) return { error: "Supabase isn't configured." };
+    const t = await token();
+    if (!t) return { error: "no-session" };
+    try {
+      const r = await fetch(FN, { method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + t },
+        body: JSON.stringify(payload) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return { error: j.error || ("HTTP " + r.status), status: r.status };
+      return j;
+    } catch (e) { return { error: String(e) }; }
+  }
+
+  const ROLE_BADGE = { admin: "complete", creative: "in-progress", client: "pending" };
+  const clientName = (id) => {
+    if (id === "_admin") return "— (all clients)";
+    if (id === "_creative") return "— (all clients)";
+    try { const c = window.TJA_STORE.get(id); return c ? c.name : id; } catch (e) { return id; }
+  };
+  const when = (iso) => {
+    if (!iso) return "never";
+    const d = new Date(iso), diff = (Date.now() - d) / 1000;
+    if (diff < 3600) return Math.max(1, Math.floor(diff / 60)) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    if (diff < 2592000) return Math.floor(diff / 86400) + "d ago";
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  function matches(u) {
+    if (!filter) return true;
+    if (filter === "staff") return u.role === "admin" || u.role === "creative";
+    return u.role === filter;
+  }
+
+  function render() {
+    const body = $("tmBody");
+    const rows = users.filter(matches).sort((a, b) =>
+      (a.role === b.role) ? (a.name || a.email).localeCompare(b.name || b.email)
+                          : ["admin","creative","client"].indexOf(a.role) - ["admin","creative","client"].indexOf(b.role));
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="6" style="padding:18px 16px;color:var(--text-faint)">No logins match that filter.</td></tr>`; return; }
+    body.innerHTML = rows.map(u => `
+      <tr data-id="${esc(u.id)}">
+        <td style="font-weight:600">${esc(u.name || "—")}${u.isYou ? ` <span class="tm-you">you</span>` : ""}</td>
+        <td style="color:var(--text-dim)">${esc(u.email)}</td>
+        <td><select class="tm-role" data-roleset="${esc(u.id)}" ${u.isYou ? "disabled title='You can&apos;t change your own role'" : ""}>
+          ${["admin","creative","client"].map(r => `<option value="${r}"${r === u.role ? " selected" : ""}>${r[0].toUpperCase() + r.slice(1)}</option>`).join("")}
+        </select></td>
+        <td style="color:var(--text-dim)">${esc(clientName(u.clientId))}</td>
+        <td style="color:var(--text-dim)">${esc(when(u.lastSignIn))}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-ghost btn-sm" data-pw="${esc(u.id)}">Reset password</button>
+          ${u.isYou ? "" : `<button class="btn btn-ghost btn-sm tm-del" data-del="${esc(u.id)}">Remove</button>`}
+        </td>
+      </tr>`).join("");
+  }
+
+  async function load() {
+    const r = await call({ action: "list" });
+    if (r.error) {
+      $("tmBody").innerHTML = `<tr><td colspan="6" style="padding:18px 16px;color:var(--text-faint)">Couldn't load the team.</td></tr>`;
+      if (r.error === "no-session") {
+        note(`<b>You're signed in with the demo password.</b> Team management talks to the live backend, so it needs your real Supabase login. Sign out and back in with your real password.`, "warn");
+      } else if (r.status === 404 || /Failed to fetch|NetworkError/i.test(r.error)) {
+        note(`<b>The team service isn't deployed yet.</b> Run <code>supabase functions deploy manage-users</code> — until then, add logins with <code>scripts/provision-supabase-users.mjs</code>.`, "warn");
+      } else {
+        note(`Couldn't load the team — ${esc(r.error)}`, "warn");
+      }
+      return;
+    }
+    note("");
+    users = r.users || [];
+    render();
+  }
+
+  /* ---- role change: saves immediately ---- */
+  $("tmBody").addEventListener("change", async (e) => {
+    const sel = e.target.closest("[data-roleset]"); if (!sel) return;
+    const id = sel.dataset.roleset, role = sel.value;
+    const u = users.find(x => x.id === id); if (!u) return;
+    const prev = u.role;
+    let clientId = u.clientId;
+    // Demoting to client needs a workspace — staff sentinels aren't real clients.
+    if (role === "client" && (!clientId || clientId.startsWith("_"))) {
+      const list = (window.TJA_STORE.list() || []).map(c => `${c.id} — ${c.name}`).join("\n");
+      const pick = prompt("Which client workspace should this login open?\n\nType the id exactly:\n\n" + list);
+      if (!pick) { sel.value = prev; return; }
+      clientId = pick.trim();
+    }
+    sel.disabled = true;
+    const r = await call({ action: "update", id, role, clientId, name: u.name });
+    sel.disabled = false;
+    if (r.error) { alert(r.error); sel.value = prev; return; }
+    u.role = role; u.clientId = role === "admin" ? "_admin" : role === "creative" ? "_creative" : clientId;
+    render();
+  });
+
+  /* ---- reset password / remove ---- */
+  $("tmBody").addEventListener("click", async (e) => {
+    const pw = e.target.closest("[data-pw]");
+    if (pw) {
+      const u = users.find(x => x.id === pw.dataset.pw);
+      const p = prompt(`Set a new password for ${u.email}\n\n(8+ characters — they won't be emailed it, so pass it on yourself.)`);
+      if (!p) return;
+      const r = await call({ action: "password", id: pw.dataset.pw, password: p });
+      alert(r.error ? r.error : "Password updated for " + u.email);
+      return;
+    }
+    const del = e.target.closest("[data-del]");
+    if (del) {
+      const u = users.find(x => x.id === del.dataset.del);
+      if (!confirm(`Remove the login for ${u.email}?\n\nThey lose access immediately. Their client's workspace data is NOT deleted.`)) return;
+      const r = await call({ action: "remove", id: del.dataset.del });
+      if (r.error) { alert(r.error); return; }
+      users = users.filter(x => x.id !== del.dataset.del);
+      render();
+    }
+  });
+
+  $("tmFilter").addEventListener("change", e => { filter = e.target.value; render(); });
+
+  /* ---- add login modal ---- */
+  const ov = $("tmOverlay");
+  function fillClients() {
+    const sel = $("tmClient");
+    const list = (window.TJA_STORE.list() || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    sel.innerHTML = `<option value="">Choose a client…</option>` +
+      list.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  }
+  function syncRoleFields() {
+    const role = $("tmRole").value;
+    $("tmClientField").style.display = role === "client" ? "" : "none";
+    $("tmNameField").style.display = role === "client" ? "none" : "";
+  }
+  $("tmRole").addEventListener("change", syncRoleFields);
+  $("tmAdd").addEventListener("click", () => {
+    $("tmErr").textContent = ""; $("tmForm").reset(); fillClients(); syncRoleFields();
+    ov.style.display = "flex"; setTimeout(() => $("tmRole").focus(), 30);
+  });
+  const close = () => ov.style.display = "none";
+  $("tmCancel").addEventListener("click", close);
+  $("tmCancel2").addEventListener("click", close);
+  ov.addEventListener("click", e => { if (e.target === ov) close(); });
+
+  $("tmForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const role = $("tmRole").value;
+    const payload = { action: "create", role,
+      email: $("tmEmail").value.trim().toLowerCase(), password: $("tmPassword").value,
+      name: $("tmName").value.trim(), clientId: role === "client" ? $("tmClient").value : "" };
+    if (role === "client" && !payload.clientId) { $("tmErr").textContent = "Pick which client workspace this login is for."; return; }
+    $("tmSave").disabled = true;
+    const r = await call(payload);
+    $("tmSave").disabled = false;
+    if (r.error) { $("tmErr").textContent = r.error; return; }
+    close();
+    await load();
+  });
+
+  await window.TJA_STORE.hydrate().catch(() => {});
+  await load();
+})();
+</script>
+</body>
+</html>

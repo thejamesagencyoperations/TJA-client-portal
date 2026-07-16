@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=228" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=228">
+<link rel="icon" href="assets/img/favicon.ico?v=229" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=229">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=228">
+<link rel="stylesheet" href="assets/css/styles.css?v=229">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -24,6 +24,7 @@
     <div class="topbar-right">
       <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
       <div class="notif-host" id="notifHost"></div>
+      <a class="btn btn-ghost admin-only" href="team.html" id="teamLink">Team</a>
       <span class="role-pill" id="rolePill">Admin</span>
       <button class="btn btn-ghost" onclick="logout()">Sign Out</button>
     </div>
@@ -144,31 +145,35 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=228"></script>
-<script src="assets/js/supabase-sync.js?v=228"></script>
-<script src="assets/js/auth.js?v=228"></script>
+<script src="assets/js/supabase-config.js?v=229"></script>
+<script src="assets/js/supabase-sync.js?v=229"></script>
+<script src="assets/js/auth.js?v=229"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
   // straight to their workspace.
   requireAuth();
   if (typeof isStaff === "function" && !isStaff()) window.location.replace("dashboard.html");
-  // the topbar pill is hardcoded "Admin" in the markup — correct it for creatives
-  document.addEventListener("DOMContentLoaded", () => {
+  // The markup hardcodes <body data-role="admin"> and nothing on this page ever corrected
+  // it (applyRole only runs on the dashboard). That makes every .admin-only control — the
+  // Team link — visible to creatives. Set the real role here, before paint.
+  (function () {
+    const r = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
+    document.body.dataset.role = r;
     const p = document.getElementById("rolePill");
-    if (p && typeof isCreative === "function" && isCreative()) p.textContent = "Creative";
-  });
+    if (p) p.textContent = r === "creative" ? "Creative" : "Admin";
+  })();
 </script>
-<script src="assets/js/clients.js?v=228"></script>
-<script src="assets/js/client-template.js?v=228"></script>
-<script src="assets/js/client-store.js?v=228"></script>
-<script src="assets/js/wmj-transform.js?v=228"></script>
-<script src="assets/js/retainer-transform.js?v=228"></script>
-<script src="assets/js/client-logos.js?v=228"></script>
-<script src="assets/js/client-pr-sheets.js?v=228"></script>
-<script src="assets/js/retainer-value.js?v=228"></script>
-<script src="assets/js/wmj-sync.js?v=228"></script>
-<script src="assets/js/notifications.js?v=228"></script>
+<script src="assets/js/clients.js?v=229"></script>
+<script src="assets/js/client-template.js?v=229"></script>
+<script src="assets/js/client-store.js?v=229"></script>
+<script src="assets/js/wmj-transform.js?v=229"></script>
+<script src="assets/js/retainer-transform.js?v=229"></script>
+<script src="assets/js/client-logos.js?v=229"></script>
+<script src="assets/js/client-pr-sheets.js?v=229"></script>
+<script src="assets/js/retainer-value.js?v=229"></script>
+<script src="assets/js/wmj-sync.js?v=229"></script>
+<script src="assets/js/notifications.js?v=229"></script>
 <script>
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
