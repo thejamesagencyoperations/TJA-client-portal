@@ -149,6 +149,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/js/supabase-config.js?v=236"></script>
 <script src="assets/js/supabase-sync.js?v=236"></script>
+<script src="assets/js/ui.js?v=236"></script>
 <script src="assets/js/auth.js?v=236"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
@@ -504,7 +505,10 @@
   f.logoClear.addEventListener("click", () => { logoData = ""; f.logo.value = ""; setLogoPreview(); });
   document.getElementById("clCancel").addEventListener("click", closeModal);
   document.getElementById("clCancel2").addEventListener("click", closeModal);
-  ov.addEventListener("click", e => { if (e.target === ov) closeModal(); });
+  // Backdrop-click + Esc via the shared helper. A bare click listener here closed the
+  // form mid-typing (drag-select out of a field fires click on the overlay) — and this
+  // modal is full of fields, incl. the Integrations panel.
+  window.TJA_UI.backdropClose(ov, closeModal);
 
   document.getElementById("clForm").addEventListener("submit", e => {
     e.preventDefault();
@@ -571,7 +575,7 @@
   }
   document.getElementById("clDoneClose").addEventListener("click", () => { doneOv.style.display = "none"; });
   document.getElementById("clDoneOpen").addEventListener("click", () => { if (doneEntry) openClient(doneEntry.id); });
-  doneOv.addEventListener("click", e => { if (e.target === doneOv) doneOv.style.display = "none"; });
+  window.TJA_UI.backdropClose(doneOv, () => { doneOv.style.display = "none"; });
 </script>
 </body>
 </html>

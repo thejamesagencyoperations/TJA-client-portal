@@ -1001,7 +1001,9 @@ window.PresentDocs = (function () {
     $("pdFile").addEventListener("change", e => { handleNewDeliverables(e.target.files); e.target.value = ""; });
     $("pdUpCancel").addEventListener("click", closeUploadDialog);
     $("pdUpSend").addEventListener("click", commitUpload);
-    $("pdUpOverlay").addEventListener("click", e => { if (e.target.id === "pdUpOverlay") closeUploadDialog(); });
+    // Shared helper — a bare click listener closed this dialog while you were typing the
+    // subject/message (drag-select out of a field fires click on the overlay).
+    window.TJA_UI.backdropClose($("pdUpOverlay"), closeUploadDialog);
     $("pdResubmit").addEventListener("click", () => $("pdVerFile").click());
     $("pdVerFile").addEventListener("change", e => { handleResubmit(e.target.files[0]); e.target.value = ""; });
 

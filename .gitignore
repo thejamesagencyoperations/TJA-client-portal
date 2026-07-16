@@ -2,6 +2,6 @@
 *.log
 node_modules/
 # plaintext login list for the provisioning script — never commit
-scripts/users.json
+scripts/users.json*
 # supabase CLI link state — machine-local, never commit
 supabase/.temp/

@@ -116,6 +116,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/js/supabase-config.js?v=236"></script>
 <script src="assets/js/supabase-sync.js?v=236"></script>
+<script src="assets/js/ui.js?v=236"></script>
 <script src="assets/js/auth.js?v=236"></script>
 <script>
   requireAuth();
@@ -323,7 +324,13 @@
   const close = () => ov.style.display = "none";
   $("tmCancel").addEventListener("click", close);
   $("tmCancel2").addEventListener("click", close);
-  ov.addEventListener("click", e => { if (e.target === ov) close(); });
+
+  // Backdrop-click + Esc. See TJA_UI.backdropClose — a plain `click` handler closed this
+  // dialog while you were typing in it (drag-select out of a field fires click on the
+  // overlay). Never wire a bare click listener to an overlay.
+  // Only closes when the credential reveal ISN'T up, so Esc dismisses that first.
+  window.TJA_UI.backdropClose(ov, close,
+    () => getComputedStyle(ov).display !== "none" && getComputedStyle($("tmDoneOverlay")).display === "none");
 
   $("tmForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -357,7 +364,9 @@
     try { await navigator.clipboard.writeText(txt); $("tmDoneCopy").textContent = "Copied ✓"; }
     catch (e) { $("tmDoneCopy").textContent = "Select it manually"; }
   });
-  $("tmDoneClose").addEventListener("click", () => { doneOv.style.display = "none"; });
+  const closeDone = () => { doneOv.style.display = "none"; };
+  $("tmDoneClose").addEventListener("click", closeDone);
+  window.TJA_UI.backdropClose(doneOv, closeDone);
 
   await window.TJA_STORE.hydrate().catch(() => {});
   await load();

@@ -103,6 +103,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="assets/js/supabase-config.js?v=236"></script>
 <script src="assets/js/supabase-sync.js?v=236"></script>
+<script src="assets/js/ui.js?v=236"></script>
 <script src="assets/js/auth.js?v=236"></script>
 <script>requireAuth();</script>
 <script src="assets/js/clients.js?v=236"></script>
@@ -122,11 +123,14 @@
     try {
       var s = (typeof getSession === "function" && getSession()) || {};
       var id = s.client;
-      // Staff own no client workspace: if they reach the dashboard without a real
-      // client selected (id is a "_"-prefixed sentinel like _admin/_creative, or
-      // empty), send them to the picker.
-      if ((s.role === "admin" || s.role === "creative") && (!id || String(id).charAt(0) === "_")) {
-        window.location.replace("clients.html"); return;
+      // Staff own no client workspace: if they reach the dashboard without a real client
+      // selected (id is a "_"-prefixed sentinel like _admin/_manager/_creative, or empty),
+      // send them to the picker.
+      // Tested on the SENTINEL, not on a list of roles: role names have already changed
+      // once (schema-v7 added "manager"), and a missed name here means that person loads a
+      // broken dashboard for a client that doesn't exist rather than being redirected.
+      if (!id || String(id).charAt(0) === "_") {
+        if (s.role && s.role !== "client") { window.location.replace("clients.html"); return; }
       }
       if (!id) { window.location.replace("index.html"); return; }   // no workspace → back to login
       var seeds = window.CLIENT_SEEDS || {};

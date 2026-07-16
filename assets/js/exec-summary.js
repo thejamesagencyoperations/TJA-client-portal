@@ -122,8 +122,10 @@ window.ExecSummary = (function () {
       eng.condition = eng.condition || {}; eng.condition.note = ta.value.trim();
       window.DASH.saveState(); close(); rerender();
     });
-    ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
-    ov.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    // Shared helper: a bare click listener closed this popup while you were selecting
+    // text in the textarea. It also carries Esc (the old listener was on `ov`, which
+    // only fires when focus is inside — so Esc did nothing once you clicked away).
+    window.TJA_UI.backdropClose(ov, close);
   }
 
   /* ---- monthly history (retainer) — keep every past month so nothing is lost ---- */
@@ -724,7 +726,7 @@ window.ExecSummary = (function () {
     };
     ov.querySelector("[data-bpcancel]").addEventListener("click", () => close(false));
     ov.querySelector("[data-bpapply]").addEventListener("click", () => close(true));
-    ov.addEventListener("click", e => { if (e.target === ov) close(false); });
+    window.TJA_UI.backdropClose(ov, () => close(false));
   }
 
   /* ---- Unallocated drill-down popup: projects behind the misc (out-of-discipline) hours ---- */
