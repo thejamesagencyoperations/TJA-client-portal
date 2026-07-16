@@ -874,6 +874,11 @@ body[data-role="creative"] .admin-only { display: none !important; }
 .cl-cred span { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); font-weight: 700; }
 .cl-cred code { font-size: .84rem; color: var(--text); font-family: ui-monospace, Menlo, monospace; }
 .cl-done-note { font-size: .72rem; color: var(--text-faint); margin: 12px 0 0; line-height: 1.5; }
+/* the "this login isn't real yet" warning — must not read as fine print */
+.cl-done-warn { background: rgba(239,83,80,.10); border: 1px solid rgba(239,83,80,.4);
+  color: var(--text-dim); border-radius: 8px; padding: 9px 11px; }
+.cl-done-warn b:first-child { color: #ef5350; }
+.cl-done-warn a { color: var(--accent-text); font-weight: 700; }
 .pp-back { background: none; border: none; color: var(--accent-text); font-weight: 700;
   font-size: .82rem; cursor: pointer; padding: 4px 0; margin-bottom: 10px; }
 .pp-back:hover { text-decoration: underline; }

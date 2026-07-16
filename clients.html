@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=230" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=230">
+<link rel="icon" href="assets/img/favicon.ico?v=231" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=231">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=230">
+<link rel="stylesheet" href="assets/css/styles.css?v=231">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -133,21 +133,26 @@
     <div class="cl-card-head"><div class="cl-title">Workspace created ✓</div></div>
     <p class="cl-done-lead" id="clDoneLead"></p>
     <div class="cl-creds">
-      <div class="cl-cred"><span>Client login</span><code id="clDoneEmail"></code></div>
+      <div class="cl-cred"><span>Intended login</span><code id="clDoneEmail"></code></div>
       <div class="cl-cred"><span>Password</span><code id="clDonePass"></code></div>
     </div>
-    <p class="cl-done-note">Mock sandbox credentials — share with the client to let them sign in, or open the workspace yourself to set it up.</p>
+    <p class="cl-done-note cl-done-warn"><b>⚠ This login does not work yet — don't send it.</b>
+      Adding a client creates their <b>workspace</b>, not their sign-in. Real logins live in Supabase,
+      and only <a href="team.html">Team</a> creates them. Go there, <b>＋ Add login</b> → role
+      <b>Client</b> → pick this workspace → use the client's <b>real</b> email (not this placeholder).
+      Until then you can still open the workspace yourself and preview it with <b>Client view</b>.</p>
     <div class="cl-actions">
       <button type="button" class="btn btn-ghost" id="clDoneClose">Stay here</button>
+      <a class="btn btn-ghost" href="team.html">Create their login →</a>
       <button type="button" class="btn btn-primary" id="clDoneOpen">Open workspace →</button>
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=230"></script>
-<script src="assets/js/supabase-sync.js?v=230"></script>
-<script src="assets/js/auth.js?v=230"></script>
+<script src="assets/js/supabase-config.js?v=231"></script>
+<script src="assets/js/supabase-sync.js?v=231"></script>
+<script src="assets/js/auth.js?v=231"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -164,16 +169,16 @@
     if (p) p.textContent = r === "creative" ? "Creative" : "Admin";
   })();
 </script>
-<script src="assets/js/clients.js?v=230"></script>
-<script src="assets/js/client-template.js?v=230"></script>
-<script src="assets/js/client-store.js?v=230"></script>
-<script src="assets/js/wmj-transform.js?v=230"></script>
-<script src="assets/js/retainer-transform.js?v=230"></script>
-<script src="assets/js/client-logos.js?v=230"></script>
-<script src="assets/js/client-pr-sheets.js?v=230"></script>
-<script src="assets/js/retainer-value.js?v=230"></script>
-<script src="assets/js/wmj-sync.js?v=230"></script>
-<script src="assets/js/notifications.js?v=230"></script>
+<script src="assets/js/clients.js?v=231"></script>
+<script src="assets/js/client-template.js?v=231"></script>
+<script src="assets/js/client-store.js?v=231"></script>
+<script src="assets/js/wmj-transform.js?v=231"></script>
+<script src="assets/js/retainer-transform.js?v=231"></script>
+<script src="assets/js/client-logos.js?v=231"></script>
+<script src="assets/js/client-pr-sheets.js?v=231"></script>
+<script src="assets/js/retainer-value.js?v=231"></script>
+<script src="assets/js/wmj-sync.js?v=231"></script>
+<script src="assets/js/notifications.js?v=231"></script>
 <script>
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
