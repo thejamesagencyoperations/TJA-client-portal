@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Team · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=231" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=231">
+<title>Admin Center · TJA Portal</title>
+<link rel="icon" href="assets/img/favicon.ico?v=232" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=232">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=231">
+<link rel="stylesheet" href="assets/css/styles.css?v=232">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -19,7 +19,7 @@
         <svg viewBox="0 0 474 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The James Agency"><rect width="474" height="218" rx="6" fill="#F68E21"/><text x="237" y="158" text-anchor="middle" fill="#fff" font-family="Inter, Arial, sans-serif" font-weight="900" font-size="170" letter-spacing="-6">tja</text></svg>
         <img src="assets/img/tja-logo.svg" alt="The James Agency" onerror="this.remove()">
       </div>
-      <div class="client-id-text"><div class="client-line"><span class="client-name">Team</span></div></div>
+      <div class="client-id-text"><div class="client-line"><span class="client-name">Admin Center</span></div></div>
     </div>
     <div class="topbar-right">
       <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
@@ -31,8 +31,8 @@
   <main class="content">
     <div class="page-head page-head-row">
       <div>
-        <div class="page-title">Team &amp; logins</div>
-        <div class="page-desc">Everyone who can sign in to the portal — your team and your clients.</div>
+        <div class="page-title">Admin Center</div>
+        <div class="page-desc">Every login to the portal — your team and your clients. Only this account can manage them.</div>
       </div>
       <div class="tm-actions">
         <label class="nc-filter-wrap">Show
@@ -112,18 +112,20 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=231"></script>
-<script src="assets/js/supabase-sync.js?v=231"></script>
-<script src="assets/js/auth.js?v=231"></script>
+<script src="assets/js/supabase-config.js?v=232"></script>
+<script src="assets/js/supabase-sync.js?v=232"></script>
+<script src="assets/js/auth.js?v=232"></script>
 <script>
   requireAuth();
-  // Admin-only. Creatives → picker (they own no workspace, dashboard would re-bounce).
-  if (typeof isAdmin === "function" && !isAdmin())
-    window.location.replace(typeof isCreative === "function" && isCreative() ? "clients.html" : "dashboard.html");
+  // OWNER only — not every admin. Account managers are admins over client work but
+  // don't manage logins. Staff land back on the picker; a client goes to their own
+  // workspace. (The function refuses them regardless — this just avoids a dead page.)
+  if (typeof isOwner === "function" && !isOwner())
+    window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=231"></script>
-<script src="assets/js/client-template.js?v=231"></script>
-<script src="assets/js/client-store.js?v=231"></script>
+<script src="assets/js/clients.js?v=232"></script>
+<script src="assets/js/client-template.js?v=232"></script>
+<script src="assets/js/client-store.js?v=232"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);

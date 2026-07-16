@@ -27,13 +27,20 @@ const ADMIN_CLIENT_ID = "_admin";
 // Same idea for creatives: staff sentinel, never a real client workspace.
 const CREATIVE_CLIENT_ID = "_creative";
 
+/* ---------- the OWNER tier ----------
+   Every account manager is role=admin — they run their clients and edit everything.
+   But managing LOGINS (creating admins, changing roles, deleting people) is a different
+   clearance, and it belongs to the agency's own account, not to each manager.
+   Rather than add a fourth role and re-thread every `role === "admin"` check in the app
+   and in RLS, the owner is simply an email allowlist.
+   ⚠ This list is COSMETIC — it hides the UI. The real boundary is the identical list in
+   supabase/functions/manage-users (PORTAL_OWNER_EMAILS), which is what actually refuses
+   the request. Change one, change the other. */
+const OWNER_EMAILS = ["clientservices@thejamesagency.com"];
+
 const ACCOUNTS = {
-  "celticelevator@thejamesagency.com": {
-    password: "celticelevator",
-    client: "celtic-elevator",   // the real Celtic Elevator CLIENT login
-    name: "Celtic Elevator",
-    role: "client",
-  },
+  // Only the agency's own account is hardcoded, and only so a fresh/offline build has a
+  // way in. Every real person — clients AND staff — resolves from Supabase.
   "clientservices@thejamesagency.com": {
     password: "admin",
     client: ADMIN_CLIENT_ID,     // standalone admin — not tied to any client workspace
@@ -172,6 +179,13 @@ function isAdmin() { const s = getSession(); return !!s && s.role === "admin"; }
 function isCreative() { const s = getSession(); return !!s && s.role === "creative"; }
 // Any internal TJA person (admin or creative) — gates the client picker + doc upload.
 function isStaff() { return isAdmin() || isCreative(); }
+// The agency's own account. Gates LOGIN management only — an account manager is a full
+// admin over client work, but doesn't get to mint admins or delete people.
+// UI-only; the function re-checks server-side (see OWNER_EMAILS above).
+function isOwner() {
+  const s = getSession();
+  return !!s && s.role === "admin" && OWNER_EMAILS.indexOf((s.email || "").toLowerCase()) > -1;
+}
 
 // Staff toggle: preview the client experience without logging out. For a creative
 // this IS the client view — drafts and the upload button vanish, exactly what

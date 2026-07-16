@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=231" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=231">
+<link rel="icon" href="assets/img/favicon.ico?v=232" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=232">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=231">
+<link rel="stylesheet" href="assets/css/styles.css?v=232">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -24,7 +24,7 @@
     <div class="topbar-right">
       <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
       <div class="notif-host" id="notifHost"></div>
-      <a class="btn btn-ghost admin-only" href="team.html" id="teamLink">Team</a>
+      <a class="btn btn-ghost" href="admin-center.html" id="adminCenterLink" style="display:none">Admin Center</a>
       <span class="role-pill" id="rolePill">Admin</span>
       <button class="btn btn-ghost" onclick="logout()">Sign Out</button>
     </div>
@@ -89,13 +89,15 @@
               <input type="text" id="clMgrInput" list="clMgrList" placeholder="Type a name + Enter…" autocomplete="off">
               <datalist id="clMgrList"></datalist>
             </div></label>
-          <div class="cl-login-head">Client login</div>
-          <div class="cl-field-2">
-            <label class="cl-field"><span>Email <em>*</em></span>
-              <input type="email" id="clEmail" placeholder="client@company.com"></label>
-            <label class="cl-field cl-field-pw"><span>Password <em>*</em></span>
-              <input type="text" id="clPassword" placeholder="Set a password"></label>
-          </div>
+          <!-- The "Client login" email + password fields were REMOVED here. They wrote a
+               plaintext password into the registry and created no actual login — the mock
+               auth path they fed is switched off. Real logins are Supabase users, created
+               in the Admin Center. Keeping the fields only invited someone to hand a client
+               credentials that silently fail. They also made Celtic Elevator uneditable:
+               it has no login block, and the form demanded one before it would save. -->
+          <p class="cl-login-note">This creates the client's <b>workspace</b>. Their sign-in is
+            separate — create it in the <a href="admin-center.html">Admin Center</a> once the
+            workspace exists.</p>
           <!-- Integrations: ONE per-client map of external destinations, read by every
                connected service (Drive push, deliverable emails, Slack, Client Emails
                matching). Optional — each blank field just disables that integration. -->
@@ -132,27 +134,22 @@
   <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
     <div class="cl-card-head"><div class="cl-title">Workspace created ✓</div></div>
     <p class="cl-done-lead" id="clDoneLead"></p>
-    <div class="cl-creds">
-      <div class="cl-cred"><span>Intended login</span><code id="clDoneEmail"></code></div>
-      <div class="cl-cred"><span>Password</span><code id="clDonePass"></code></div>
-    </div>
-    <p class="cl-done-note cl-done-warn"><b>⚠ This login does not work yet — don't send it.</b>
-      Adding a client creates their <b>workspace</b>, not their sign-in. Real logins live in Supabase,
-      and only <a href="team.html">Team</a> creates them. Go there, <b>＋ Add login</b> → role
-      <b>Client</b> → pick this workspace → use the client's <b>real</b> email (not this placeholder).
-      Until then you can still open the workspace yourself and preview it with <b>Client view</b>.</p>
+    <p class="cl-done-note">Nobody can sign in to it yet — a workspace and a login are separate.
+      When they're ready for access, create it in the <b>Admin Center</b> (role <b>Client</b> → pick
+      this workspace → their <b>real</b> email). Until then, open it yourself and use <b>Client view</b>
+      to see exactly what they'd see.</p>
     <div class="cl-actions">
       <button type="button" class="btn btn-ghost" id="clDoneClose">Stay here</button>
-      <a class="btn btn-ghost" href="team.html">Create their login →</a>
+      <a class="btn btn-ghost" href="admin-center.html">Create their login →</a>
       <button type="button" class="btn btn-primary" id="clDoneOpen">Open workspace →</button>
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=231"></script>
-<script src="assets/js/supabase-sync.js?v=231"></script>
-<script src="assets/js/auth.js?v=231"></script>
+<script src="assets/js/supabase-config.js?v=232"></script>
+<script src="assets/js/supabase-sync.js?v=232"></script>
+<script src="assets/js/auth.js?v=232"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -167,18 +164,20 @@
     document.body.dataset.role = r;
     const p = document.getElementById("rolePill");
     if (p) p.textContent = r === "creative" ? "Creative" : "Admin";
+    const ac = document.getElementById("adminCenterLink");
+    if (ac && typeof isOwner === "function" && isOwner()) ac.style.display = "";
   })();
 </script>
-<script src="assets/js/clients.js?v=231"></script>
-<script src="assets/js/client-template.js?v=231"></script>
-<script src="assets/js/client-store.js?v=231"></script>
-<script src="assets/js/wmj-transform.js?v=231"></script>
-<script src="assets/js/retainer-transform.js?v=231"></script>
-<script src="assets/js/client-logos.js?v=231"></script>
-<script src="assets/js/client-pr-sheets.js?v=231"></script>
-<script src="assets/js/retainer-value.js?v=231"></script>
-<script src="assets/js/wmj-sync.js?v=231"></script>
-<script src="assets/js/notifications.js?v=231"></script>
+<script src="assets/js/clients.js?v=232"></script>
+<script src="assets/js/client-template.js?v=232"></script>
+<script src="assets/js/client-store.js?v=232"></script>
+<script src="assets/js/wmj-transform.js?v=232"></script>
+<script src="assets/js/retainer-transform.js?v=232"></script>
+<script src="assets/js/client-logos.js?v=232"></script>
+<script src="assets/js/client-pr-sheets.js?v=232"></script>
+<script src="assets/js/retainer-value.js?v=232"></script>
+<script src="assets/js/wmj-sync.js?v=232"></script>
+<script src="assets/js/notifications.js?v=232"></script>
 <script>
   if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -384,7 +383,6 @@
     tagline: document.getElementById("clTagline"), kind: document.getElementById("clKind"),
     logo: document.getElementById("clLogo"), logoPrev: document.getElementById("clLogoPrev"),
     logoInitials: document.getElementById("clLogoInitials"), logoClear: document.getElementById("clLogoClear"),
-    email: document.getElementById("clEmail"), password: document.getElementById("clPassword"),
     err: document.getElementById("clErr"), title: document.getElementById("clModalTitle"), save: document.getElementById("clSave"),
     svcSetup: document.getElementById("clSvcSetup"), svcRows: document.getElementById("clSvcRows"),
     svcTotal: document.getElementById("clSvcTotal"), svcAdd: document.getElementById("clSvcAdd"),
@@ -475,8 +473,6 @@
     f.tagline.value = c ? (c.tagline || "") : "";
     f.kind.value = c ? (c.kind || "retainer") : "retainer";
     f.kind.disabled = !!id;   // engagement mix is set at creation; managed in the workspace afterward
-    f.email.value = c && c.login ? (c.login.email || "") : "";
-    f.password.value = c && c.login ? (c.login.password || "") : "";
     logoData = c && c.logo ? c.logo : "";
     setLogoPreview();
     // managers: existing tags, else seed from the WMJ-derived lead so it's never empty-by-default
@@ -511,16 +507,8 @@
     e.preventDefault();
     const name = f.name.value.trim();
     if (!name) { f.err.textContent = "Client name is required."; return; }
-    const email = f.email.value.trim().toLowerCase();
-    const password = f.password.value;
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { f.err.textContent = "Enter a valid login email."; return; }
-    if (password.length < 4) { f.err.textContent = "Password must be at least 4 characters."; return; }
-    // login email must be unique across clients (it's how a client signs in)
-    const clash = window.TJA_STORE.list().find(c => c.id !== editingId && c.login && (c.login.email || "").toLowerCase() === email);
-    if (clash) { f.err.textContent = `That email is already used by “${clash.name}”.`; return; }
     const code = f.initials.value.trim();   // the "Client code" field
     const initials = window.tjaInitialsFrom(name).trim().toUpperCase().slice(0, 3);   // kept as a fallback
-    const login = { email, password };
     addMgr(f.mgrInput.value);   // catch a name typed but not yet committed
     // integrations: parse the Drive URL down to its folder ID; split the comma lists
     const driveRaw = f.drive.value.trim();
@@ -536,11 +524,11 @@
       domains: csv(f.domains.value).map(d => d.toLowerCase().replace(/^@/, "")),
     };
     if (editingId) {
-      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, login, managers: mgrTags.slice(), integrations });
+      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, managers: mgrTags.slice(), integrations });
       closeModal(); renderGrid();
       return;
     }
-    const entry = window.TJA_STORE.add({ name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, login, managers: mgrTags.slice(), integrations });
+    const entry = window.TJA_STORE.add({ name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, kind: f.kind.value, managers: mgrTags.slice(), integrations });
     window.TJA_STORE.seedWorkspace(entry);
     // fold the admin-entered contracted hours into the new client's retainer engagement
     if (f.kind.value !== "project") {
@@ -576,8 +564,6 @@
   function showDone(entry) {
     doneEntry = entry;
     document.getElementById("clDoneLead").textContent = `“${entry.name}” is ready. It starts blank — open it to add the burn, service lines, milestones and more.`;
-    document.getElementById("clDoneEmail").textContent = entry.login.email;
-    document.getElementById("clDonePass").textContent = entry.login.password;
     doneOv.style.display = "flex";
   }
   document.getElementById("clDoneClose").addEventListener("click", () => { doneOv.style.display = "none"; });

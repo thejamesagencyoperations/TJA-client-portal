@@ -9,7 +9,12 @@
    `profiles` therefore keeps NO write policy at all: the table that
    decides everyone's access is writable only by this function.
 
-   Caller: ADMIN ONLY. Creative and client JWTs get 403 on every action.
+   Caller: THE OWNER ONLY — the agency's own account (PORTAL_OWNER_EMAILS).
+   Every account manager is role=admin and runs their clients freely, but minting
+   admins / changing roles / deleting people is a separate clearance. role=admin is
+   NOT sufficient here. Hiding the Admin Center link in the UI is cosmetic; this
+   check is the actual boundary — a manager who found the URL, or curled the
+   endpoint with their own perfectly valid admin JWT, is refused right here.
 
    Deploy:
      supabase functions deploy manage-users --use-api
@@ -31,6 +36,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const ROLES = ["admin", "creative", "client"];
 const ADMIN_WORKSPACE = "_admin";
 const CREATIVE_WORKSPACE = "_creative";
+
+// Who may manage logins. Overridable without a redeploy:
+//   supabase secrets set PORTAL_OWNER_EMAILS="a@tja.com,b@tja.com"
+// Must mirror OWNER_EMAILS in assets/js/auth.js (that copy only hides the UI).
+const OWNERS = (Deno.env.get("PORTAL_OWNER_EMAILS") || "clientservices@thejamesagency.com")
+  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 function svcClient() {
   return createClient(
@@ -66,7 +77,9 @@ Deno.serve(async (req) => {
 
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
-  if (caller.role !== "admin") return json(req, 403, { error: "admins only" });
+  // role=admin is necessary but NOT sufficient — see the header.
+  if (caller.role !== "admin" || !OWNERS.includes((caller.email || "").toLowerCase()))
+    return json(req, 403, { error: "Only the agency's owner account can manage logins." });
 
   let body: any;
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }

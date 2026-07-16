@@ -1477,3 +1477,8 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
   font-size: .86rem; color: var(--text); padding: 3px 2px; }
 .cl-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 @media (max-width: 620px) { .cl-tabs-row { align-items: flex-start; flex-direction: column; } }
+
+/* client modal: workspace ≠ login (the mock login fields lived here) */
+.cl-login-note { font-size: .74rem; color: var(--text-dim); background: var(--input);
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin: 12px 0 0; line-height: 1.5; }
+.cl-login-note a { color: var(--accent-text); font-weight: 700; }
