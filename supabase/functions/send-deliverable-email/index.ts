@@ -74,9 +74,20 @@ Deno.serve(async (req) => {
 
   const entry = await registryEntry(clientId);
   if (!entry) return json(req, 404, { error: "unknown client" });
+  // Recipients come ONLY from the integrations map — the client's real people
+  // (rdorner@celticelevator.com), entered deliberately.
+  //
+  // There used to be a fallback to entry.login.email. That was a silent wrong-recipient
+  // bug: for 48 of 49 clients login.email is a TJA DISTRIBUTION address
+  // (anewleaf@thejamesagency.com), not the client at all. The deliverable email would
+  // have gone to TJA's own inbox while the UI said "Emailed the client ✓" and the client
+  // heard nothing. Failing loudly is strictly better than confidently emailing yourself.
   const recipients = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
-  if (!recipients.length && entry.login?.email) recipients.push(entry.login.email);
-  if (!recipients.length) return json(req, 409, { error: "no recipients configured for this client" });
+  if (!recipients.length) {
+    return json(req, 409, {
+      error: "No client email set. Add their real address under Clients → Edit → Integrations → Notification emails.",
+    });
+  }
 
   const docName = String(body.docName ?? "deliverable");
   const version = String(body.versionLabel ?? "");
