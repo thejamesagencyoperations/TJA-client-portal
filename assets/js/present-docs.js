@@ -413,18 +413,25 @@ window.PresentDocs = (function () {
     const message = $("pdUpMsg") ? $("pdUpMsg").value.trim() : "";
     const due = $("pdUpDue") ? $("pdUpDue").value : "";
     const toDraft = uploadsToDraft();
+    const multi = (pendingUpload || []).length > 1;
+    // The card is named by the SUBJECT you typed, not the raw filename — that's what the
+    // client reads in the gallery. Falls back to the filename if the subject is left blank.
+    // When several files share one subject, the filename is appended so the cards stay
+    // tellable apart (they'd otherwise all carry the same name).
+    const nameFor = (p) => !subject ? p.name : (multi ? subject + " — " + p.name : subject);
     (pendingUpload || []).forEach(p => {
       const v = newVersion(p.dataUrl, "V1");
       v.subject = subject; v.message = message; v.revisionsDue = due;
+      const name = nameFor(p);
       if (toDraft) {
         v.state = "pending_approval";
-        draftItems.unshift({ id: uid(), name: p.name, active: 0, versions: [v] });
+        draftItems.unshift({ id: uid(), name: name, active: 0, versions: [v] });
       } else {
-        items.unshift({ id: uid(), name: p.name, active: 0, versions: [v] });
+        items.unshift({ id: uid(), name: name, active: 0, versions: [v] });
       }
       if (toDraft && window.TJA_NOTIFY) {
         // admin-bell discovery of pending work (the client-facing notification fires at Send)
-        try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: p.name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
+        try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
       }
     });
     closeUploadDialog();
