@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Team · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=229" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=229">
+<link rel="icon" href="assets/img/favicon.ico?v=230" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=230">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=229">
+<link rel="stylesheet" href="assets/css/styles.css?v=230">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -78,7 +78,10 @@
       <label class="cl-field"><span>Email <em>*</em></span>
         <input type="email" id="tmEmail" placeholder="name@thejamesagency.com"></label>
       <label class="cl-field"><span>Password <em>*</em> <em class="cl-hint">— 8+ characters</em></span>
-        <input type="text" id="tmPassword" placeholder="Set a password"></label>
+        <div class="tm-pw-row">
+          <input type="text" id="tmPassword" placeholder="Set a password">
+          <button type="button" class="btn btn-ghost btn-sm" id="tmGen" title="Generate a strong password">↻ Generate</button>
+        </div></label>
       <div class="cl-err" id="tmErr"></div>
       <div class="cl-actions">
         <button type="button" class="btn btn-ghost" id="tmCancel2">Cancel</button>
@@ -88,19 +91,39 @@
   </div>
 </div>
 
+<!-- Created — the ONLY time this password is ever readable. Supabase stores it hashed:
+     from here on it can be reset, never retrieved. So show it, and say so plainly. -->
+<div class="cl-overlay" id="tmDoneOverlay" style="display:none">
+  <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
+    <div class="cl-card-head"><div class="cl-title">Login created ✓</div></div>
+    <p class="cl-done-lead" id="tmDoneLead"></p>
+    <div class="cl-creds">
+      <div class="cl-cred"><span>Email</span><code id="tmDoneEmail"></code></div>
+      <div class="cl-cred"><span>Password</span><code id="tmDonePass"></code></div>
+    </div>
+    <p class="cl-done-note"><b>Save this now.</b> This is the only time the password is readable —
+      it's stored hashed, so from here it can be reset but never looked up. Put it in your password
+      manager, then send it to them.</p>
+    <div class="cl-actions">
+      <button type="button" class="btn btn-ghost" id="tmDoneCopy">Copy both</button>
+      <button type="button" class="btn btn-primary" id="tmDoneClose">Done</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=229"></script>
-<script src="assets/js/supabase-sync.js?v=229"></script>
-<script src="assets/js/auth.js?v=229"></script>
+<script src="assets/js/supabase-config.js?v=230"></script>
+<script src="assets/js/supabase-sync.js?v=230"></script>
+<script src="assets/js/auth.js?v=230"></script>
 <script>
   requireAuth();
   // Admin-only. Creatives → picker (they own no workspace, dashboard would re-bounce).
   if (typeof isAdmin === "function" && !isAdmin())
     window.location.replace(typeof isCreative === "function" && isCreative() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=229"></script>
-<script src="assets/js/client-template.js?v=229"></script>
-<script src="assets/js/client-store.js?v=229"></script>
+<script src="assets/js/clients.js?v=230"></script>
+<script src="assets/js/client-template.js?v=230"></script>
+<script src="assets/js/client-store.js?v=230"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -232,10 +255,14 @@
     const pw = e.target.closest("[data-pw]");
     if (pw) {
       const u = users.find(x => x.id === pw.dataset.pw);
-      const p = prompt(`Set a new password for ${u.email}\n\n(8+ characters — they won't be emailed it, so pass it on yourself.)`);
+      // pre-filled with a strong one — accept it or type your own
+      const p = prompt(`Set a new password for ${u.email}\n\nA strong one is filled in — keep it or type your own (8+ characters).\nNobody is emailed automatically, so pass it on yourself.`, genPassword());
       if (!p) return;
       const r = await call({ action: "password", id: pw.dataset.pw, password: p });
-      alert(r.error ? r.error : "Password updated for " + u.email);
+      if (r.error) { alert(r.error); return; }
+      // same one-time reveal: this is the only readable copy of the new password
+      showCreated(u.email, p, u.role, u.name, u.clientId);
+      $("tmDoneLead").textContent = `Password reset for ${u.name || u.email}. Send them these details.`;
       return;
     }
     const del = e.target.closest("[data-del]");
@@ -265,8 +292,25 @@
     $("tmNameField").style.display = role === "client" ? "none" : "";
   }
   $("tmRole").addEventListener("change", syncRoleFields);
+
+  // Strong password, crypto-random, with the look-alike characters removed (no O/0, I/l/1)
+  // — these get read aloud and retyped, so ambiguity is a real support cost.
+  function genPassword() {
+    const UP = "ABCDEFGHJKLMNPQRSTUVWXYZ", LO = "abcdefghijkmnopqrstuvwxyz",
+          NU = "23456789", SY = "!@#$%&*?";
+    const all = UP + LO + NU + SY;
+    const r = (n) => crypto.getRandomValues(new Uint32Array(1))[0] % n;
+    const pick = (s) => s[r(s.length)];
+    const out = [pick(UP), pick(LO), pick(NU), pick(SY)];         // guarantee one of each
+    for (let i = 0; i < 12; i++) out.push(pick(all));
+    for (let i = out.length - 1; i > 0; i--) { const j = r(i + 1); [out[i], out[j]] = [out[j], out[i]]; }
+    return out.join("");
+  }
+  $("tmGen").addEventListener("click", () => { $("tmPassword").value = genPassword(); $("tmPassword").focus(); });
+
   $("tmAdd").addEventListener("click", () => {
     $("tmErr").textContent = ""; $("tmForm").reset(); fillClients(); syncRoleFields();
+    $("tmPassword").value = genPassword();   // start from a strong one rather than a blank box
     ov.style.display = "flex"; setTimeout(() => $("tmRole").focus(), 30);
   });
   const close = () => ov.style.display = "none";
@@ -286,8 +330,27 @@
     $("tmSave").disabled = false;
     if (r.error) { $("tmErr").textContent = r.error; return; }
     close();
+    showCreated(payload.email, payload.password, role, payload.name, payload.clientId);
     await load();
   });
+
+  /* ---- one-time credential reveal ---- */
+  const doneOv = $("tmDoneOverlay");
+  function showCreated(email, password, role, name, clientId) {
+    const who = role === "client" ? clientName(clientId) : (name || email);
+    $("tmDoneLead").textContent =
+      `${who} can now sign in as ${role === "client" ? "a client" : "an " + role}. Send them these details.`;
+    $("tmDoneEmail").textContent = email;
+    $("tmDonePass").textContent = password;
+    $("tmDoneCopy").textContent = "Copy both";
+    doneOv.style.display = "flex";
+  }
+  $("tmDoneCopy").addEventListener("click", async () => {
+    const txt = `TJA Client Portal\nEmail: ${$("tmDoneEmail").textContent}\nPassword: ${$("tmDonePass").textContent}\n${location.origin}`;
+    try { await navigator.clipboard.writeText(txt); $("tmDoneCopy").textContent = "Copied ✓"; }
+    catch (e) { $("tmDoneCopy").textContent = "Select it manually"; }
+  });
+  $("tmDoneClose").addEventListener("click", () => { doneOv.style.display = "none"; });
 
   await window.TJA_STORE.hydrate().catch(() => {});
   await load();
