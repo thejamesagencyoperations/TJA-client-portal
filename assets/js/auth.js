@@ -49,7 +49,14 @@ const ACCOUNTS = {
 const SESSION_KEY = "tja_portal_session";
 const PREVIEW_KEY = "tja_preview_client";   // admin-only "view as client" flag
 
-// Look up a mock client account generated for an admin-added client.
+/* Map a client's login EMAIL → their workspace. Identity resolution only — this has
+   nothing to do with authentication any more.
+   The registry used to also carry login.password in plaintext; those were purged
+   (2026-07-16) once the mock auth path was switched off, because they were dead
+   credentials readable by every staff login. `password` therefore comes back
+   undefined, which is fine: the only consumer is attemptLogin(), and that path is
+   gated off whenever Supabase is configured (ALLOW_MOCK_FALLBACK = false). Real
+   passwords live hashed in Supabase and are never readable from anywhere. */
 function registryAccount(email) {
   if (!(window.TJA_STORE && typeof window.TJA_STORE.list === "function")) return null;
   const e = (email || "").trim().toLowerCase();
