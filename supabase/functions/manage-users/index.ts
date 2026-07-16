@@ -9,12 +9,12 @@
    `profiles` therefore keeps NO write policy at all: the table that
    decides everyone's access is writable only by this function.
 
-   Caller: THE OWNER ONLY — the agency's own account (PORTAL_OWNER_EMAILS).
-   Every account manager is role=admin and runs their clients freely, but minting
-   admins / changing roles / deleting people is a separate clearance. role=admin is
-   NOT sufficient here. Hiding the Admin Center link in the UI is cosmetic; this
-   check is the actual boundary — a manager who found the URL, or curled the
-   endpoint with their own perfectly valid admin JWT, is refused right here.
+   Caller: role='admin' ONLY — the agency account.
+   AM/PMs are role='manager' (schema-v7), a genuinely separate tier: RLS refuses
+   their DELETEs and they can't touch profiles at all. So `admin` here IS the
+   owner tier, and the old PORTAL_OWNER_EMAILS allowlist that faked this
+   distinction is gone. Hiding the Admin Center link is cosmetic; this check is
+   the boundary — a manager curling the endpoint with a valid JWT is refused here.
 
    Deploy:
      supabase functions deploy manage-users --use-api
@@ -33,15 +33,11 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const ROLES = ["admin", "creative", "client"];
+const ROLES = ["admin", "manager", "creative", "client"];
 const ADMIN_WORKSPACE = "_admin";
 const CREATIVE_WORKSPACE = "_creative";
-
-// Who may manage logins. Overridable without a redeploy:
-//   supabase secrets set PORTAL_OWNER_EMAILS="a@tja.com,b@tja.com"
-// Must mirror OWNER_EMAILS in assets/js/auth.js (that copy only hides the UI).
-const OWNERS = (Deno.env.get("PORTAL_OWNER_EMAILS") || "clientservices@thejamesagency.com")
-  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+// AM/PMs own no client workspace either — same sentinel idea as admin/creative.
+const MANAGER_WORKSPACE = "_manager";
 
 function svcClient() {
   return createClient(
@@ -67,6 +63,7 @@ async function allAuthUsers(svc: ReturnType<typeof svcClient>) {
 // sentinel, which is what routes them to the picker instead of a dashboard.
 function workspaceFor(role: string, clientId: string) {
   if (role === "admin") return ADMIN_WORKSPACE;
+  if (role === "manager") return MANAGER_WORKSPACE;
   if (role === "creative") return CREATIVE_WORKSPACE;
   return (clientId || "").trim();
 }
@@ -77,9 +74,9 @@ Deno.serve(async (req) => {
 
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
-  // role=admin is necessary but NOT sufficient — see the header.
-  if (caller.role !== "admin" || !OWNERS.includes((caller.email || "").toLowerCase()))
-    return json(req, 403, { error: "Only the agency's owner account can manage logins." });
+  // The agency account only. An AM/PM is role='manager' and lands here.
+  if (caller.role !== "admin")
+    return json(req, 403, { error: "Only the agency's admin account can manage logins." });
 
   let body: any;
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }
@@ -148,17 +145,18 @@ Deno.serve(async (req) => {
       const clientId = workspaceFor(role, body.clientId);
       if (!clientId) return json(req, 400, { error: "Pick which client workspace this login belongs to." });
 
-      // GUARD 1 — don't let an admin demote themselves. They'd lose the Team page
-      // in the same click and couldn't undo it.
+      // GUARD 1 — don't let the agency account demote itself (e.g. to manager). It
+      // would lose the Admin Center in the same click and couldn't undo it.
       if (id === caller.userId && role !== "admin")
-        return json(req, 400, { error: "You can't change your own role — you'd lock yourself out of this page. Ask another admin." });
+        return json(req, 400, { error: "You can't change your own role — you'd lock yourself out of the Admin Center. Ask another admin." });
 
-      // GUARD 2 — never let the last admin stop being an admin, or nobody can
-      // ever manage users again.
+      // GUARD 2 — never let the last admin stop being an admin, or nobody can ever
+      // manage logins again. Counts role='admin' only: a room full of AM/PMs is NOT
+      // a fallback, since managers can't reach this function at all.
       if (role !== "admin") {
         const { data: admins } = await svc.from("profiles").select("id").eq("role", "admin");
         if ((admins || []).length <= 1 && (admins || []).some((a: any) => a.id === id))
-          return json(req, 400, { error: "This is the only admin left — promote someone else first." });
+          return json(req, 400, { error: "This is the only admin left — promote someone else to Admin first." });
       }
 
       const name = String(body.name || "").trim();

@@ -316,9 +316,11 @@ a { color: inherit; text-decoration: none; }
 }
 .btn-ghost:hover { color: var(--text); border-color: var(--text-faint); }
 
-/* role mode: hide admin-only controls for every non-admin role. The creative rule is
-   NOT optional — without it a body[data-role="creative"] page shows every admin
-   control (the selector below hides only for "client"). */
+/* role mode: hide admin-only controls from anyone who can't edit client work.
+   NOTE data-role="manager" is deliberately ABSENT — an AM/PM is a full editor, so
+   .admin-only controls (remove a deliverable, rename, remove a file) are theirs too.
+   The creative rule is NOT optional: without it a body[data-role="creative"] page
+   shows every admin control, because the selector below only matches "client". */
 body[data-role="client"] .admin-only,
 body[data-role="creative"] .admin-only { display: none !important; }
 

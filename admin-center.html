@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=232" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=232">
+<link rel="icon" href="assets/img/favicon.ico?v=234" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=234">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=232">
+<link rel="stylesheet" href="assets/css/styles.css?v=234">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -38,6 +38,7 @@
         <label class="nc-filter-wrap">Show
           <select id="tmFilter" class="nc-filter">
             <option value="staff">Team only</option>
+            <option value="manager">AM/PMs</option>
             <option value="admin">Admins</option>
             <option value="creative">Creatives</option>
             <option value="client">Clients</option>
@@ -67,7 +68,8 @@
     <form id="tmForm" autocomplete="off">
       <label class="cl-field"><span>Role</span>
         <select id="tmRole">
-          <option value="admin">Admin — full access, manages everything</option>
+          <option value="manager">AM/PM — runs their clients: edits, uploads, sends to client</option>
+          <option value="admin">Admin — the agency account: logins, backup, deleting</option>
           <option value="creative">Creative — uploads deliverables for approval only</option>
           <option value="client">Client — sees only their own workspace</option>
         </select></label>
@@ -112,20 +114,20 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=232"></script>
-<script src="assets/js/supabase-sync.js?v=232"></script>
-<script src="assets/js/auth.js?v=232"></script>
+<script src="assets/js/supabase-config.js?v=234"></script>
+<script src="assets/js/supabase-sync.js?v=234"></script>
+<script src="assets/js/auth.js?v=234"></script>
 <script>
   requireAuth();
-  // OWNER only — not every admin. Account managers are admins over client work but
-  // don't manage logins. Staff land back on the picker; a client goes to their own
-  // workspace. (The function refuses them regardless — this just avoids a dead page.)
-  if (typeof isOwner === "function" && !isOwner())
+  // The agency account (role=admin) only. AM/PMs are role=manager and land back on
+  // the picker; a client goes to their own workspace. The function refuses them
+  // regardless — this just avoids serving a dead page.
+  if (typeof isAdmin === "function" && !isAdmin())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=232"></script>
-<script src="assets/js/client-template.js?v=232"></script>
-<script src="assets/js/client-store.js?v=232"></script>
+<script src="assets/js/clients.js?v=234"></script>
+<script src="assets/js/client-template.js?v=234"></script>
+<script src="assets/js/client-store.js?v=234"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -169,10 +171,11 @@
     } catch (e) { return { error: String(e) }; }
   }
 
-  const ROLE_BADGE = { admin: "complete", creative: "in-progress", client: "pending" };
+  const ORDER = ["admin", "manager", "creative", "client"];
+  const ROLE_LABEL = { admin: "Admin", manager: "AM/PM", creative: "Creative", client: "Client" };
   const clientName = (id) => {
-    if (id === "_admin") return "— (all clients)";
-    if (id === "_creative") return "— (all clients)";
+    // staff sentinels — they own no workspace, they reach every client
+    if (id === "_admin" || id === "_manager" || id === "_creative") return "— (all clients)";
     try { const c = window.TJA_STORE.get(id); return c ? c.name : id; } catch (e) { return id; }
   };
   const when = (iso) => {
@@ -186,7 +189,7 @@
 
   function matches(u) {
     if (!filter) return true;
-    if (filter === "staff") return u.role === "admin" || u.role === "creative";
+    if (filter === "staff") return u.role !== "client";   // admin + AM/PM + creative
     return u.role === filter;
   }
 
@@ -194,14 +197,14 @@
     const body = $("tmBody");
     const rows = users.filter(matches).sort((a, b) =>
       (a.role === b.role) ? (a.name || a.email).localeCompare(b.name || b.email)
-                          : ["admin","creative","client"].indexOf(a.role) - ["admin","creative","client"].indexOf(b.role));
+                          : ORDER.indexOf(a.role) - ORDER.indexOf(b.role));
     if (!rows.length) { body.innerHTML = `<tr><td colspan="6" style="padding:18px 16px;color:var(--text-faint)">No logins match that filter.</td></tr>`; return; }
     body.innerHTML = rows.map(u => `
       <tr data-id="${esc(u.id)}">
         <td style="font-weight:600">${esc(u.name || "—")}${u.isYou ? ` <span class="tm-you">you</span>` : ""}</td>
         <td style="color:var(--text-dim)">${esc(u.email)}</td>
         <td><select class="tm-role" data-roleset="${esc(u.id)}" ${u.isYou ? "disabled title='You can&apos;t change your own role'" : ""}>
-          ${["admin","creative","client"].map(r => `<option value="${r}"${r === u.role ? " selected" : ""}>${r[0].toUpperCase() + r.slice(1)}</option>`).join("")}
+          ${["admin","manager","creative","client"].map(r => `<option value="${r}"${r === u.role ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}
         </select></td>
         <td style="color:var(--text-dim)">${esc(clientName(u.clientId))}</td>
         <td style="color:var(--text-dim)">${esc(when(u.lastSignIn))}</td>
@@ -248,7 +251,9 @@
     const r = await call({ action: "update", id, role, clientId, name: u.name });
     sel.disabled = false;
     if (r.error) { alert(r.error); sel.value = prev; return; }
-    u.role = role; u.clientId = role === "admin" ? "_admin" : role === "creative" ? "_creative" : clientId;
+    // mirror the function's workspaceFor() — it normalises this server-side anyway
+    const SENTINEL = { admin: "_admin", manager: "_manager", creative: "_creative" };
+    u.role = role; u.clientId = SENTINEL[role] || clientId;
     render();
   });
 

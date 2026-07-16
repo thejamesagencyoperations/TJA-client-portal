@@ -43,12 +43,13 @@ let undoStack = [];
 let lastSnapshot = clone(STATE);
 function persistState() {
   try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) { console.warn("state storage full", e); }
-  // The dashboard scope is admin-writable ONLY (RLS). Clients/creatives still hit
-  // saveState() through boot self-heals (PR refresh, discipline seeding) — their
-  // localStorage copy updates, but pushing would just be an RLS-rejected write.
-  // GUARDED push: if another admin wrote this client since our last pull, the CAS
+  // The dashboard scope is writable by the agency account + AM/PMs only (RLS).
+  // Clients/creatives still hit saveState() through boot self-heals (PR refresh,
+  // discipline seeding) — their localStorage copy updates, but pushing would just
+  // be an RLS-rejected write.
+  // GUARDED push: if someone else wrote this client since our last pull, the CAS
   // fails and onDashboardConflict re-pulls + warns instead of silently clobbering.
-  if (window.SUPA && window.SUPA.enabled && (typeof isAdmin !== "function" || isAdmin())) {
+  if (window.SUPA && window.SUPA.enabled && (typeof isAdminOrManager !== "function" || isAdminOrManager())) {
     if (window.SUPA.pushScopeGuarded) window.SUPA.pushScopeGuarded(clientId(), "dashboard", STATE, onDashboardConflict);
     else window.SUPA.pushScope(clientId(), "dashboard", STATE);
   }
@@ -577,10 +578,10 @@ function applyRole() {
   const rc = el("#roleControls");
   if (typeof isStaff === "function" && isStaff()) {
     const prev = isPreviewing();
-    const admin = isAdmin();
-    const pillBase = admin ? "Admin" : "Creative";
+    const admin = isAdminOrManager();
+    const pillBase = (typeof roleLabel === "function") ? roleLabel(getSession() && getSession().role) : "Admin";
     // Undo drives saveState() → dashboard-scope writes that RLS rejects for creatives,
-    // so only admins get the button.
+    // so only the agency account + AM/PMs get the button.
     rc.innerHTML = `${!prev && admin ? `<button class="btn btn-ghost undo-btn" id="undoBtn" title="Undo last action (⌘Z)" disabled>↶ Undo</button>` : ""}
       <span class="role-pill">${prev ? pillBase + " · previewing" : pillBase}</span>
       <div class="role-switch">

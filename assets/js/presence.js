@@ -20,7 +20,7 @@
 
   function ready() {
     return window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow
-      && typeof getSession === "function" && typeof isAdmin === "function" && isAdmin();
+      && typeof getSession === "function" && typeof isAdminOrManager === "function" && isAdminOrManager();
   }
   function me() { return getSession() || {}; }
   function clientIdNow() {

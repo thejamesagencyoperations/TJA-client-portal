@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=232" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=232">
+<link rel="icon" href="assets/img/favicon.ico?v=234" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=234">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=232">
+<link rel="stylesheet" href="assets/css/styles.css?v=234">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -147,9 +147,9 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=232"></script>
-<script src="assets/js/supabase-sync.js?v=232"></script>
-<script src="assets/js/auth.js?v=232"></script>
+<script src="assets/js/supabase-config.js?v=234"></script>
+<script src="assets/js/supabase-sync.js?v=234"></script>
+<script src="assets/js/auth.js?v=234"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -163,23 +163,23 @@
     const r = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
     document.body.dataset.role = r;
     const p = document.getElementById("rolePill");
-    if (p) p.textContent = r === "creative" ? "Creative" : "Admin";
+    if (p) p.textContent = (typeof roleLabel === "function") ? roleLabel(r) : "Admin";
     const ac = document.getElementById("adminCenterLink");
-    if (ac && typeof isOwner === "function" && isOwner()) ac.style.display = "";
+    if (ac && typeof isAdmin === "function" && isAdmin()) ac.style.display = "";
   })();
 </script>
-<script src="assets/js/clients.js?v=232"></script>
-<script src="assets/js/client-template.js?v=232"></script>
-<script src="assets/js/client-store.js?v=232"></script>
-<script src="assets/js/wmj-transform.js?v=232"></script>
-<script src="assets/js/retainer-transform.js?v=232"></script>
-<script src="assets/js/client-logos.js?v=232"></script>
-<script src="assets/js/client-pr-sheets.js?v=232"></script>
-<script src="assets/js/retainer-value.js?v=232"></script>
-<script src="assets/js/wmj-sync.js?v=232"></script>
-<script src="assets/js/notifications.js?v=232"></script>
+<script src="assets/js/clients.js?v=234"></script>
+<script src="assets/js/client-template.js?v=234"></script>
+<script src="assets/js/client-store.js?v=234"></script>
+<script src="assets/js/wmj-transform.js?v=234"></script>
+<script src="assets/js/retainer-transform.js?v=234"></script>
+<script src="assets/js/client-logos.js?v=234"></script>
+<script src="assets/js/client-pr-sheets.js?v=234"></script>
+<script src="assets/js/retainer-value.js?v=234"></script>
+<script src="assets/js/wmj-sync.js?v=234"></script>
+<script src="assets/js/notifications.js?v=234"></script>
 <script>
-  if (typeof isAdmin === "function" && isAdmin() && window.TJA_NOTIFY) {
+  if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
   }
 </script>
@@ -282,13 +282,16 @@
     const clients = all.filter(c => isArchived(c) === (bucket === "archived")).filter(matchesMgr);
     // Creatives get the picker to OPEN clients, nothing else: no tile actions,
     // no Add tile — their registry writes would be rejected by RLS anyway.
-    const admin = typeof isAdmin === "function" ? isAdmin() : true;
+    // AM/PMs get everything EXCEPT delete: RLS refuses their DELETE (schema-v7),
+    // so showing the bin would just hand them a button that errors.
+    const manage = typeof isAdminOrManager === "function" ? isAdminOrManager() : true;
+    const canDelete = typeof isAdmin === "function" ? isAdmin() : true;
     grid.innerHTML = clients.map(c => `
-      <div class="proj-tile client-tile" data-client="${esc(c.id)}" role="button" tabindex="0" ${admin ? `draggable="true"` : ""}>
-        ${admin ? `<div class="client-tile-actions">
+      <div class="proj-tile client-tile" data-client="${esc(c.id)}" role="button" tabindex="0" ${manage ? `draggable="true"` : ""}>
+        ${manage ? `<div class="client-tile-actions">
           <button class="ct-act" data-arch="${esc(c.id)}" title="${isArchived(c) ? "Move to Current" : "Move to Archived"}">${isArchived(c) ? "↩" : "📁"}</button>
           <button class="ct-act" data-edit="${esc(c.id)}" title="Edit client">✎</button>
-          ${c.builtin ? "" : `<button class="ct-act ct-del" data-del="${esc(c.id)}" title="Delete workspace">🗑</button>`}
+          ${(c.builtin || !canDelete) ? "" : `<button class="ct-act ct-del" data-del="${esc(c.id)}" title="Delete workspace">🗑</button>`}
         </div>` : ""}
         <div class="client-tile-head">
           <span class="client-tile-logo${!c.logo && (c.code || c.initials || "").length >= 4 ? " tile-code-lg" : ""}">${c.logo ? `<img src="${esc(c.logo)}" alt="${esc(c.name)}">` : esc(c.code || c.initials || "?")}</span>
@@ -297,7 +300,7 @@
         ${c.tagline ? `<div class="proj-tile-sub">${esc(c.tagline)}</div>` : ""}
         ${(() => { const lbl = liveEngagementLabel(c); return lbl ? `<div class="proj-tile-foot">${esc(lbl)}</div>` : ""; })()}
       </div>`).join("")
-      + (bucket === "current" && admin ? `<button class="proj-tile proj-tile-add" id="addClient"><span class="pta-plus">＋</span> Add client</button>` : (bucket === "archived" ? `<div class="cl-empty">${clients.length ? "" : "No archived clients. Drag a tile onto Archived to file it here."}</div>` : ""));
+      + (bucket === "current" && manage ? `<button class="proj-tile proj-tile-add" id="addClient"><span class="pta-plus">＋</span> Add client</button>` : (bucket === "archived" ? `<div class="cl-empty">${clients.length ? "" : "No archived clients. Drag a tile onto Archived to file it here."}</div>` : ""));
   }
   function setArchived(id, archived) { window.TJA_STORE.update(id, { archived: archived }); renderGrid(); }
   renderGrid();
@@ -347,10 +350,10 @@
     } catch (e) { stamp.textContent = "Sync failed — " + e.message; console.warn(e); }
     finally { syncBtn.disabled = false; syncBtn.classList.remove("spin"); showStamp(); }
   }
-  // WMJ sync writes the registry + every client's dashboard — admin-only. For a
-  // creative the writes would all be RLS-rejected and just spam warnings, so the
-  // button hides and auto-sync never starts.
-  if (typeof isAdmin === "function" && !isAdmin()) {
+  // WMJ sync writes the registry + every client's dashboard — both allowed for the
+  // agency account and AM/PMs. For a creative the writes would all be RLS-rejected
+  // and just spam warnings, so the button hides and auto-sync never starts.
+  if (typeof isAdminOrManager === "function" && !isAdminOrManager()) {
     syncBtn.style.display = "none";
     stamp.style.display = "none";
   } else {

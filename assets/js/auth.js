@@ -1,12 +1,20 @@
 /* ============================================================
-   AUTH + ROLES
-   Roles:
-     • admin    → internal TJA team: full edit, upload, manage versions,
-                  releases waiting-room drafts to the client
-     • creative → internal mid-tier: opens ANY client read-only and uploads
-                  Present Docs into the waiting room (never straight to the
-                  client — an admin sends). No other edit rights.
+   AUTH + ROLES  — four tiers, each a real role in the database (schema-v7).
+     • admin    → THE AGENCY ACCOUNT. Everything a manager can do, PLUS the
+                  things that are nobody else's business: managing logins
+                  (Admin Center), Backup & Sync, and DELETING anything.
+     • manager  → AM/PM. Full edit on every client's work, uploads, and
+                  releases waiting-room drafts to the client. Reads every
+                  client (agencies cover for each other; the Clients page
+                  merely DEFAULTS to their tagged ones). Deletes nothing.
+     • creative → opens ANY client read-only and uploads Present Docs into
+                  the waiting room (never straight to the client — an admin
+                  or manager sends). No other edit rights.
      • client   → read-only on data tabs; may upload Files + review Present Docs
+
+   The admin/manager split is enforced in RLS, not just here: a manager's JWT
+   is refused on DELETE and on profiles, so hiding a button is not the wall.
+   There is no separate "owner" concept any more — role=admin IS that tier.
 
    Production: real Supabase auth (every account provisioned). The mock
    password path below is now GATED OFF on any Supabase-configured
@@ -26,17 +34,6 @@ const ALLOW_MOCK_FALLBACK = false;
 const ADMIN_CLIENT_ID = "_admin";
 // Same idea for creatives: staff sentinel, never a real client workspace.
 const CREATIVE_CLIENT_ID = "_creative";
-
-/* ---------- the OWNER tier ----------
-   Every account manager is role=admin — they run their clients and edit everything.
-   But managing LOGINS (creating admins, changing roles, deleting people) is a different
-   clearance, and it belongs to the agency's own account, not to each manager.
-   Rather than add a fourth role and re-thread every `role === "admin"` check in the app
-   and in RLS, the owner is simply an email allowlist.
-   ⚠ This list is COSMETIC — it hides the UI. The real boundary is the identical list in
-   supabase/functions/manage-users (PORTAL_OWNER_EMAILS), which is what actually refuses
-   the request. Change one, change the other. */
-const OWNER_EMAILS = ["clientservices@thejamesagency.com"];
 
 const ACCOUNTS = {
   // Only the agency's own account is hardcoded, and only so a fresh/offline build has a
@@ -173,19 +170,21 @@ async function logout() {
   window.location.replace("index.html");
 }
 
-/* ---------- roles ---------- */
-// The account's REAL role (drives whether the admin tools exist at all).
-function isAdmin() { const s = getSession(); return !!s && s.role === "admin"; }
-function isCreative() { const s = getSession(); return !!s && s.role === "creative"; }
-// Any internal TJA person (admin or creative) — gates the client picker + doc upload.
-function isStaff() { return isAdmin() || isCreative(); }
-// The agency's own account. Gates LOGIN management only — an account manager is a full
-// admin over client work, but doesn't get to mint admins or delete people.
-// UI-only; the function re-checks server-side (see OWNER_EMAILS above).
-function isOwner() {
-  const s = getSession();
-  return !!s && s.role === "admin" && OWNER_EMAILS.indexOf((s.email || "").toLowerCase()) > -1;
-}
+/* ---------- roles ----------
+   Read these carefully — isAdmin() is NOT "can edit". It is the agency account.
+   Use canEdit() for client work; use isAdmin() only for things an AM/PM must
+   not do (logins, backup, deleting). */
+const role = () => { const s = getSession(); return s ? s.role : null; };
+// THE AGENCY ACCOUNT. Logins, Backup & Sync, deleting. Not the AM/PMs.
+function isAdmin() { return role() === "admin"; }
+// AM/PM — full admin over client WORK, no destructive powers.
+function isManager() { return role() === "manager"; }
+function isCreative() { return role() === "creative"; }
+// Runs the client work: the agency account + the AM/PMs. Gates the bell,
+// Notification Center, WMJ sync, tile actions, dashboard writes.
+function isAdminOrManager() { return isAdmin() || isManager(); }
+// Any internal TJA person — gates the client picker + doc upload.
+function isStaff() { return isAdminOrManager() || isCreative(); }
 
 // Staff toggle: preview the client experience without logging out. For a creative
 // this IS the client view — drafts and the upload button vanish, exactly what
@@ -199,9 +198,17 @@ function setPreview(on) {
 
 // The EFFECTIVE role the UI should render as right now.
 function effectiveRole() { return isPreviewing() ? "client" : (getSession() ? getSession().role : "client"); }
-// canEdit stays ADMIN-ONLY on purpose: creatives edit nothing — they only upload.
-function canEdit() { return effectiveRole() === "admin"; }
-// Present Docs capabilities. Upload = any staff (admin → straight to the client,
-// creative → into the waiting room). Send/release = admins only.
+// Can edit CLIENT WORK — the agency account and the AM/PMs, both. Creatives edit
+// nothing (they only upload); clients edit nothing. NOT the same as isAdmin().
+function canEdit() { const r = effectiveRole(); return r === "admin" || r === "manager"; }
+
+// What a role is CALLED in the UI. One definition — the topbar pill exists on two
+// separate pages and they were already drifting (a manager read "Admin" on one and
+// "Creative" on the other, because both just tested `isAdmin() ? … : …`).
+const ROLE_LABELS = { admin: "Admin", manager: "AM/PM", creative: "Creative", client: "Client" };
+function roleLabel(r) { return ROLE_LABELS[r || effectiveRole()] || "Client"; }
+// Present Docs. Upload = any staff (admin/manager → straight to the client,
+// creative → into the waiting room). Releasing a draft = whoever can edit, i.e.
+// the AM/PM whose job it is — never the creative who uploaded it.
 function canUploadDocs() { return !isPreviewing() && isStaff(); }
 function canSendDocs() { return canEdit(); }
