@@ -12,7 +12,11 @@
    Caller: ADMIN ONLY. Creative and client JWTs get 403 on every action.
 
    Deploy:
-     supabase functions deploy manage-users
+     supabase functions deploy manage-users --use-api
+   --use-api is NOT optional here: the default path bundles via Docker and
+   fails on this Mac with "failed to open eszip: ENOENT" (the edge-runtime
+   image pulls and runs but emits no bundle). --use-api bundles on
+   Supabase's servers instead and works.
    Needs no new secrets — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY /
    SUPABASE_ANON_KEY are injected by the platform automatically.
 

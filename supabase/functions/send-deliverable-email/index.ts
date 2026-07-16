@@ -9,7 +9,10 @@
    email links to the portal.
 
    Deploy:
-     supabase functions deploy send-deliverable-email
+     supabase functions deploy send-deliverable-email --use-api
+   --use-api is NOT optional: the default path bundles via Docker and fails
+   on this Mac with "failed to open eszip: ENOENT" (the edge-runtime image
+   pulls and runs but emits no bundle). --use-api bundles server-side.
    Secrets (supabase secrets set KEY=value):
      RESEND_API_KEY     — from resend.com (free tier: 3k emails/mo)
      PORTAL_FROM_EMAIL  — PLACEHOLDER until Cameron confirms the

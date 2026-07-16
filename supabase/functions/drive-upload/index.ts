@@ -15,7 +15,10 @@
      2. Share each client's Drive folder with the SA's email as
         Content manager (or share one parent folder).
      3. supabase secrets set GOOGLE_SA_KEY="$(base64 -i sa-key.json)"
-     4. supabase functions deploy drive-upload
+     4. supabase functions deploy drive-upload --use-api
+        (--use-api is NOT optional: the default path bundles via Docker
+         and fails on this Mac with "failed to open eszip: ENOENT" — the
+         edge-runtime image pulls and runs but emits no bundle.)
      5. Paste each folder's URL into the client's Integrations in
         the portal (clients.html → Edit → Integrations).
 
