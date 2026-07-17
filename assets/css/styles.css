@@ -364,6 +364,17 @@ body[data-role="creative"] .admin-only { display: none !important; }
 
 /* ---- Team page (admin-only login management) ---- */
 .tm-actions { display: inline-flex; align-items: center; gap: 14px; flex: none; }
+/* Admin Center filter row: role chips + live search above the logins table */
+.tm-filter-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
+.tm-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.tm-chip { font: inherit; font-size: .74rem; font-weight: 700; padding: 6px 13px; border-radius: 999px; cursor: pointer;
+  background: var(--input); border: 1px solid var(--line); color: var(--text-dim); }
+.tm-chip:hover { color: var(--text); }
+.tm-chip.active { background: var(--orange); border-color: var(--orange); color: #fff; }
+.tm-search { font: inherit; font-size: .8rem; padding: 7px 12px; border-radius: 9px; min-width: 240px;
+  background: var(--input); border: 1px solid var(--line); color: var(--text); }
+.tm-search:focus { outline: none; border-color: var(--orange); }
+@media (max-width: 620px) { .tm-search { min-width: 100%; } }
 .tm-role { font: inherit; font-size: .78rem; font-weight: 600; padding: 4px 8px; border-radius: 7px;
   background: var(--input); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
 .tm-role:hover:not(:disabled) { border-color: var(--orange); }
