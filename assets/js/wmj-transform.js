@@ -38,7 +38,10 @@
     }
     if (field.length || row.length) { row.push(field); rows.push(row); }
     if (!rows.length) return [];
-    const head = rows[0].map(h => h.trim());
+    // Normalize headers to underscore form — the WMJ export's header row flipped from
+    // "Client_Name" to "Client Name" on 2026-07-17, which made every field read as
+    // undefined and emptied the sync's output. Accept both spellings forever.
+    const head = rows[0].map(h => h.trim().replace(/\s+/g, "_"));
     return rows.slice(1).filter(r => r.length && r.some(c => c.trim() !== ""))
       .map(r => { const o = {}; head.forEach((h, j) => o[h] = (r[j] || "").trim()); return o; });
   }

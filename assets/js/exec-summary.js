@@ -547,9 +547,11 @@ window.ExecSummary = (function () {
         </div>`;
       }).join("");
       const n = e.prHits != null ? e.prHits : list.length;
+      const connectBtn = canAdmin() ? `<button class="row-add pr-connect" data-prconnect title="${esc(e.prSheetUrl || "")}">✎ Change sheet</button>` : "";
       return `<div class="module">
         <div class="module-head"><span class="module-title">${IC.pr}PR Coverage · Recent Wins</span><span class="rsvc-legend">${n} hits YTD</span></div>
         <div class="pr-scroll">${rows || `<div class="pr-date">No coverage logged yet.</div>`}</div>
+        ${connectBtn}
       </div>`;
     }
 
@@ -569,6 +571,7 @@ window.ExecSummary = (function () {
       <div class="module-head"><span class="module-title">${IC.pr}PR Coverage · Recent Wins</span></div>
       <div class="pr-scroll">${rows || `<div class="pr-date">No coverage logged yet.</div>`}</div>
       ${listAdd("prCoverage", "Add hit")}
+      ${canAdmin() ? `<button class="row-add pr-connect" data-prconnect>🔗 Connect Google Sheet</button>` : ""}
     </div>`;
   }
 
@@ -683,8 +686,10 @@ window.ExecSummary = (function () {
   }
 
   /* ---- burn → disciplines distribution popup ----
-     When an admin changes the total burn, ask which disciplines absorb the change; the delta
-     is split evenly across the checked ones (writes each one's shown-% override). */
+     When an admin changes the total burn, ask how the change is allocated across
+     disciplines. Each row is independently editable — hours don't have to split evenly,
+     but the rows must sum to EXACTLY the total change or Apply stays disabled (no silent
+     rounding that leaves the real total drifted from what the gauge/field said). */
   function openBurnPopup(targetPct) {
     const eng = window.DASH.getEng();
     const disc = eng.serviceDisciplines || [];
@@ -697,35 +702,53 @@ window.ExecSummary = (function () {
     const old = document.getElementById("burnPop"); if (old) old.remove();
     const ov = document.createElement("div");
     ov.id = "burnPop"; ov.className = "burn-pop-overlay";
+    // Even-split default, computed so the STARTING state already sums exactly (last row
+    // absorbs the rounding remainder) — Apply is valid immediately, editing is optional.
+    const evenBase = disc.length > 1 ? round2(delta / disc.length) : delta;
     const rowsHtml = disc.map((d, i) => {
       const used = round2(discUsed(eng, d, actMap));
-      return `<label class="bp-row"><input type="checkbox" class="bp-ck" data-i="${i}" checked>
-        <span class="bp-name">${esc(d.name)}</span><span class="bp-cur">${used} / ${(+d.contracted || 0)} hrs</span></label>`;
+      const rowDelta = i === disc.length - 1 ? round2(delta - evenBase * (disc.length - 1)) : evenBase;
+      return `<div class="bp-row">
+        <span class="bp-name">${esc(d.name)}</span><span class="bp-cur">${used} / ${(+d.contracted || 0)} hrs</span>
+        <input type="number" step="0.1" class="bp-delta" data-i="${i}" data-used="${used}" data-contracted="${+d.contracted || 0}" value="${rowDelta}">
+      </div>`;
     }).join("");
     ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
       <div class="bp-head">Adjust retainer burn</div>
-      <p class="bp-lead">Total used <b>${currentUsed}</b> → <b>${targetUsed}</b> hrs (<b>${delta >= 0 ? "+" : ""}${delta}</b> hr${Math.abs(delta) === 1 ? "" : "s"}). Choose which disciplines absorb it — the change is split evenly across the ones you check.</p>
+      <p class="bp-lead">Total used <b>${currentUsed}</b> → <b>${targetUsed}</b> hrs (<b>${delta >= 0 ? "+" : ""}${delta}</b> hr${Math.abs(delta) === 1 ? "" : "s"}). Allocate the change across disciplines however it actually happened — the amounts must add up to the total.</p>
       <div class="bp-rows">${rowsHtml}</div>
+      <div class="bp-total" data-bptotal></div>
       <div class="bp-actions"><button type="button" class="btn btn-ghost" data-bpcancel>Cancel</button><button type="button" class="btn btn-primary" data-bpapply>Apply</button></div>
     </div>`;
     document.body.appendChild(ov);
+    const totalEl = ov.querySelector("[data-bptotal]");
+    const applyBtn = ov.querySelector("[data-bpapply]");
+    function checkValid() {
+      const inputs = [...ov.querySelectorAll(".bp-delta")];
+      const sum = round2(inputs.reduce((a, inp) => a + (parseFloat(inp.value) || 0), 0));
+      const ok = Math.abs(sum - delta) < 0.01;
+      totalEl.textContent = `Allocated: ${sum} / ${delta} hrs`;
+      totalEl.classList.toggle("bp-total-bad", !ok);
+      applyBtn.disabled = !ok;
+      return ok;
+    }
+    ov.addEventListener("input", e => { if (e.target.closest(".bp-delta")) checkValid(); });
+    checkValid();
     const close = (commit) => {
-      if (commit) {
-        const sel = [...ov.querySelectorAll(".bp-ck:checked")].map(c => +c.dataset.i);
-        const targets = sel.length ? sel : disc.map((_, i) => i);
-        const per = delta / targets.length;
+      if (commit && checkValid()) {
         eng.svcUtilOverride = eng.svcUtilOverride || {};
-        targets.forEach(i => {
-          const d = disc[i], c = +d.contracted || 0;
-          const newUsed = Math.max(0, round2(discUsed(eng, d, actMap) + per));
+        ov.querySelectorAll(".bp-delta").forEach(inp => {
+          const i = +inp.dataset.i, d = disc[i], c = +d.contracted || 0;
+          const rowDelta = parseFloat(inp.value) || 0;
+          const newUsed = Math.max(0, round2(discUsed(eng, d, actMap) + rowDelta));
           eng.svcUtilOverride[d.name] = c > 0 ? Math.round(newUsed / c * 100) : 0;
         });
         window.DASH.saveState();
-      }
+      } else if (commit) { return; }   // invalid — Apply is disabled anyway, but guard direct calls
       burnPreviewPct = null; ov.remove(); rerender();
     };
     ov.querySelector("[data-bpcancel]").addEventListener("click", () => close(false));
-    ov.querySelector("[data-bpapply]").addEventListener("click", () => close(true));
+    applyBtn.addEventListener("click", () => close(true));
     window.TJA_UI.backdropClose(ov, () => close(false));
   }
 
@@ -899,19 +922,30 @@ window.ExecSummary = (function () {
 
     // drag a service-discipline slider (admin) → override the shown utilization % for that line.
     // Persists as e.svcUtilOverride[name]; "Reset to actuals" clears it. Real hours stay in the cap.
-    let svcHandle = null, svcName = null;
-    function svcMove(ev) {
-      if (!svcHandle) return; ev.preventDefault();
-      const bar = svcHandle.closest(".rsvc-bar"); if (!bar) return;
-      const r = bar.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(100, Math.round((ev.clientX - r.left) / r.width * 100)));
+    // The gauge reads retainerUsed(), which sums every discipline's override — so a full rerender
+    // on each move (throttled via rAF, same pattern as the gauge's own drag below) makes the
+    // speedometer track live instead of only jumping on release. Re-query the handle by index on
+    // every move rather than keeping the original DOM reference — rerender() replaces the whole
+    // tile's innerHTML, so a cached node reference would go stale/detached after the first frame
+    // (same reason gaugePct() below re-queries `.gauge-drag` fresh on every call instead of caching it).
+    let svcIdx = null, svcName = null, svcPendingPct = null, svcRaf = null;
+    function svcApply() {
+      svcRaf = null;
+      if (svcPendingPct == null || svcName == null) return;
       const eng = window.DASH.getEng();
-      (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = pct;
-      svcHandle.style.left = pct + "%";
-      const fillSpan = bar.querySelector("span"); if (fillSpan) fillSpan.style.width = pct + "%";
+      (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = svcPendingPct;
+      rerender();
+    }
+    function svcMove(ev) {
+      if (svcIdx == null) return; ev.preventDefault();
+      const h = section().querySelector(`.rsvc-handle[data-svcutil="${svcIdx}"]`);
+      const bar = h && h.closest(".rsvc-bar"); if (!bar) return;
+      const r = bar.getBoundingClientRect();
+      svcPendingPct = Math.max(0, Math.min(100, Math.round((ev.clientX - r.left) / r.width * 100)));
+      if (!svcRaf) svcRaf = requestAnimationFrame(svcApply);
     }
     function svcUp() {
-      if (!svcHandle) return; svcHandle = null;
+      if (svcIdx == null) return; svcIdx = null; svcName = null; svcPendingPct = null;
       document.removeEventListener("pointermove", svcMove);
       document.removeEventListener("pointerup", svcUp);
       window.DASH.saveState(); rerender();
@@ -920,7 +954,7 @@ window.ExecSummary = (function () {
       const h = ev.target.closest(".rsvc-handle"); if (!h || !canAdmin()) return;
       ev.preventDefault();
       const line = (window.DASH.getEng().serviceDisciplines || [])[+h.dataset.svcutil]; if (!line) return;
-      svcHandle = h; svcName = line.name;
+      svcIdx = h.dataset.svcutil; svcName = line.name;
       document.addEventListener("pointermove", svcMove);
       document.addEventListener("pointerup", svcUp);
     });
@@ -952,6 +986,25 @@ window.ExecSummary = (function () {
       // Unallocated drill-down → popup listing the projects behind the misc hours
       const ut = e.target.closest("[data-unalloctoggle]");
       if (ut && canAdmin()) { openUnallocPopup(window.DASH.getEng()); return; }
+
+      // PR Coverage → connect/change the team's Google Sheet (admin/AM-PM)
+      const pc = e.target.closest("[data-prconnect]");
+      if (pc && canAdmin()) {
+        const cur = eng.prSheetUrl || "";
+        const raw = prompt("Paste the PR sheet's share link (must be shared “Anyone with the link – Viewer”):", cur);
+        if (raw == null) return;   // cancelled
+        const reg = window.CLIENT_PR_SHEETS;
+        if (!raw.trim()) { delete eng.prSheetUrl; eng.prSource = "manual"; window.DASH.saveState(); rerender(); return; }
+        const cfg = reg && reg.parseSheetUrl(raw);
+        if (!cfg) { alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
+        eng.prSheetUrl = raw.trim();
+        pc.disabled = true; pc.textContent = "Connecting…";
+        window.DASH.refreshPRSheet(eng, cfg).then(ok => {
+          if (!ok) alert("Couldn't read that sheet — check it's shared “Anyone with the link – Viewer” and try again.");
+          window.DASH.saveState(); rerender();
+        });
+        return;
+      }
 
       // curated PR-wins Slack send (admin): post ONE chosen hit via the proxy, remember it
       const ps = e.target.closest("[data-prslack]");

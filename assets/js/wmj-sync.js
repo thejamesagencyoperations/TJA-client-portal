@@ -35,6 +35,33 @@ window.WMJ_SYNC = (function () {
     const d = window.makeClientData({ name: clientId, kind: "project" });
     return { engagements: d.engagements };
   }
+  /* Server-first state for the SYNC's writes. The sync saves the WHOLE dashboard doc, so
+     whatever it starts from becomes the new truth for every device. Basing that on THIS
+     BROWSER's localStorage was the 2026-07-17 mass-wipe: a browser that had never opened
+     a client fell back to the empty template, and the hourly sync pushed that template
+     over 24 clients' real data. Rules now:
+       • server row exists → that's the base (and heal localStorage from it);
+       • server unreachable/errors → { ok:false } — the caller SKIPS this client, because
+         "couldn't read" must never be treated as "doesn't exist";
+       • genuinely no server row (new client) → localStorage, then template. */
+  async function loadStateSafe(clientId) {
+    if (window.SUPA && window.SUPA.enabled && window.SUPA.client) {
+      try {
+        const { data, error } = await window.SUPA.client.from("app_state")
+          .select("data").eq("client_id", clientId).eq("scope", "dashboard").maybeSingle();
+        if (error) throw new Error(error.message);
+        if (data && data.data && data.data.engagements) {
+          try { localStorage.setItem("tja_dashboard_" + clientId, JSON.stringify(data.data)); } catch (e) {}
+          return { ok: true, state: data.data };
+        }
+        // no row — fall through to local/template (a truly new client)
+      } catch (e) {
+        console.warn("wmj sync: can't read server copy for", clientId, "— skipping this round.", (e && e.message) || e);
+        return { ok: false, state: null };
+      }
+    }
+    return { ok: true, state: loadState(clientId) };
+  }
   function saveState(clientId, state) {
     try { localStorage.setItem("tja_dashboard_" + clientId, JSON.stringify(state)); } catch (e) { console.warn("wmj save", e); }
     if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(clientId, "dashboard", state);
@@ -109,7 +136,7 @@ window.WMJ_SYNC = (function () {
     const data = T().transform(T().parseCSV(csv));
     let created = 0, updated = 0, projectCount = 0;
     const createdClients = [];
-    data.forEach(wc => {
+    for (const wc of data) {
       const r = resolveClientId(wc.wmjName);
       if (r.created) { created++; createdClients.push({ name: wc.wmjName, id: r.id, login: r.login }); }
       // WMJ client code (leading token of Campaign_Name) → the client's code label
@@ -121,7 +148,8 @@ window.WMJ_SYNC = (function () {
         const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));
         if (ent && url && isAuto && ent.logo !== url) window.TJA_STORE.update(r.id, { logo: url });
       }
-      const state = loadState(r.id);
+      const ls = await loadStateSafe(r.id); if (!ls.ok) continue;
+      const state = ls.state;
       state.engagements = state.engagements || {};
       const existing = Array.isArray(state.engagements.projects) ? state.engagements.projects : [];
       const byId = new Map(existing.map(p => [p.id, p]));
@@ -132,7 +160,7 @@ window.WMJ_SYNC = (function () {
       projectCount += wmjProjects.length;
       saveState(r.id, state);
       if (!r.created) updated++;
-    });
+    }
     try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
     return { clients: data.length, created, updated, projects: projectCount, createdClients, at: lastSync() };
   }
@@ -204,7 +232,7 @@ window.WMJ_SYNC = (function () {
     if (!RT()) throw new Error("retainer-transform not loaded");
     const data = RT().transform(RT().parseCSV(await fetchRetCSV()));
     let created = 0, updated = 0; const createdClients = [];
-    data.forEach(rc => {
+    for (const rc of data) {
       const r = resolveClientId(rc.wmjName);
       if (r.created) { created++; createdClients.push({ name: rc.wmjName, id: r.id, login: r.login }); }
       if (rc.code) { const ent = window.TJA_STORE.get(r.id); if (ent && ent.code !== rc.code) window.TJA_STORE.update(r.id, { code: rc.code }); }
@@ -213,11 +241,12 @@ window.WMJ_SYNC = (function () {
         const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));
         if (ent && url && isAuto && ent.logo !== url) window.TJA_STORE.update(r.id, { logo: url });
       }
-      const state = loadState(r.id);
+      const ls = await loadStateSafe(r.id); if (!ls.ok) continue;
+      const state = ls.state;
       applyRetainer(state, rc);
       saveState(r.id, state);
       if (!r.created) updated++;
-    });
+    }
     return { clients: data.length, created, updated, createdClients };
   }
 
@@ -231,7 +260,8 @@ window.WMJ_SYNC = (function () {
       let text;
       try { const res = await fetch(reg.csvUrl(cfg), { cache: "no-store" }); if (!res.ok) throw new Error("PR fetch " + res.status); text = await res.text(); }
       catch (e) { console.warn("PR sync", id, e); continue; }
-      const state = loadState(id);
+      const ls = await loadStateSafe(id); if (!ls.ok) continue;
+      const state = ls.state;
       const e = state.engagements && state.engagements.retainer;
       if (!e) continue;                                  // PR lives on the Monthly Services engagement
       e.prCoverage = reg.parseHits(text);
@@ -254,16 +284,17 @@ window.WMJ_SYNC = (function () {
     let byClient;
     try { byClient = await window.WMJ_RETAINER_VALUE.forRoster(window.TJA_STORE.list()); }
     catch (e) { console.warn("retainer-value sync", e); return { clients: 0 }; }
-    byClient.forEach((entry, id) => {
-      const state = loadState(id);
+    for (const [id, entry] of byClient.entries()) {
+      const ls = await loadStateSafe(id); if (!ls.ok) continue;
+      const state = ls.state;
       const e = state.engagements && state.engagements.retainer;
-      if (!e) return;
+      if (!e) continue;
       e.retainerValueTarget = entry.hrs;         // hrs/mo, or null if no signed $ figure yet
       e.retainerValueMonthly = !!entry.monthly;  // true = exact current-month $ ÷ rate; false = annual avg (÷12)
       e.retainerValueHasPending = entry.hasPending;
       saveState(id, state);
       done++;
-    });
+    }
     return { clients: done };
   }
 
@@ -337,6 +368,10 @@ window.WMJ_SYNC = (function () {
         .catch(err => { console.warn("retainer-value sync", err); })
         .then(() => syncAccountManagers())
         .catch(err => { console.warn("account-manager sync", err); })
+        // the AM/PM assignment sheet runs LAST so its manager tags win over the
+        // WMJ-derived seed for any client it names (it's the team-owned truth)
+        .then(() => (window.MGR_SHEET ? window.MGR_SHEET.sync() : null))
+        .catch(err => { console.warn("mgr-sheet sync", err); })
         .then(() => {
           try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
           if (onDone) { try { onDone(window.__wmjProjResult || null); } catch (e) {} }

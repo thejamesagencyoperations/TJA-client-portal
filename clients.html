@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=238" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=238">
+<link rel="icon" href="assets/img/favicon.ico?v=239" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=239">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=238">
+<link rel="stylesheet" href="assets/css/styles.css?v=239">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -147,10 +147,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=238"></script>
-<script src="assets/js/supabase-sync.js?v=238"></script>
-<script src="assets/js/ui.js?v=238"></script>
-<script src="assets/js/auth.js?v=238"></script>
+<script src="assets/js/supabase-config.js?v=239"></script>
+<script src="assets/js/supabase-sync.js?v=239"></script>
+<script src="assets/js/ui.js?v=239"></script>
+<script src="assets/js/auth.js?v=239"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -169,16 +169,17 @@
     if (ac && typeof isAdmin === "function" && isAdmin()) ac.style.display = "";
   })();
 </script>
-<script src="assets/js/clients.js?v=238"></script>
-<script src="assets/js/client-template.js?v=238"></script>
-<script src="assets/js/client-store.js?v=238"></script>
-<script src="assets/js/wmj-transform.js?v=238"></script>
-<script src="assets/js/retainer-transform.js?v=238"></script>
-<script src="assets/js/client-logos.js?v=238"></script>
-<script src="assets/js/client-pr-sheets.js?v=238"></script>
-<script src="assets/js/retainer-value.js?v=238"></script>
-<script src="assets/js/wmj-sync.js?v=238"></script>
-<script src="assets/js/notifications.js?v=238"></script>
+<script src="assets/js/clients.js?v=239"></script>
+<script src="assets/js/client-template.js?v=239"></script>
+<script src="assets/js/client-store.js?v=239"></script>
+<script src="assets/js/wmj-transform.js?v=239"></script>
+<script src="assets/js/retainer-transform.js?v=239"></script>
+<script src="assets/js/client-logos.js?v=239"></script>
+<script src="assets/js/client-pr-sheets.js?v=239"></script>
+<script src="assets/js/mgr-sheet.js?v=239"></script>
+<script src="assets/js/retainer-value.js?v=239"></script>
+<script src="assets/js/wmj-sync.js?v=239"></script>
+<script src="assets/js/notifications.js?v=239"></script>
 <script>
   if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -308,6 +309,7 @@
 
   // refresh from Supabase roster if configured, then re-render
   if (window.TJA_STORE.hydrate) window.TJA_STORE.hydrate().then(renderGrid).catch(() => {});
+  loadStaffRoster();
 
   /* tab switching + drop targets */
   const tabs = document.getElementById("clTabs");
@@ -399,11 +401,41 @@
   let editingId = null, logoData = "";
 
   /* ---- Managers (multi-tag, no limit) ----
-     The manager roster IS the tags themselves: the picker suggests everyone already
-     tagged on any client, plus the Workamajig-derived lead as a starting point. Typing
-     a new name simply creates that manager. */
+     The picker suggests real admin/manager accounts (fetched once from manage-users'
+     "roster" action — any signed-in staff member can call it, no admin gate). WMJ also
+     writes a free-text accountManager/managers tag per client straight from the sheet,
+     which drifts to include people who left or never had a dashboard login — that's
+     the bug this fixes. Falls back to the old tag-scan if the fetch fails/is pending,
+     so the field never goes empty. */
   let mgrTags = [];
+  let staffRoster = null;
+  async function loadStaffRoster() {
+    try {
+      const cfg = window.SUPABASE_CONFIG || {};
+      if (!cfg.url || !(window.SUPA && window.SUPA.enabled)) return;
+      const { data } = await window.SUPA.client.auth.getSession();
+      const tok = data && data.session ? data.session.access_token : null;
+      if (!tok) return;
+      const r = await fetch(cfg.url.replace(/\/$/, "") + "/functions/v1/manage-users", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "roster" }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && Array.isArray(j.names)) {
+        staffRoster = j.names;
+        window.TJA_STAFF_ROSTER = j.names;   // mgr-sheet.js resolves the sheet's first names against this
+        renderMgrTags();
+      }
+    } catch (e) { /* fails soft — tag-scan fallback stays in effect */ }
+  }
   function knownManagers() {
+    // union of real accounts + the AM/PM sheet's active list (sheet names resolve to
+    // full account names inside mgr-sheet when possible, so the union dedupes cleanly)
+    const sheetMgrs = (window.MGR_SHEET && window.MGR_SHEET.managers()) || [];
+    if (staffRoster || sheetMgrs.length) {
+      return [...new Set([...(staffRoster || []), ...sheetMgrs])].sort((a, b) => a.localeCompare(b));
+    }
     const s = new Set();
     (window.TJA_STORE.list() || []).forEach(c => {
       (Array.isArray(c.managers) ? c.managers : []).forEach(m => m && s.add(m));

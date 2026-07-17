@@ -155,9 +155,28 @@ function setPath(obj, path, val) {
   tgt[last] = val;
 }
 
+// Pull the team's PR sheet (a per-client Google Sheet, "Anyone with the link – Viewer")
+// and mirror it into prCoverage. `cfg` is {sheetId, gid} — resolved by the caller from
+// either an admin-pasted link (eng.prSheetUrl) or the legacy hardcoded registry, so this
+// one fetch/parse path works for both. Returns a promise; never throws (fails soft).
+function refreshPRSheet(ret, cfg) {
+  const reg = window.CLIENT_PR_SHEETS;
+  if (!reg || !cfg || !ret) return Promise.resolve(false);
+  return fetch(reg.csvUrl(cfg), { cache: "no-store" })
+    .then(r => (r.ok ? r.text() : null))
+    .then(text => {
+      if (!text) return false;
+      ret.prCoverage = reg.parseHits(text);
+      ret.prSource = "sheet";
+      ret.prHits = reg.hitCount(text, ret.prCoverage.length);
+      return true;
+    })
+    .catch(() => false);
+}
+
 // shared with exec-summary.js
 // Public surface consumed by exec-summary.js — keep this list tight (only what's actually read).
-window.DASH = { getEng, saveState, setPath, badge,
+window.DASH = { getEng, saveState, setPath, badge, refreshPRSheet,
   // "← All projects" link, shown on a project's homepage when several projects exist (handled in exec-summary render so it survives rerender)
   projectBack: () => (!isRetainer() && getProjects().length > 1 && selectedProject()) ? `<button class="pp-back" data-allprojects>← All projects</button>` : "" };
 
@@ -258,6 +277,28 @@ function openFresh(page) {
 }
 
 /* ---------- Status (service-line detail) ---------- */
+// Sheet columns, in order: Service Line | Effort | Update & Next Steps | Status | Deadline
+// (matches this tab's own displayed fields exactly — see the <thead> below). A row repeats
+// its Service Line to stay grouped with the row above it; leave it blank to continue the
+// current group. NOTE: this mapping was designed against the app's own field list, not a
+// live example sheet — verify a real import once before trusting it in front of a client.
+const STATUS_KEY = { complete: "complete", done: "complete", "in progress": "in-progress", "not started": "not-started",
+  pending: "pending", "on hold": "on-hold", blocked: "blocked" };
+function normalizeStatusKey(s) { return STATUS_KEY[String(s || "").trim().toLowerCase()] || "in-progress"; }
+function parseStatusSheet(text) {
+  const reg = window.CLIENT_PR_SHEETS; if (!reg) return null;
+  const rows = reg.parseRows(text);
+  const groups = []; let cur = null;
+  rows.forEach(r => {
+    const line = (r[0] || "").trim(), effort = (r[1] || "").trim();
+    if (!line && !effort) return;                                   // blank/spacer row
+    if (/^service ?line$/i.test(line) && /^effort$/i.test(effort)) return;   // header row
+    if (line) { cur = { line, rows: [] }; groups.push(cur); }
+    if (!cur) { cur = { line: "Service line", rows: [] }; groups.push(cur); }  // sheet started with no group label
+    if (effort) cur.rows.push({ effort, update: (r[2] || "").trim(), status: normalizeStatusKey(r[3]), deadline: (r[4] || "").trim() });
+  });
+  return { groups };
+}
 function renderStatus() {
   const e = getEng(); const st = e.status || { groups: [] };
   const admin = ppAdmin();
@@ -287,6 +328,7 @@ function renderStatus() {
   <div class="page-head">
     <div class="page-title">Status</div>
     <div class="page-desc">Service-line detail — completed &amp; in-progress efforts. <span style="color:var(--text-faint)">(SAP + Status merge lands here.)</span></div>
+    ${admin ? `<button class="btn btn-ghost" data-statusconnect title="${esc(e.statusSheetUrl || "")}">${e.statusSheetUrl ? "✎ Change sheet" : "🔗 Upload / connect Status Report"}</button>` : ""}
   </div>
   <div class="card"><table class="table">
     <thead><tr><th>Effort</th><th>Update &amp; Next Steps</th><th>Status</th><th>Deadline</th>${admin ? "<th></th>" : ""}</tr></thead>
@@ -312,6 +354,23 @@ function initStatus() {
     if (ag) { st.groups.push({ line: "New service line", rows: [] }); saveState(); repaint("status"); return; }
     const del = e.target.closest("[data-stdel]");
     if (del) { const p = del.dataset.stdel.split("."); if (p[0] === "group") st.groups.splice(+p[1], 1); else st.groups[+p[1]].rows.splice(+p[2], 1); saveState(); repaint("status"); return; }
+    const conn = e.target.closest("[data-statusconnect]");
+    if (conn) {
+      const raw = prompt("Paste the Status Report sheet's share link (must be shared “Anyone with the link – Viewer”).\n\nColumns, in order: Service Line, Effort, Update & Next Steps, Status, Deadline. Repeat the Service Line on its first row, then leave it blank for the rows under it.", eng.statusSheetUrl || "");
+      if (raw == null) return;
+      const reg = window.CLIENT_PR_SHEETS;
+      if (!raw.trim()) { delete eng.statusSheetUrl; saveState(); repaint("status"); return; }
+      const cfg = reg && reg.parseSheetUrl(raw);
+      if (!cfg) { alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
+      conn.disabled = true; conn.textContent = "Connecting…";
+      fetch(reg.csvUrl(cfg), { cache: "no-store" }).then(r => r.ok ? r.text() : null).then(text => {
+        const parsed = text && parseStatusSheet(text);
+        if (!parsed || !parsed.groups.length) { alert("Couldn't read any rows from that sheet — check the link is shared and the columns match Service Line, Effort, Update & Next Steps, Status, Deadline."); repaint("status"); return; }
+        eng.status = parsed; eng.statusSheetUrl = raw.trim();
+        saveState(); repaint("status");
+      }).catch(() => { alert("Couldn't reach that sheet."); repaint("status"); });
+      return;
+    }
   });
 }
 
@@ -572,9 +631,15 @@ function toggleTheme() {
 function applyRole() {
   const effRole = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
   document.body.dataset.role = effRole;
-  // "All clients" is a staff nav — hide it in client view (incl. staff previewing as client)
-  const staffRole = effRole === "admin" || effRole === "creative";
-  const cb = el("#clientsBack"); if (cb) cb.style.display = staffRole ? "" : "none";
+  // "All clients" / "My clients" is a staff nav — hide it in client view (incl. staff
+  // previewing as client). Managers were missing here (added when schema-v7 introduced
+  // the role) — an AM/PM had no way back to the picker once inside a client.
+  const staffRole = effRole === "admin" || effRole === "manager" || effRole === "creative";
+  const cb = el("#clientsBack");
+  if (cb) {
+    cb.style.display = staffRole ? "" : "none";
+    cb.textContent = effRole === "manager" ? "My clients" : "All clients";
+  }
   const rc = el("#roleControls");
   if (typeof isStaff === "function" && isStaff()) {
     const prev = isPreviewing();
@@ -615,13 +680,32 @@ function retainerHasData() {
     || (r.northStar && String(r.northStar).trim() !== "");
 }
 
+// Monthly Services is now opt-IN (an explicit "+ Add" click), not implied by the
+// engagement's registry "kind" — a client can be rostered "project" but still pick this
+// up later. `tabAdded` is set the moment someone clicks Add (even before any real data
+// exists, so the tab doesn't vanish again while they're still filling it in). `tabHidden`
+// is a pure UI hide — set by "Hide Monthly Services tab"; nothing underneath is touched,
+// so un-hiding brings everything back exactly as it was.
+function retainerEnabled() {
+  const r = STATE.engagements.retainer;
+  return !!(r && (r.tabAdded || retainerHasData()));
+}
+function retainerHidden() {
+  const r = STATE.engagements.retainer;
+  return !!(r && r.tabHidden);
+}
+
 function applyEngagement() {
   const tog = el("#engToggle");
-  // Admins (real, not previewing) always see both toggles so they can set either up.
-  // Clients only see an engagement that actually has data — no empty Monthly Services / Projects.
-  const adminRole = (typeof effectiveRole === "function") ? effectiveRole() === "admin" : true;
-  const hasRet = adminRole || retainerHasData();
-  const hasProj = adminRole || getProjects().length > 0;
+  const actions = el("#engActions");
+  // Admin AND manager (full editors — see auth.js canEdit) always see both toggles so
+  // they can set either one up; creatives/clients only see an engagement that actually
+  // has data — no empty Monthly Services / Projects.
+  const canManage = (typeof isAdminOrManager === "function") ? isAdminOrManager() : true;
+  const hidden = retainerHidden();
+  const enabled = retainerEnabled();
+  const hasRet = !hidden && (canManage ? enabled : retainerHasData());
+  const hasProj = canManage || getProjects().length > 0;
 
   // Don't strand a client on an engagement that has no data.
   if (!hasRet && isRetainer()) {
@@ -638,6 +722,15 @@ function applyEngagement() {
   tog.innerHTML = segs;
   // Nothing to switch between (single engagement in client view) → hide the toggle entirely.
   tog.style.display = (hasRet && hasProj) ? "" : "none";
+
+  if (actions) {
+    if (!canManage) actions.innerHTML = "";
+    else if (!enabled) actions.innerHTML = `<button class="btn btn-ghost" id="addRetainerBtn">＋ Add Monthly Services</button>`;
+    else if (hidden) actions.innerHTML = `<button class="btn btn-ghost" id="showRetainerBtn">Show Monthly Services tab</button>`;
+    else if (isRetainer()) actions.innerHTML = `<button class="btn btn-ghost" id="hideRetainerBtn" title="Hides the tab only — nothing is deleted">Hide Monthly Services tab</button>`;
+    else actions.innerHTML = "";
+  }
+
   // topbar identity: client name (set once) + engagement label. The headline goal lives in its own
   // full-width banner at the top of the Executive Summary, and only on projects — retainers carry
   // their direction in the Sprint Goals tile instead (see exec-summary.js goalBanner).
@@ -647,8 +740,9 @@ function applyEngagement() {
   const ns = el("#clientNorthstar");
   if (ns) ns.innerHTML = "";
   el("#navBacklog").style.display = isRetainer() ? "" : "none";   // Backlog = Monthly-Services-only
-  // Project Plan needs a project actually open — it's meaningless on a retainer or on the folder.
-  const planOk = !isRetainer() && !onFolder;
+  // Project Plan lives on any project-type client with at least one project — including
+  // the folder/tile-picker view, not just once a specific project is open.
+  const planOk = !isRetainer() && getProjects().length > 0;
   el("#navPlan").style.display = planOk ? "" : "none";
   if (!planOk && currentPage() === "plan") activate("exec");
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
@@ -687,6 +781,31 @@ function applyEngagement() {
   // "← All projects" (shown on a project's homepage) returns to the folder
   document.addEventListener("click", e => {
     if (e.target.closest("[data-allprojects]")) { selectProject(""); applyEngagement(); openFresh("projectplan"); }
+  });
+
+  // Monthly Services add/hide (admin + manager) — see applyEngagement() for the state machine.
+  document.getElementById("engActions").addEventListener("click", e => {
+    const addBtn = e.target.closest("#addRetainerBtn, #showRetainerBtn");
+    if (addBtn) {
+      const r = STATE.engagements.retainer || (STATE.engagements.retainer = clone(D.engagements.retainer));
+      r.tabAdded = true; r.tabHidden = false;
+      setEngMode("retainer");
+      saveState();
+      applyEngagement();
+      document.querySelectorAll(".page").forEach(p => { p.dataset.painted = ""; p.innerHTML = ""; });
+      activate("exec");
+      return;
+    }
+    const hideBtn = e.target.closest("#hideRetainerBtn");
+    if (hideBtn) {
+      if (!confirm("Hide the Monthly Services tab? Nothing is deleted — bring it back anytime with “Show Monthly Services tab.”")) return;
+      const r = STATE.engagements.retainer; if (!r) return;
+      r.tabHidden = true;
+      saveState();
+      applyEngagement();
+      document.querySelectorAll(".page").forEach(p => { p.dataset.painted = ""; p.innerHTML = ""; });
+      activate("exec");
+    }
   });
 
   // North Star / due-date edits made in the topbar
@@ -738,22 +857,20 @@ function applyEngagement() {
   // Refresh PR coverage for THIS client on load. The dashboard doesn't run the full WMJ poll
   // (only the Clients page does), so pull the team's PR sheet directly here — otherwise PR only
   // shows after a Clients-page visit. Fire-and-forget; repaint the summary when it lands.
+  // Prefers an admin-pasted link (eng.prSheetUrl, set from the PR Coverage tile's "Connect
+  // sheet" button); falls back to the legacy hardcoded registry for clients set up before that.
   (function refreshPRForCurrent() {
     try {
-      const reg = window.CLIENT_PR_SHEETS, cfg = reg && reg.forClient(clientId());
+      const reg = window.CLIENT_PR_SHEETS;
       const ret = STATE.engagements && STATE.engagements.retainer;
-      if (!cfg || !ret) return;
-      fetch(reg.csvUrl(cfg), { cache: "no-store" })
-        .then(r => (r.ok ? r.text() : null))
-        .then(text => {
-          if (!text) return;
-          ret.prCoverage = reg.parseHits(text);
-          ret.prSource = "sheet";
-          ret.prHits = reg.hitCount(text, ret.prCoverage.length);
-          saveState();
-          if (currentPage() === "exec") repaint("exec");
-        })
-        .catch(() => {});
+      if (!reg || !ret) return;
+      const cfg = (ret.prSheetUrl && reg.parseSheetUrl(ret.prSheetUrl)) || reg.forClient(clientId());
+      if (!cfg) return;
+      refreshPRSheet(ret, cfg).then(changed => {
+        if (!changed) return;
+        saveState();
+        if (currentPage() === "exec") repaint("exec");
+      });
     } catch (e) {}
   })();
 

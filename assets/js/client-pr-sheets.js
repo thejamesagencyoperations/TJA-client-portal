@@ -20,6 +20,17 @@ window.CLIENT_PR_SHEETS = (function () {
   function forClient(id) { return SHEETS[id] || null; }
   function csvUrl(cfg) { return "https://docs.google.com/spreadsheets/d/" + cfg.sheetId + "/gviz/tq?tqx=out:csv&gid=" + cfg.gid; }
 
+  // Admin/AM-PM paste a normal "Share" URL (…/d/<id>/edit#gid=123, or with ?gid=123,
+  // or just the bare id) — pull {sheetId, gid} out of whatever they pasted.
+  function parseSheetUrl(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return null;
+    const idMatch = /\/d\/([a-zA-Z0-9-_]{20,})/.exec(s) || /^([a-zA-Z0-9-_]{20,})$/.exec(s);
+    if (!idMatch) return null;
+    const gidMatch = /[#?&]gid=(\d+)/.exec(s);
+    return { sheetId: idMatch[1], gid: gidMatch ? gidMatch[1] : "0" };
+  }
+
   // raw quote-aware CSV → array of row-arrays (no header coercion; we use fixed columns)
   function parseRows(text) {
     const rows = []; let row = [], field = "", i = 0, q = false; const n = text.length;
@@ -51,5 +62,5 @@ window.CLIENT_PR_SHEETS = (function () {
   // "… YTD Hits: 24 …" in the title cell, else the parsed count
   function hitCount(text, fallback) { const m = /hits:\s*(\d+)/i.exec(text || ""); return m ? +m[1] : fallback; }
 
-  return { SHEETS, forClient, csvUrl, parseRows, parseHits, hitCount };
+  return { SHEETS, forClient, csvUrl, parseSheetUrl, parseRows, parseHits, hitCount };
 })();

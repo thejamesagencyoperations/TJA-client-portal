@@ -32,7 +32,11 @@
     }
     if (field.length || row.length) { row.push(field); rows.push(row); }
     if (!rows.length) return [];
-    const head = rows[0].map(h => h.trim());
+    // Normalize headers to underscore form: the WMJ export's header row has flipped
+    // between "Client_Name" and "Client Name" (it changed live on 2026-07-17 and every
+    // row silently parsed as undefined → the sync wrote empty actuals over 24 clients).
+    // Accept both forever.
+    const head = rows[0].map(h => h.trim().replace(/\s+/g, "_"));
     return rows.slice(1).filter(r => r.some(c => c.trim() !== "")).map(r => { const o = {}; head.forEach((h, j) => o[h] = (r[j] || "").trim()); return o; });
   }
 
@@ -94,6 +98,10 @@
         l.utilPct = l.allocated > 0 ? Math.round(l.billable / l.allocated * 100) : 0;
       });
       lines.sort((a, b) => b.allocated - a.allocated);
+      // A "client" with zero real lines is a malformed sheet row that slipped the junk
+      // guard (e.g. a comment leaking into Client_Name) — emitting it would auto-create
+      // a garbage client workspace on sync.
+      if (!lines.length) return;
       out.push({ wmjName: C.wmjName, normName: C.normName, code: C.code || "", serviceLines: lines, totalAllocated, totalBillable });
     });
     out.sort((a, b) => a.wmjName.localeCompare(b.wmjName));

@@ -135,9 +135,6 @@ Deno.serve(async (req) => {
 
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
-  // The agency account only. An AM/PM is role='manager' and lands here.
-  if (caller.role !== "admin")
-    return json(req, 403, { error: "Only the agency's admin account can manage logins." });
 
   let body: any;
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }
@@ -145,6 +142,32 @@ Deno.serve(async (req) => {
   const svc = svcClient();
 
   try {
+    /* ---------- roster ----------
+       The one action open to any signed-in staff member (not just admin) — it feeds
+       the manager-tag picker on clients.html, which admin AND managers both use.
+       WMJ auto-creates a free-text "managers" tag per client from the sheet, so that
+       tag list drifts to include people who left or never had a dashboard login.
+       This returns just names for real admin/manager accounts — nothing sensitive
+       (no email, no invite state — that stays admin-only via "list"). */
+    if (action === "roster") {
+      if (!["admin", "manager", "creative"].includes(caller.role))
+        return json(req, 403, { error: "staff only" });
+      const users = await allAuthUsers(svc);
+      const { data: profs } = await svc.from("profiles").select("id,role").in("role", ["admin", "manager"]);
+      const roleById: Record<string, string> = {};
+      (profs || []).forEach((p: any) => roleById[p.id] = p.role);
+      const names = users
+        .filter((u) => roleById[u.id])
+        .map((u) => String(u.user_metadata?.name || "").trim())
+        .filter(Boolean);
+      return json(req, 200, { names: [...new Set(names)].sort() });
+    }
+
+    // Everything below manages real accounts — the agency admin only. An AM/PM is
+    // role='manager' and stops here.
+    if (caller.role !== "admin")
+      return json(req, 403, { error: "Only the agency's admin account can manage logins." });
+
     /* ---------- list ---------- */
     if (action === "list") {
       const users = await allAuthUsers(svc);
