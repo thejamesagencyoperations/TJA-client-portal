@@ -814,11 +814,19 @@ function applyEngagement() {
     setPath(getEng(), f.dataset.tbpath, f.textContent.trim()); saveState();
   });
 
+  // Ghost-session guard BEFORE the pulls: a per-tab session whose Supabase auth has
+  // died reads zero rows through RLS with no error, so without this check the page
+  // silently renders this device's cached copy as if it were live. Force a re-login
+  // instead — the login page rebuilds honestly (or actually asks for the password).
+  const liveSession = (typeof ensureLiveSession === "function") ? await ensureLiveSession() : "ok";
+  if (liveSession === "ghost") { await logout(); return; }
+
   // Live data: pull from Supabase when configured (otherwise stay on localStorage).
   // The scopes pull IN PARALLEL (each self-times-out in the sync layer), so a slow
   // or unreachable backend delays boot by at most one timeout, never the sum.
   // The waiting-room scope is STAFF-ONLY: a client's pull would be an RLS-guaranteed
   // null (they can't read the row), so don't even ask.
+  let dashPulled = false;
   if (window.SUPA && window.SUPA.enabled) {
     try {
       const cid = clientId();
@@ -831,11 +839,23 @@ function applyEngagement() {
         staff ? window.SUPA.pullScope(cid, "deliverables_draft") : Promise.resolve(null),
       ]);
       const dash = dashFull && dashFull.data;
-      if (dash && dash.engagements) { STATE = migrate(dash); lastSnapshot = clone(STATE); try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch {} }
+      if (dash && dash.engagements) { STATE = migrate(dash); lastSnapshot = clone(STATE); dashPulled = true; try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch {} }
       if (files) { try { localStorage.setItem(FILES_KEY, JSON.stringify(files)); } catch {} }
       if (dels) { try { localStorage.setItem("tja_deliverables_" + cid, JSON.stringify(dels)); } catch {} }
       if (drafts) { try { localStorage.setItem("tja_deliverables_draft_" + cid, JSON.stringify(drafts)); } catch {} }
     } catch (e) { console.warn("Supabase boot sync failed; using local data.", e); }
+  }
+  // If live data did NOT land (library never loaded, pull timed out, or a genuinely
+  // missing row), say so on screen — silently presenting the cached copy as current
+  // is how a whole afternoon got lost to "why does her machine show 0%".
+  if (liveSession === "nolib" || (window.SUPA && window.SUPA.enabled && !dashPulled)) {
+    const warn = document.createElement("div");
+    warn.className = "presence-banner";
+    warn.innerHTML = liveSession === "nolib"
+      ? "⚠ The live-sync library couldn't load (network filter or offline?) — this is <b>this device's cached copy</b>, and nothing viewed or edited here is syncing."
+      : "⚠ Couldn't load this client's live data — showing <b>this device's cached copy</b>. Check your connection and refresh to retry.";
+    const anchor = el("#previewBanner");
+    if (anchor) anchor.parentNode.insertBefore(warn, anchor);
   }
 
   // self-heal: a retainer must always carry its service disciplines. If a stale/older state

@@ -166,6 +166,28 @@ function requireAuth() {
   if (!getSession()) window.location.replace("index.html");
 }
 
+/* ---------- ghost-session guard ----------
+   The per-tab session (sessionStorage) SURVIVES a hard refresh, but says nothing about
+   whether the Supabase session behind it is still alive. A tab whose Supabase auth has
+   died renders the full signed-in UI while every RLS-gated read quietly returns zero
+   rows — no error, no banner — so the page falls back to this device's cached copy and
+   the user stares at stale (or empty) data with no clue why. Found the hard way on
+   2026-07-17: after the admin password reset, a machine holding a pre-reset tab showed
+   an empty portal through multiple hard refreshes.
+   Returns: "ok" (live, or Supabase not configured), "ghost" (portal session with no
+   live Supabase session — caller should force a re-login), "nolib" (Supabase IS
+   configured but the client library never loaded: CDN blocked/offline — cached-only). */
+async function ensureLiveSession() {
+  const configured = !!(window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.url);
+  if (!configured || !getSession()) return "ok";
+  if (!(window.SUPA && window.SUPA.enabled && window.SUPA.client)) return "nolib";
+  try {
+    const { data } = await window.SUPA.client.auth.getSession();
+    if (data && data.session) return "ok";
+  } catch (e) { /* treat as ghost — an erroring auth layer can't back a session */ }
+  return "ghost";
+}
+
 async function logout() {
   // AWAIT the Supabase sign-out before navigating — firing it and immediately
   // redirecting aborts the call, leaving the Supabase session alive, and the
