@@ -32,6 +32,7 @@
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 // The only place the portal's own URL exists in the backend. On a future custom
 // domain, update this + the CORS list + the Supabase Auth site URL — that's the
@@ -74,18 +75,34 @@ Deno.serve(async (req) => {
 
   const entry = await registryEntry(clientId);
   if (!entry) return json(req, 404, { error: "unknown client" });
-  // Recipients come ONLY from the integrations map — the client's real people
-  // (rdorner@celticelevator.com), entered deliberately.
-  //
-  // There used to be a fallback to entry.login.email. That was a silent wrong-recipient
-  // bug: for 48 of 49 clients login.email is a TJA DISTRIBUTION address
-  // (anewleaf@thejamesagency.com), not the client at all. The deliverable email would
-  // have gone to TJA's own inbox while the UI said "Emailed the client ✓" and the client
-  // heard nothing. Failing loudly is strictly better than confidently emailing yourself.
-  const recipients = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
+
+  /* ---------- who gets it ----------
+     EVERYONE WITH A LOGIN to this workspace, plus any extra addresses in the
+     integrations map. Union, de-duped.
+
+     The logins are the point: inviting rdorner@celticelevator.com already says "this
+     person should hear about Celtic's work", so making someone re-type him into a
+     second list is duplicate bookkeeping that silently rots — the day someone's
+     removed from one and not the other, you're either emailing an ex-employee or
+     missing the person who matters. The integrations list now only exists for the
+     exception: a CMO who wants the FYI but will never log in.
+
+     NOTE there is deliberately NO fallback to entry.login.email. For 48 of 49 clients
+     that's a TJA DISTRIBUTION address (anewleaf@thejamesagency.com), not the client —
+     the mail would have gone to TJA's own inbox while the UI said "Emailed the client ✓". */
+  const svc = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const { data: profs } = await svc.from("profiles")
+    .select("email").eq("client_id", clientId).eq("role", "client");
+  const fromLogins = (profs ?? []).map((p: any) => p.email).filter(Boolean);
+  const extra = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
+  const recipients = [...new Set([...fromLogins, ...extra].map((e) => String(e).trim().toLowerCase()))];
+
   if (!recipients.length) {
     return json(req, 409, {
-      error: "No client email set. Add their real address under Clients → Edit → Integrations → Notification emails.",
+      error: "Nobody to email for this client. Invite them in the Admin Center, or add an address under Clients → Edit → Integrations.",
     });
   }
 
@@ -117,7 +134,11 @@ Deno.serve(async (req) => {
     const out = await sendViaResend(recipients, subject, html, text);
     return json(req, 200, { ok: true, id: out.id, recipients: recipients.length });
   } catch (e) {
+    // Surface WHY. This used to return a bare "email send failed", which told the
+    // admin nothing and made the thing undiagnosable from the UI — Resend's own
+    // messages are actually clear ("domain not verified", "you can only send to…"),
+    // so passing them through turns a mystery into an instruction.
     console.error("send failed", e);
-    return json(req, 502, { error: "email send failed" });
+    return json(req, 502, { error: String((e as Error).message || e).slice(0, 220) });
   }
 });
