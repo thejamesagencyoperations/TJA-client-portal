@@ -5,8 +5,15 @@ Resend (the sending service) needs to see three records in DNS before it will
 deliver to anyone. They're already registered on the Resend side and it's polling
 for them — **the only outstanding work is creating them at the DNS host.**
 
-**Who's asking:** Cameron Poolton (cameron@thejamesagency.com), who owns the domain
-and the Network Solutions account.
+**Who's asking:** Cameron Poolton (cameron@thejamesagency.com).
+
+**⚠ Access:** Cameron does **not** have the Network Solutions login. Per WHOIS, the
+domain's registrant and tech contact is **`veronique@thejamesagency.com`** — she
+holds the account. Either she performs this, or she adds Cameron/you as a user, or
+she shares access. **Do not attempt a password reset** — the reset email goes to her
+and doing it uninvited could lock out the person who actually manages the domain.
+If you have no route in, stop at "Where to do it" and tell Cameron that Veronique
+is the blocker.
 
 ---
 
@@ -72,8 +79,8 @@ p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC+43Yb+6csoB12qw1ijf89yCM1KPpkaRjzBPg0uJ
 DNS for `thejamesagency.com` is hosted at **Network Solutions**
 (authoritative nameservers: `ns1.worldnic.com`, `ns2.worldnic.com`).
 
-1. Sign in at **https://www.networksolutions.com** (Cameron has the credentials —
-   ask him; do not attempt a password reset).
+1. Sign in at **https://www.networksolutions.com** — using **Veronique's** account
+   (see the Access note at the top). Cameron does not have this login.
 2. **My Domain Names** → `thejamesagency.com` → **Manage**.
 3. Look for **Change Where Domain Points** → **Advanced DNS**, or a button labelled
    **Manage Advanced DNS Records**. Network Solutions moves this around; the target
@@ -149,3 +156,25 @@ SPF (multiple root SPF records is a hard fail, not a warning).
 tell Claude in the portal project, which will run
 `supabase secrets set PORTAL_FROM_EMAIL=noreply@thejamesagency.com` and the portal
 starts emailing real clients.
+
+---
+
+## Appendix — the request to Veronique
+
+Cameron: Veronique holds the Network Solutions account (she's the WHOIS registrant
+and tech contact). Something like this, adapted:
+
+> Hi Veronique — I'm setting up the new client portal to send emails from
+> `noreply@thejamesagency.com`, and it needs three DNS records added at Network
+> Solutions. I don't have access to that account — could you either add them, or
+> add me as a user so I can?
+>
+> **They can't affect our email.** All three sit on a `send.` subdomain — our
+> Google Workspace MX records and our existing SPF stay exactly as they are.
+> Nothing gets edited or removed, only added. I've got the exact values and the
+> instructions ready.
+
+**Also worth flagging to her while you're there:** the domain **expires 2026-12-10**
+(~5 months). Nothing to do today, but it's worth confirming auto-renew is on and
+that the billing card on the account isn't stale — a lapsed domain takes the website
+and all agency email down at once.
