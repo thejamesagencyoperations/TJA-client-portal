@@ -221,15 +221,24 @@ Deno.serve(async (req) => {
       // 'invite' mints the user; 'recovery' re-links someone who already exists
       // (generateLink type:'invite' rejects an existing user). Both land on the
       // same set-password page, so the client experience is identical.
+      const linkType = existing ? "recovery" : "invite";
       const { data: linkData, error: linkErr } = await svc.auth.admin.generateLink({
-        type: existing ? "recovery" : "invite",
+        type: linkType,
         email,
         options: { data: meta, redirectTo: SET_PASSWORD_URL },
       });
       if (linkErr) return json(req, 400, { error: linkErr.message });
       const userId = linkData?.user?.id;
-      const link = linkData?.properties?.action_link;
-      if (!link || !userId) return json(req, 500, { error: "Supabase returned no invite link." });
+      // SCANNER-PROOF LINK: email a DIRECT link to set-password.html carrying the hashed
+      // token, NOT Supabase's action_link. The action_link redeems the single-use token
+      // server-side on first GET — and corporate mail scanners pre-fetch every link, so
+      // the real click lands on "invalid or expired" (burned a live password reset on
+      // 2026-07-17). The token_hash form is only redeemed when the page's JS calls
+      // verifyOtp, which a scanner's bare GET never does. set-password.html already
+      // handles ?token_hash&type=.
+      const hashed = linkData?.properties?.hashed_token;
+      if (!hashed || !userId) return json(req, 500, { error: "Supabase returned no invite link." });
+      const link = `${SET_PASSWORD_URL}?token_hash=${encodeURIComponent(hashed)}&type=${linkType}`;
 
       // profile written BEFORE the email goes out: if this failed afterwards they'd
       // hold a working link into a workspace the database never granted them.
