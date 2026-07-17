@@ -31,6 +31,7 @@
    ============================================================ */
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
+import { registryEntry } from "../_shared/registry.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ROLES = ["admin", "manager", "creative", "client"];
@@ -38,6 +39,11 @@ const ADMIN_WORKSPACE = "_admin";
 const CREATIVE_WORKSPACE = "_creative";
 // AM/PMs own no client workspace either — same sentinel idea as admin/creative.
 const MANAGER_WORKSPACE = "_manager";
+
+// The only place the portal's own URL exists in this function (mirrors the email fn).
+// On a custom domain, change this + the CORS list + Supabase's Site URL.
+const PORTAL_BASE_URL = "https://thejamesagencyoperations.github.io/TJA-client-portal";
+const SET_PASSWORD_URL = PORTAL_BASE_URL + "/set-password.html";
 
 function svcClient() {
   return createClient(
@@ -66,6 +72,61 @@ function workspaceFor(role: string, clientId: string) {
   if (role === "manager") return MANAGER_WORKSPACE;
   if (role === "creative") return CREATIVE_WORKSPACE;
   return (clientId || "").trim();
+}
+
+/* ---------- invites ----------
+   We generate the link and send it OURSELVES via Resend, rather than using
+   inviteUserByEmail() and letting Supabase mail it. Three reasons:
+     1. Supabase's built-in mailer is capped at a few per hour and is explicitly
+        not for production. This route doesn't touch it.
+     2. We own the template — Supabase's default is an unbranded stub.
+     3. One less thing to configure (no Supabase SMTP setup needed at all).
+   generateLink creates the auth user as a side effect and returns the link
+   without emailing anything. */
+const esc = (s: string) =>
+  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+function inviteEmailHtml(clientName: string, link: string, inviterName: string) {
+  return `
+  <div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;color:#222">
+    <div style="background:#F68E21;border-radius:8px 8px 0 0;padding:14px 20px;color:#fff;font-weight:800;font-size:18px">The James Agency</div>
+    <div style="border:1px solid #e5e5e5;border-top:none;border-radius:0 0 8px 8px;padding:22px">
+      <p style="margin:0 0 12px;font-size:16px"><b>You've been given access to your client portal.</b></p>
+      <p style="margin:0 0 14px;color:#555;line-height:1.55">
+        ${esc(inviterName)} at The James Agency has set up a portal for
+        <b>${esc(clientName)}</b> — where you can see progress, review creative work
+        and leave feedback in one place.</p>
+      <p style="margin:0 0 18px;color:#555;line-height:1.55">
+        Click below to choose a password and sign in.</p>
+      <p style="margin:0 0 18px">
+        <a href="${link}" style="background:#F68E21;color:#111;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:8px;display:inline-block">Set your password →</a>
+      </p>
+      <p style="margin:0;color:#888;font-size:12px;line-height:1.5">
+        This link expires in 24 hours. If it has, ask your account manager to send a new one.<br>
+        If you weren't expecting this, you can ignore this email.</p>
+    </div>
+  </div>`;
+}
+
+async function sendInviteEmail(to: string, clientName: string, link: string, inviterName: string) {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) throw new Error("RESEND_API_KEY not set — can't send the invite.");
+  const from = Deno.env.get("PORTAL_FROM_EMAIL") || "onboarding@resend.dev";
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: `The James Agency <${from}>`,
+      to: [to],
+      subject: `Your ${clientName} client portal — set your password`,
+      html: inviteEmailHtml(clientName, link, inviterName),
+      text: `You've been given access to the ${clientName} client portal.\n\n`
+        + `Set your password and sign in:\n${link}\n\n`
+        + `This link expires in 24 hours.\n— The James Agency`,
+    }),
+  });
+  if (!r.ok) throw new Error(`resend ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return await r.json();
 }
 
 Deno.serve(async (req) => {
@@ -102,8 +163,70 @@ Deno.serve(async (req) => {
           lastSignIn: u.last_sign_in_at || null,
           createdAt: u.created_at,
           isYou: u.id === caller.userId,
+          // "invited but hasn't accepted": GoTrue stamps invited_at, and
+          // last_sign_in_at stays null until they actually set a password and land.
+          // Without this the Admin Center can't tell "waiting on them" from "active".
+          invitedPending: !!u.invited_at && !u.last_sign_in_at,
         })),
       });
+    }
+
+    /* ---------- invite (clients) ----------
+       The client never gets a password from us — they set their own. Creates the
+       auth user via generateLink (which does NOT send anything), writes the profile,
+       then emails our own branded link through Resend. */
+    if (action === "invite" || action === "reinvite") {
+      const email = String(body.email || "").trim().toLowerCase();
+      const role = String(body.role || "client");
+      const name = String(body.name || "").trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(req, 400, { error: "Enter a valid email address." });
+      if (!ROLES.includes(role)) return json(req, 400, { error: "Unknown role." });
+      const clientId = workspaceFor(role, body.clientId);
+      if (!clientId) return json(req, 400, { error: "Pick which client workspace this login belongs to." });
+
+      const existing = (await allAuthUsers(svc)).find((u) => (u.email || "").toLowerCase() === email);
+      if (action === "invite" && existing)
+        return json(req, 409, { error: "Someone already has that email address." });
+      if (action === "reinvite" && !existing)
+        return json(req, 404, { error: "That login no longer exists." });
+
+      const entry = await registryEntry(clientId);
+      const clientName = entry?.name || clientId;
+      const meta: any = { role, client_id: clientId };
+      if (name) meta.name = name;
+
+      // 'invite' mints the user; 'recovery' re-links someone who already exists
+      // (generateLink type:'invite' rejects an existing user). Both land on the
+      // same set-password page, so the client experience is identical.
+      const { data: linkData, error: linkErr } = await svc.auth.admin.generateLink({
+        type: existing ? "recovery" : "invite",
+        email,
+        options: { data: meta, redirectTo: SET_PASSWORD_URL },
+      });
+      if (linkErr) return json(req, 400, { error: linkErr.message });
+      const userId = linkData?.user?.id;
+      const link = linkData?.properties?.action_link;
+      if (!link || !userId) return json(req, 500, { error: "Supabase returned no invite link." });
+
+      // profile written BEFORE the email goes out: if this failed afterwards they'd
+      // hold a working link into a workspace the database never granted them.
+      const { error: pe } = await svc.from("profiles")
+        .upsert({ id: userId, email, role, client_id: clientId }, { onConflict: "id" });
+      if (pe) return json(req, 400, { error: pe.message });
+
+      try {
+        await sendInviteEmail(email, clientName, link, caller.email || "The James Agency");
+      } catch (e) {
+        // The account exists and is correctly wired — only the email failed. Say so
+        // precisely, so nobody deletes and recreates a perfectly good login.
+        return json(req, 502, {
+          error: "The login was created, but the invite email didn't send: "
+            + String((e as Error).message || e).slice(0, 140)
+            + ' — use "Resend invite" once that\'s sorted.',
+          id: userId, created: true,
+        });
+      }
+      return json(req, 200, { ok: true, id: userId, invited: email });
     }
 
     /* ---------- create ---------- */

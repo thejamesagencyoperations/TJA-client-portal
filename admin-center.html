@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=237" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=237">
+<link rel="icon" href="assets/img/favicon.ico?v=238" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=238">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=237">
+<link rel="stylesheet" href="assets/css/styles.css?v=238">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -79,11 +79,16 @@
         <select id="tmClient"></select></label>
       <label class="cl-field"><span>Email <em>*</em></span>
         <input type="email" id="tmEmail" placeholder="name@thejamesagency.com"></label>
-      <label class="cl-field"><span>Password <em>*</em> <em class="cl-hint">— 8+ characters</em></span>
+      <!-- Staff: you set the password and hand it over. Clients: they're emailed a link
+           and choose their own, so we never handle a client password at all. -->
+      <label class="cl-field" id="tmPwField"><span>Password <em>*</em> <em class="cl-hint">— 8+ characters</em></span>
         <div class="tm-pw-row">
           <input type="text" id="tmPassword" placeholder="Set a password">
           <button type="button" class="btn btn-ghost btn-sm" id="tmGen" title="Generate a strong password">↻ Generate</button>
         </div></label>
+      <p class="cl-login-note" id="tmInviteNote" style="display:none">
+        They'll get an email inviting them to <b>set their own password</b> — you never
+        see or handle it. The link expires in 24 hours; you can resend it any time.</p>
       <div class="cl-err" id="tmErr"></div>
       <div class="cl-actions">
         <button type="button" class="btn btn-ghost" id="tmCancel2">Cancel</button>
@@ -114,10 +119,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=237"></script>
-<script src="assets/js/supabase-sync.js?v=237"></script>
-<script src="assets/js/ui.js?v=237"></script>
-<script src="assets/js/auth.js?v=237"></script>
+<script src="assets/js/supabase-config.js?v=238"></script>
+<script src="assets/js/supabase-sync.js?v=238"></script>
+<script src="assets/js/ui.js?v=238"></script>
+<script src="assets/js/auth.js?v=238"></script>
 <script>
   requireAuth();
   // The agency account (role=admin) only. AM/PMs are role=manager and land back on
@@ -126,9 +131,9 @@
   if (typeof isAdmin === "function" && !isAdmin())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=237"></script>
-<script src="assets/js/client-template.js?v=237"></script>
-<script src="assets/js/client-store.js?v=237"></script>
+<script src="assets/js/clients.js?v=238"></script>
+<script src="assets/js/client-template.js?v=238"></script>
+<script src="assets/js/client-store.js?v=238"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -208,9 +213,15 @@
           ${["admin","manager","creative","client"].map(r => `<option value="${r}"${r === u.role ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}
         </select></td>
         <td style="color:var(--text-dim)">${esc(clientName(u.clientId))}</td>
-        <td style="color:var(--text-dim)">${esc(when(u.lastSignIn))}</td>
+        <td style="color:var(--text-dim)">${u.invitedPending
+          ? `<span class="tm-pending">Invited — not accepted</span>`
+          : esc(when(u.lastSignIn))}</td>
         <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-ghost btn-sm" data-pw="${esc(u.id)}">Reset password</button>
+          ${u.role === "client"
+            // Clients never receive a password from us — resending the invite is the
+            // only correct recovery, whether they lost the link or it expired.
+            ? `<button class="btn btn-ghost btn-sm" data-reinvite="${esc(u.id)}">${u.invitedPending ? "Resend invite" : "Send reset link"}</button>`
+            : `<button class="btn btn-ghost btn-sm" data-pw="${esc(u.id)}">Reset password</button>`}
           ${u.isYou ? "" : `<button class="btn btn-ghost btn-sm tm-del" data-del="${esc(u.id)}">Remove</button>`}
         </td>
       </tr>`).join("");
@@ -260,6 +271,17 @@
 
   /* ---- reset password / remove ---- */
   $("tmBody").addEventListener("click", async (e) => {
+    const ri = e.target.closest("[data-reinvite]");
+    if (ri) {
+      const u = users.find(x => x.id === ri.dataset.reinvite);
+      const verb = u.invitedPending ? "Resend the invite to" : "Send a password-reset link to";
+      if (!confirm(`${verb} ${u.email}?\n\nThey'll get a fresh link to set their password. Any previous link stops working.`)) return;
+      const was = ri.textContent; ri.disabled = true; ri.textContent = "Sending…";
+      const r = await call({ action: "reinvite", id: u.id, role: u.role, email: u.email, clientId: u.clientId, name: u.name });
+      ri.disabled = false; ri.textContent = was;
+      alert(r.error ? r.error : `Sent to ${u.email}.`);
+      return;
+    }
     const pw = e.target.closest("[data-pw]");
     if (pw) {
       const u = users.find(x => x.id === pw.dataset.pw);
@@ -294,10 +316,17 @@
     sel.innerHTML = `<option value="">Choose a client…</option>` +
       list.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
   }
+  // A CLIENT is invited (they set their own password); STAFF get one you set and pass on.
+  // That's Cameron's rule: he handles team passwords, never a client's.
+  const isInviteRole = (role) => role === "client";
   function syncRoleFields() {
     const role = $("tmRole").value;
-    $("tmClientField").style.display = role === "client" ? "" : "none";
-    $("tmNameField").style.display = role === "client" ? "none" : "";
+    const invite = isInviteRole(role);
+    $("tmClientField").style.display = invite ? "" : "none";
+    $("tmNameField").style.display = invite ? "none" : "";
+    $("tmPwField").style.display = invite ? "none" : "";
+    $("tmInviteNote").style.display = invite ? "" : "none";
+    $("tmSave").textContent = invite ? "Send invite" : "Create login";
   }
   $("tmRole").addEventListener("change", syncRoleFields);
 
@@ -335,16 +364,20 @@
   $("tmForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const role = $("tmRole").value;
-    const payload = { action: "create", role,
+    const invite = isInviteRole(role);
+    const payload = { action: invite ? "invite" : "create", role,
       email: $("tmEmail").value.trim().toLowerCase(), password: $("tmPassword").value,
-      name: $("tmName").value.trim(), clientId: role === "client" ? $("tmClient").value : "" };
-    if (role === "client" && !payload.clientId) { $("tmErr").textContent = "Pick which client workspace this login is for."; return; }
+      name: $("tmName").value.trim(), clientId: invite ? $("tmClient").value : "" };
+    if (invite && !payload.clientId) { $("tmErr").textContent = "Pick which client workspace this login is for."; return; }
     $("tmSave").disabled = true;
+    const label = $("tmSave").textContent;
+    $("tmSave").textContent = invite ? "Sending…" : "Creating…";
     const r = await call(payload);
-    $("tmSave").disabled = false;
+    $("tmSave").disabled = false; $("tmSave").textContent = label;
     if (r.error) { $("tmErr").textContent = r.error; return; }
     close();
-    showCreated(payload.email, payload.password, role, payload.name, payload.clientId);
+    if (invite) alert(`Invite sent to ${payload.email}.\n\nThey'll set their own password and land in ${clientName(payload.clientId)}'s workspace. The link expires in 24 hours — you can resend it from the list.`);
+    else showCreated(payload.email, payload.password, role, payload.name, payload.clientId);
     await load();
   });
 

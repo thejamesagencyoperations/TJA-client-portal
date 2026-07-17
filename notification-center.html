@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Notification Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=237" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=237">
+<link rel="icon" href="assets/img/favicon.ico?v=238" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=238">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=237">
+<link rel="stylesheet" href="assets/css/styles.css?v=238">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -82,9 +82,9 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=237"></script>
-<script src="assets/js/supabase-sync.js?v=237"></script>
-<script src="assets/js/auth.js?v=237"></script>
+<script src="assets/js/supabase-config.js?v=238"></script>
+<script src="assets/js/supabase-sync.js?v=238"></script>
+<script src="assets/js/auth.js?v=238"></script>
 <script>
   requireAuth();
   // Admin-only. Creatives bounce to the PICKER — they have no client workspace,
@@ -93,10 +93,10 @@
   if (typeof isAdminOrManager === "function" && !isAdminOrManager())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=237"></script>
-<script src="assets/js/client-template.js?v=237"></script>
-<script src="assets/js/client-store.js?v=237"></script>
-<script src="assets/js/notifications.js?v=237"></script>
+<script src="assets/js/clients.js?v=238"></script>
+<script src="assets/js/client-template.js?v=238"></script>
+<script src="assets/js/client-store.js?v=238"></script>
+<script src="assets/js/notifications.js?v=238"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
