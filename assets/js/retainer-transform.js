@@ -62,7 +62,14 @@
       if (!clients.has(key)) clients.set(key, { wmjName: r.Client_Name.trim(), normName: key, code: leadCode(r.Campaign_Name), depts: new Map() });
       const C = clients.get(key);
       if (!C.code) C.code = leadCode(r.Campaign_Name);
-      const dept = (r.User_Department || "Other").trim() || "Other";
+      // SERVICE SPLIT: Organic Social lives inside the Creative DEPARTMENT in WMJ (it's a
+      // Service_Description, never a department), but the dashboard treats it as its own
+      // service line — as if it were a separate dept (Cameron, 2026-07-17). Routing the
+      // split HERE means everything downstream (service lines, discipline auto-add, burn,
+      // unallocated drill-down) just sees another department, no special cases.
+      const dept = /organic\s*social/i.test(r.Service_Description || "")
+        ? "Organic Social"
+        : (r.User_Department || "Other").trim() || "Other";
       if (!C.depts.has(dept)) C.depts.set(dept, new Map());
       const T = C.depts.get(dept);
       const tk = (r.Campaign_Name || "") + "|" + (r.Project_Name || "") + "|" + (r.Task_Name || "");

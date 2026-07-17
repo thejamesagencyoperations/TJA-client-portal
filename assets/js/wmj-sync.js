@@ -201,7 +201,7 @@ window.WMJ_SYNC = (function () {
     // absence of hours proves nothing.
     (function ensureDisciplinesForActuals() {
       const canon = window.tjaCanonDiscipline; if (!canon) return;
-      const DEPT_LABEL = { web: "Web/SEO Management", pr: "Public Relations", media: "Paid Media", creative: "Creative", oversight: "Strategic Oversight" };
+      const DEPT_LABEL = { web: "Web/SEO Management", pr: "Public Relations", media: "Paid Media", creative: "Creative", social: "Organic Social", oversight: "Strategic Oversight" };
       if (!Array.isArray(e.autoDisciplines)) e.autoDisciplines = [];
       const have = new Set((e.serviceDisciplines || []).map(d => canon(d.name)));
       (rc.serviceLines || []).forEach(sl => {

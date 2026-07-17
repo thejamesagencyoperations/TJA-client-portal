@@ -1,69 +1,93 @@
 /* ============================================================
-   AM/PM ASSIGNMENT SHEET → manager tags
-   The team keeps the live list of active AM/PMs and their client
-   assignments in one Google Sheet (Cameron, 2026-07-17). Layout:
+   AM/PM ASSIGNMENT SHEET → manager tags + client codes
+   The team's client-status workbook (Cameron, 2026-07-17) is the
+   monthly source of truth for who runs each account. One tab per
+   month ("July 2026", "August 2026", …), flat rows:
 
-     row 1:  manager first names, one per COLUMN-PAIR (cols 0,2,4,…)
-     row 2:  "Client / Industry" subheaders (ignored)
-     rows 3+: client name in the manager's first column, industry in
-              the second (industry ignored here)
+     A: client code ("245 STB" — WMJ project number + code)
+     B: client name
+     K: Account Manager (first name)
+     L: Project Manager (first name)
 
-   This sheet is the SOURCE OF TRUTH for `managers` tags on portal
-   clients it names: tags are overwritten on every sync (unlike the
-   WMJ-derived accountManager, which only ever seeds once). Portal
-   clients the sheet doesn't mention keep their existing tags —
-   the sheet not listing a client proves nothing (archived, new,
-   or just spelled differently).
+   (The workbook also has hidden legacy tabs — "Kristin Doc" /
+   "Grid View", a per-manager column-pair grid — which is what the
+   bare gid=0 CSV export serves. Do NOT parse that; always request
+   a month tab by NAME.)
 
-   Sheet manager names are FIRST names; portal accounts use full
-   names. Each sheet name is resolved to a full account name when
-   exactly one roster name starts with it (case-insensitive), so
-   the "my clients" default filter (which matches the login's full
-   name) still works. Unresolved names are kept as-is.
-
-   Matching sheet clients → portal clients: normalized exact match
-   or one-contains-the-other. Unmatched sheet rows are returned in
-   the result (surfaced in console) — fix by aligning the name in
-   the sheet or the portal, not by loosening the matcher into
-   guesswork.
+   Sync behavior:
+   • Reads the CURRENT month's tab, falling back up to 3 months
+     back until one parses (new month tabs appear when the team
+     makes them — the previous month stays truth until then).
+   • For each row, matches the portal client by CODE first (the
+     "STB" token — survives name drift like "Ray Cammack Shows" vs
+     "RCS, Inc."), then by normalized name.
+   • Overwrites the client's `managers` tags with [AM, PM] — the
+     sheet is truth for assignment; portal clients the sheet
+     doesn't list keep their existing tags (absence proves nothing).
+   • Backfills a missing portal `code` from column A.
+   • First names resolve to full account names via the staff
+     roster (window.TJA_STAFF_ROSTER) when exactly one matches, so
+     the "my clients" default filter keeps working.
    ============================================================ */
 window.MGR_SHEET = (function () {
   "use strict";
   const SHEET_ID = "1_I3UlEU__O4ea9SVV2J4ERKww3XWumc68wGDr0cDrQM";
-  const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
+  const tabUrl = (name) =>
+    `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
+
+  const MONTHS = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  function monthTabCandidates() {
+    const out = [], now = new Date();
+    for (let back = 0; back < 4; back++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+      out.push(MONTHS[d.getMonth()] + " " + d.getFullYear());
+    }
+    return out;
+  }
 
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // "245 STB" → "STB"; tolerate a bare code or extra spaces
+  function codeFrom(a) {
+    const m = /([A-Za-z]{2,6})\s*$/.exec(String(a || "").trim());
+    return m ? m[1].toUpperCase() : "";
+  }
 
   let lastManagers = [];   // resolved manager names from the last successful sync
+  let lastTab = "";        // which month tab actually served the data
 
-  function parse(text) {
-    const reg = window.CLIENT_PR_SHEETS;               // reuse the quote-aware CSV parser
-    if (!reg) return null;
-    const rows = reg.parseRows(text);
-    if (rows.length < 2) return null;
-    // column-pair layout: manager name sits in the first column of its pair
-    const managers = [];                               // [{ name, col }]
-    rows[0].forEach((cell, col) => { const n = String(cell || "").trim(); if (n) managers.push({ name: n, col }); });
-    const byManager = {};                              // manager name -> [client names]
-    managers.forEach(m => { byManager[m.name] = []; });
-    rows.slice(2).forEach(r => {
-      managers.forEach(m => {
-        const client = String(r[m.col] || "").trim();
-        if (client) byManager[m.name].push(client);
+  // rows → [{code, name, am, pm}]; null if this tab isn't the flat monthly layout
+  function parseTab(rows) {
+    const headIdx = rows.findIndex(r => String(r[1] || "").trim().toLowerCase() === "client");
+    if (headIdx < 0) return null;
+    const out = [];
+    rows.slice(headIdx + 1).forEach(r => {
+      const name = String(r[1] || "").trim();
+      if (!name) return;
+      out.push({
+        code: codeFrom(r[0]),
+        name,
+        am: String(r[10] || "").trim(),   // K
+        pm: String(r[11] || "").trim(),   // L
       });
     });
-    return { managers: managers.map(m => m.name), byManager };
+    return out.length ? out : null;
   }
 
   // first name → full account name, when exactly one roster name starts with it
   function resolveFull(first, roster) {
     const f = String(first || "").trim().toLowerCase();
+    if (!f) return "";
     const hits = (roster || []).filter(n => n.toLowerCase().startsWith(f));
-    return hits.length === 1 ? hits[0] : String(first || "").trim();
+    return hits.length === 1 ? hits[0] : String(first).trim();
   }
 
-  function matchPortalClient(sheetName, roster) {
-    const target = norm(sheetName);
+  function matchPortalClient(row, roster) {
+    if (row.code) {
+      const byCode = roster.find(c => String(c.code || "").toUpperCase() === row.code);
+      if (byCode) return byCode;
+    }
+    const target = norm(row.name);
     if (!target) return null;
     return roster.find(c => {
       const a = norm(c.name), b = norm(c.wmjName || "");
@@ -74,45 +98,41 @@ window.MGR_SHEET = (function () {
   }
 
   async function sync() {
-    if (!window.TJA_STORE) return { clients: 0 };
-    let text;
-    try {
-      const res = await fetch(CSV_URL, { cache: "no-store" });
-      if (!res.ok) throw new Error("mgr sheet fetch " + res.status);
-      text = await res.text();
-    } catch (e) { console.warn("mgr-sheet sync", e); return { clients: 0, error: String(e) }; }
-    const parsed = parse(text);
-    if (!parsed || !parsed.managers.length) { console.warn("mgr-sheet: nothing parsed"); return { clients: 0 }; }
+    if (!window.TJA_STORE || !window.CLIENT_PR_SHEETS) return { clients: 0 };
+    let parsed = null;
+    for (const tab of monthTabCandidates()) {
+      try {
+        const res = await fetch(tabUrl(tab), { cache: "no-store" });
+        if (!res.ok) continue;
+        parsed = parseTab(window.CLIENT_PR_SHEETS.parseRows(await res.text()));
+        if (parsed) { lastTab = tab; break; }
+      } catch (e) { /* try the next month back */ }
+    }
+    if (!parsed) { console.warn("mgr-sheet: no month tab parsed"); return { clients: 0 }; }
 
-    const staffRoster = window.TJA_STAFF_ROSTER || [];   // full account names, set by clients.html
-    const fullName = {};                                  // sheet first name -> resolved full name
-    parsed.managers.forEach(m => { fullName[m] = resolveFull(m, staffRoster); });
-    lastManagers = parsed.managers.map(m => fullName[m]);
-
-    // invert: portal client -> [manager full names]
-    const roster = window.TJA_STORE.list() || [];
-    const tagsFor = new Map();                            // portal id -> Set of manager names
+    const staffRoster = window.TJA_STAFF_ROSTER || [];
+    const portal = window.TJA_STORE.list() || [];
+    const managerSet = new Set();
     const unmatched = [];
-    Object.keys(parsed.byManager).forEach(m => {
-      parsed.byManager[m].forEach(clientName => {
-        if (norm(clientName).indexOf("thejamesagency") === 0) return;   // the agency itself, not a client
-        const ent = matchPortalClient(clientName, roster);
-        if (!ent) { unmatched.push(clientName + " (" + m + ")"); return; }
-        if (!tagsFor.has(ent.id)) tagsFor.set(ent.id, new Set());
-        tagsFor.get(ent.id).add(fullName[m]);
-      });
+    let n = 0;
+
+    parsed.forEach(row => {
+      const am = resolveFull(row.am, staffRoster), pm = resolveFull(row.pm, staffRoster);
+      [am, pm].forEach(m => m && managerSet.add(m));
+      const ent = matchPortalClient(row, portal);
+      if (!ent) { unmatched.push(row.name + (row.code ? " (" + row.code + ")" : "")); return; }
+      const next = [...new Set([am, pm].filter(Boolean))].sort();
+      const patch = {};
+      const cur = Array.isArray(ent.managers) ? ent.managers.slice().sort() : [];
+      if (next.length && JSON.stringify(cur) !== JSON.stringify(next)) patch.managers = next;
+      if (!ent.code && row.code) patch.code = row.code;   // backfill only — WMJ's code stays authoritative
+      if (Object.keys(patch).length) { window.TJA_STORE.update(ent.id, patch); n++; }
     });
 
-    let n = 0;
-    tagsFor.forEach((set, id) => {
-      const next = [...set].sort();
-      const ent = window.TJA_STORE.get(id); if (!ent) return;
-      const cur = Array.isArray(ent.managers) ? ent.managers.slice().sort() : [];
-      if (JSON.stringify(cur) !== JSON.stringify(next)) { window.TJA_STORE.update(id, { managers: next }); n++; }
-    });
-    if (unmatched.length) console.log("mgr-sheet: no portal client matched for:", unmatched.join(", "));
-    return { clients: n, managers: lastManagers, unmatched };
+    lastManagers = [...managerSet].sort();
+    if (unmatched.length) console.log(`mgr-sheet (${lastTab}): no portal client matched for:`, unmatched.join(", "));
+    return { clients: n, tab: lastTab, managers: lastManagers, unmatched };
   }
 
-  return { sync, managers: () => lastManagers.slice(), CSV_URL };
+  return { sync, managers: () => lastManagers.slice(), tab: () => lastTab };
 })();

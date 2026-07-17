@@ -54,6 +54,10 @@
   // the same slot, so actual billable hours land under the right discipline.
   function canonDiscipline(s) {
     s = String(s || "").toLowerCase();
+    // "social" MUST outrank media and oversight: "Social Media" would otherwise canon to
+    // "media" (paid media) and "Social Media Management" to "oversight". Organic Social
+    // is its own service line (split out of the Creative dept — Cameron, 2026-07-17).
+    if (/social/.test(s)) return "social";
     if (/public relation|(^|[^a-z])pr([^a-z]|$)/.test(s)) return "pr";
     if (/paid media|(^|[^a-z])media/.test(s)) return "media";
     if (/creativ|design/.test(s)) return "creative";
