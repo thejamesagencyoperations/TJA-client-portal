@@ -930,44 +930,99 @@ window.PresentDocs = (function () {
       const jsPDF = await loadJsPDF(); if (!jsPDF) throw new Error("no jsPDF");
       const v = active(d), composite = await buildComposite(v);
       const pdf = new jsPDF({ unit: "pt", format: "letter" });
-      const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight(), M = 42;
-      let y = M;
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(17); pdf.setTextColor(20); pdf.text(d.name, M, y); y += 22;
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(110);
+      const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight(), M = 46;
+      const ORANGE = [246, 142, 33], INK = [26, 26, 26], DIM = [110, 110, 110], FAINT = [150, 150, 150];
+      const clientName = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name) || "";
+      const FOOT = 34;                       // space reserved for the footer on every page
+      const bottom = () => pageH - M - FOOT;
+
+      /* ---- masthead (first page): orange band + tja logotype ---- */
+      pdf.setFillColor(...ORANGE); pdf.rect(0, 0, pageW, 66, "F");
+      pdf.setFillColor(255, 255, 255); pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(30); pdf.setTextColor(255, 255, 255); pdf.text("tja", M, 44);
+      pdf.setFontSize(8); pdf.setFont("helvetica", "bold");
+      pdf.text("THE JAMES AGENCY  ·  CLIENT PORTAL", pageW - M, 40, { align: "right", charSpace: 1 });
+      let y = 66 + 34;
+
+      /* ---- title block ---- */
+      pdf.setFont("helvetica", "bold"); pdf.setFontSize(18); pdf.setTextColor(...INK);
+      pdf.text(d.name, M, y);
+      // status pill, right-aligned on the title line
       const dir = v.status ? STATUS[v.status].label : "Pending Review";
-      pdf.text(`Version ${v.label}    ·    Direction: ${dir}    ·    Exported ${new Date().toLocaleDateString()}`, M, y);
-      y += 9; pdf.setDrawColor(225); pdf.line(M, y, pageW - M, y); y += 16; pdf.setTextColor(20);
+      const PILL = { approved: [54, 194, 117], "changes-requested": [245, 179, 66], revisions: [239, 83, 80] };
+      const pillC = PILL[v.status] || [150, 150, 150];
+      pdf.setFontSize(8.5); pdf.setFont("helvetica", "bold");
+      const pw = pdf.getTextWidth(dir.toUpperCase()) + 16;
+      pdf.setFillColor(...pillC); pdf.roundedRect(pageW - M - pw, y - 11, pw, 15, 7.5, 7.5, "F");
+      pdf.setTextColor(255, 255, 255); pdf.text(dir.toUpperCase(), pageW - M - pw / 2, y - 0.5, { align: "center" });
+      y += 18;
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(...DIM);
+      pdf.text([clientName, "Version " + v.label, "Exported " + new Date().toLocaleDateString()].filter(Boolean).join("    ·    "), M, y);
+      y += 10; pdf.setDrawColor(...ORANGE); pdf.setLineWidth(1.4); pdf.line(M, y, pageW - M, y); y += 20;
+
       if (composite) {
         const props = pdf.getImageProperties(composite), maxW = pageW - M * 2, ratio = props.height / props.width;
-        let w = maxW, h = maxW * ratio; const maxH = pageH * 0.46; if (h > maxH) { h = maxH; w = h / ratio; }
-        pdf.addImage(composite, "JPEG", M + (maxW - w) / 2, y, w, h); y += h + 18;
+        let w = maxW, h = maxW * ratio; const maxH = pageH * 0.44; if (h > maxH) { h = maxH; w = h / ratio; }
+        pdf.addImage(composite, "JPEG", M + (maxW - w) / 2, y, w, h); y += h + 22;
       }
+
+      /* ---- section heading: small orange tab + label ---- */
+      const heading = (label) => {
+        if (y + 40 > bottom()) { pdf.addPage(); y = M; }
+        pdf.setFillColor(...ORANGE); pdf.rect(M, y - 9, 3.5, 12, "F");
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(...INK);
+        pdf.text(label, M + 10, y); y += 17;
+      };
+
       const pins = v.pins || [];
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.text(`Comments (${pins.length})`, M, y); y += 15;
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(40);
-      if (!pins.length) { pdf.setTextColor(140); pdf.text("No pinned comments.", M, y); y += 14; pdf.setTextColor(40); }
+      heading(`Comments (${pins.length})`);
+      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10);
+      if (!pins.length) { pdf.setTextColor(...FAINT); pdf.text("No pinned comments.", M, y); y += 14; }
       pins.forEach((p, i) => {
-        const lines = pdf.splitTextToSize(`${i + 1}.  ${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2);
-        if (y + lines.length * 13 > pageH - M) { pdf.addPage(); y = M; }
-        pdf.text(lines, M, y); y += lines.length * 13 + 4;
+        // orange number badge matching the pins drawn on the image, text beside it
+        const lines = pdf.splitTextToSize(`${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
+        if (y + lines.length * 13 > bottom()) { pdf.addPage(); y = M; }
+        pdf.setFillColor(...(p.resolved ? [54, 194, 117] : ORANGE));
+        pdf.circle(M + 6.5, y - 3.5, 6.5, "F");
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(255, 255, 255);
+        pdf.text(String(i + 1), M + 6.5, y - 0.9, { align: "center" });
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(40, 40, 40);
+        pdf.text(lines, M + 22, y); y += lines.length * 13 + 6;
       });
-      y += 10;
+      y += 12;
+
       const notes = (label, txt) => {
         if (!txt) return;
-        if (y + 34 > pageH - M) { pdf.addPage(); y = M; }
-        pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.text(label, M, y); y += 14;
-        pdf.setFont("helvetica", "normal"); pdf.setFontSize(10);
-        const lines = pdf.splitTextToSize(txt, pageW - M * 2); pdf.text(lines, M, y); y += lines.length * 13 + 10;
+        heading(label);
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(40, 40, 40);
+        const lines = pdf.splitTextToSize(txt, pageW - M * 2);
+        if (y + lines.length * 13 > bottom()) { pdf.addPage(); y = M; }
+        pdf.text(lines, M, y); y += lines.length * 13 + 14;
       };
       notes("Client Notes", v.clientNotes); notes("Agency Notes", v.agencyNotes);
+
       if (v.signature) {
-        if (y + 100 > pageH - M) { pdf.addPage(); y = M; }
-        pdf.setFont("helvetica", "bold"); pdf.setFontSize(11); pdf.setTextColor(20); pdf.text("Client Approval", M, y); y += 8;
+        if (y + 110 > bottom()) { pdf.addPage(); y = M; }
+        heading("Client Approval"); y += 2;
         try { pdf.addImage(v.signature, "PNG", M, y, 170, 56); } catch (e) {}
-        pdf.setDrawColor(200); pdf.line(M, y + 60, M + 220, y + 60);
-        pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(110);
+        pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.8); pdf.line(M, y + 60, M + 220, y + 60);
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(...DIM);
         pdf.text(`${v.signedBy || "Client"}${v.signedDate ? "    ·    " + v.signedDate : ""}`, M, y + 72);
       }
+
+      /* ---- footer on every page: rule + brand + page numbers ---- */
+      const pages = pdf.getNumberOfPages();
+      for (let p = 1; p <= pages; p++) {
+        pdf.setPage(p);
+        const fy = pageH - 30;
+        pdf.setDrawColor(...ORANGE); pdf.setLineWidth(0.8); pdf.line(M, fy, pageW - M, fy);
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(7.5); pdf.setTextColor(...FAINT);
+        pdf.text("THE JAMES AGENCY", M, fy + 12, { charSpace: 0.8 });
+        pdf.setFont("helvetica", "normal");
+        pdf.text(`${d.name} — ${v.label}`, pageW / 2, fy + 12, { align: "center" });
+        pdf.text(`Page ${p} of ${pages}`, pageW - M, fy + 12, { align: "right" });
+      }
+
       pdf.save(`${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}.pdf`);
     } catch (e) {
       console.warn("PDF export failed", e);

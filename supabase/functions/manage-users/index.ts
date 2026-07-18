@@ -86,26 +86,52 @@ function workspaceFor(role: string, clientId: string) {
 const esc = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 
+/* Table-based layout on purpose: divs+flex render inconsistently across Outlook/
+   Gmail/Apple Mail; nested tables with inline styles are the one thing they all
+   honour. Buttons are padded <td>s (a styled <a> alone loses its padding in
+   Outlook). Colors mirror the portal: orange #F68E21, ink #1a1a1a. */
 function inviteEmailHtml(clientName: string, link: string, inviterName: string) {
   return `
-  <div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;color:#222">
-    <div style="background:#F68E21;border-radius:8px 8px 0 0;padding:14px 20px;color:#fff;font-weight:800;font-size:18px">The James Agency</div>
-    <div style="border:1px solid #e5e5e5;border-top:none;border-radius:0 0 8px 8px;padding:22px">
-      <p style="margin:0 0 12px;font-size:16px"><b>You've been given access to your client portal.</b></p>
-      <p style="margin:0 0 14px;color:#555;line-height:1.55">
-        ${esc(inviterName)} at The James Agency has set up a portal for
-        <b>${esc(clientName)}</b> — where you can see progress, review creative work
-        and leave feedback in one place.</p>
-      <p style="margin:0 0 18px;color:#555;line-height:1.55">
-        Click below to choose a password and sign in.</p>
-      <p style="margin:0 0 18px">
-        <a href="${link}" style="background:#F68E21;color:#111;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:8px;display:inline-block">Set your password →</a>
-      </p>
-      <p style="margin:0;color:#888;font-size:12px;line-height:1.5">
-        This link expires in 24 hours. If it has, ask your account manager to send a new one.<br>
-        If you weren't expecting this, you can ignore this email.</p>
-    </div>
-  </div>`;
+  <div style="display:none;max-height:0;overflow:hidden">Set your password and step into the ${esc(clientName)} portal &mdash; progress, creative and feedback in one place.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ec;padding:32px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;font-family:Inter,-apple-system,'Segoe UI',Arial,sans-serif">
+        <!-- logo lockup -->
+        <tr><td style="padding:0 0 18px">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="background:#F68E21;border-radius:8px;padding:8px 14px;color:#ffffff;font-weight:800;font-size:22px;letter-spacing:-1px;font-family:Inter,Arial,sans-serif">tja</td>
+            <td style="padding-left:12px;color:#8a8378;font-size:11px;font-weight:700;letter-spacing:2px">THE&nbsp;JAMES&nbsp;AGENCY</td>
+          </tr></table>
+        </td></tr>
+        <!-- card -->
+        <tr><td style="background:#ffffff;border:1px solid #e8e2d8;border-radius:14px;padding:34px 36px">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="font-size:21px;font-weight:800;color:#1a1a1a;letter-spacing:-.3px;padding-bottom:14px">
+              Welcome to your client portal</td></tr>
+            <tr><td style="font-size:14.5px;color:#555555;line-height:1.65;padding-bottom:8px">
+              ${esc(inviterName)} at The James Agency has set up a private portal for
+              <b style="color:#1a1a1a">${esc(clientName)}</b> &mdash; one place to follow progress,
+              review creative work and leave feedback that reaches the team instantly.</td></tr>
+            <tr><td style="font-size:14.5px;color:#555555;line-height:1.65;padding-bottom:24px">
+              Choose your own password to get started &mdash; it takes under a minute.</td></tr>
+            <tr><td align="center" style="padding-bottom:24px">
+              <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                <td style="background:#F68E21;border-radius:9px" align="center">
+                  <a href="${link}" style="display:inline-block;padding:13px 34px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;font-family:Inter,Arial,sans-serif">Set your password&nbsp;&nbsp;&rarr;</a>
+                </td>
+              </tr></table>
+            </td></tr>
+            <tr><td style="border-top:1px solid #efe9df;padding-top:16px;font-size:12px;color:#999999;line-height:1.6">
+              This link expires in <b>24 hours</b> &mdash; if it has, ask your account manager to send a fresh one.<br>
+              Weren't expecting this? You can safely ignore this email.</td></tr>
+          </table>
+        </td></tr>
+        <!-- footer -->
+        <tr><td align="center" style="padding:18px 10px 0;color:#b3aca0;font-size:11px;line-height:1.6">
+          The James Agency &nbsp;&middot;&nbsp; Scottsdale, AZ &nbsp;&middot;&nbsp; thejamesagency.com</td></tr>
+      </table>
+    </td></tr>
+  </table>`;
 }
 
 async function sendInviteEmail(to: string, clientName: string, link: string, inviterName: string) {
