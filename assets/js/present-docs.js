@@ -519,7 +519,7 @@ window.PresentDocs = (function () {
       const r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items);
       if (!r.ok) {
         revert();
-        alert("Send failed (" + (r.error || "network") + ") — the deliverable is still in the waiting room.");
+        window.TJA_UI.alert("Send failed (" + (r.error || "network") + ") — the deliverable is still in the waiting room.");
         renderGallery();
         return;
       }
@@ -971,7 +971,7 @@ window.PresentDocs = (function () {
       pdf.save(`${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}.pdf`);
     } catch (e) {
       console.warn("PDF export failed", e);
-      alert("Sorry — couldn't generate the PDF (the PDF library may have failed to load). Check your connection and try again.");
+      window.TJA_UI.alert("Sorry — couldn’t generate the PDF (the PDF library may have failed to load). Check your connection and try again.");
     } finally { if (btn) { btn.disabled = false; btn.innerHTML = old; } }
   }
 

@@ -970,7 +970,7 @@ window.ExecSummary = (function () {
     });
 
     // structural / toggle actions
-    s.addEventListener("click", e => {
+    s.addEventListener("click", async e => {
       const eng = window.DASH.getEng();
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
@@ -991,16 +991,17 @@ window.ExecSummary = (function () {
       const pc = e.target.closest("[data-prconnect]");
       if (pc && canAdmin()) {
         const cur = eng.prSheetUrl || "";
-        const raw = prompt("Paste the PR sheet's share link (must be shared “Anyone with the link – Viewer”):", cur);
+        const raw = await window.TJA_UI.prompt("Paste the PR sheet's share link (must be shared “Anyone with the link – Viewer”):",
+          { title: "Connect PR sheet", value: cur, okText: "Connect" });
         if (raw == null) return;   // cancelled
         const reg = window.CLIENT_PR_SHEETS;
         if (!raw.trim()) { delete eng.prSheetUrl; eng.prSource = "manual"; window.DASH.saveState(); rerender(); return; }
         const cfg = reg && reg.parseSheetUrl(raw);
-        if (!cfg) { alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
+        if (!cfg) { window.TJA_UI.alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
         eng.prSheetUrl = raw.trim();
         pc.disabled = true; pc.textContent = "Connecting…";
         window.DASH.refreshPRSheet(eng, cfg).then(ok => {
-          if (!ok) alert("Couldn't read that sheet — check it's shared “Anyone with the link – Viewer” and try again.");
+          if (!ok) window.TJA_UI.alert("Couldn't read that sheet — check it's shared “Anyone with the link – Viewer” and try again.");
           window.DASH.saveState(); rerender();
         });
         return;
@@ -1017,7 +1018,7 @@ window.ExecSummary = (function () {
             (eng.prSlackSent || (eng.prSlackSent = {}))[window.SLACK_WINS.keyFor(hit)] = new Date().toISOString();
             window.DASH.saveState(); rerender();
           })
-          .catch(err => { alert("Couldn't post to Slack: " + (err && err.message || err)); rerender(); });
+          .catch(err => { window.TJA_UI.alert("Couldn't post to Slack: " + (err && err.message || err)); rerender(); });
         return;
       }
 

@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Backup &amp; Sync · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=244" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=244">
+<link rel="icon" href="assets/img/favicon.ico?v=245" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=245">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=244">
+<link rel="stylesheet" href="assets/css/styles.css?v=245">
 <style>
   .bk-wrap { max-width: 780px; margin: 40px auto; padding: 0 20px; }
   .bk-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
@@ -72,14 +72,15 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=244"></script>
-<script src="assets/js/version-check.js?v=244"></script>
-<script src="assets/js/supabase-sync.js?v=244"></script>
-<script src="assets/js/auth.js?v=244"></script>
+<script src="assets/js/supabase-config.js?v=245"></script>
+<script src="assets/js/ui.js?v=245"></script>
+<script src="assets/js/version-check.js?v=245"></script>
+<script src="assets/js/supabase-sync.js?v=245"></script>
+<script src="assets/js/auth.js?v=245"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=244"></script>
-<script src="assets/js/client-template.js?v=244"></script>
-<script src="assets/js/client-store.js?v=244"></script>
+<script src="assets/js/clients.js?v=245"></script>
+<script src="assets/js/client-template.js?v=245"></script>
+<script src="assets/js/client-store.js?v=245"></script>
 <script>
 (async function () {
   // Admin-only; creatives → picker (they own no workspace, dashboard would re-bounce).
@@ -121,15 +122,16 @@
         pendingImport = j;
         $("importBtn").disabled = false;
         $("importBtn").textContent = "⬆ Restore " + Object.keys(j.keys).length + " keys (from " + (j.exportedAt || "?").slice(0, 10) + ")";
-      } catch (err) { alert("That file isn't a portal backup: " + err.message); }
+      } catch (err) { window.TJA_UI.alert("That file isn't a portal backup: " + err.message); }
     });
   });
-  $("importBtn").addEventListener("click", () => {
+  $("importBtn").addEventListener("click", async () => {
     if (!pendingImport) return;
-    if (!confirm("Replace this browser's portal data with the backup? Current data will be overwritten.")) return;
+    if (!(await window.TJA_UI.confirm("Replace this browser's portal data with the backup? Current data will be overwritten.",
+      { title: "Restore backup", okText: "Restore", danger: true }))) return;
     portalKeys().forEach(k => localStorage.removeItem(k));
     Object.entries(pendingImport.keys).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch (e) {} });
-    alert("Restored. Reloading…");
+    await window.TJA_UI.alert("Restored. Reloading…");
     location.reload();
   });
 

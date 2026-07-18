@@ -344,7 +344,7 @@ function initStatus() {
     const f = e.target.closest("[data-st]"); if (!f) return;
     setPath(getEng(), f.dataset.st, f.textContent.trim()); saveState();
   });
-  page.addEventListener("click", e => {
+  page.addEventListener("click", async e => {
     const eng = getEng(); const st = eng.status || (eng.status = { groups: [] });
     const cyc = e.target.closest("[data-ststatus]");
     if (cyc) { const order = ["pending", "in-progress", "complete", "blocked"]; const cur = getPath(eng, cyc.dataset.ststatus); setPath(eng, cyc.dataset.ststatus, order[(order.indexOf(cur) + 1) % 4]); saveState(); repaint("status"); return; }
@@ -356,19 +356,21 @@ function initStatus() {
     if (del) { const p = del.dataset.stdel.split("."); if (p[0] === "group") st.groups.splice(+p[1], 1); else st.groups[+p[1]].rows.splice(+p[2], 1); saveState(); repaint("status"); return; }
     const conn = e.target.closest("[data-statusconnect]");
     if (conn) {
-      const raw = prompt("Paste the Status Report sheet's share link (must be shared “Anyone with the link – Viewer”).\n\nColumns, in order: Service Line, Effort, Update & Next Steps, Status, Deadline. Repeat the Service Line on its first row, then leave it blank for the rows under it.", eng.statusSheetUrl || "");
+      const raw = await window.TJA_UI.prompt(
+        "Paste the Status Report sheet's share link (must be shared “Anyone with the link – Viewer”).\n\nColumns, in order: Service Line, Effort, Update & Next Steps, Status, Deadline. Repeat the Service Line on its first row, then leave it blank for the rows under it.",
+        { title: "Connect Status Report sheet", value: eng.statusSheetUrl || "", okText: "Connect" });
       if (raw == null) return;
       const reg = window.CLIENT_PR_SHEETS;
       if (!raw.trim()) { delete eng.statusSheetUrl; saveState(); repaint("status"); return; }
       const cfg = reg && reg.parseSheetUrl(raw);
-      if (!cfg) { alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
+      if (!cfg) { window.TJA_UI.alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
       conn.disabled = true; conn.textContent = "Connecting…";
       fetch(reg.csvUrl(cfg), { cache: "no-store" }).then(r => r.ok ? r.text() : null).then(text => {
         const parsed = text && parseStatusSheet(text);
-        if (!parsed || !parsed.groups.length) { alert("Couldn't read any rows from that sheet — check the link is shared and the columns match Service Line, Effort, Update & Next Steps, Status, Deadline."); repaint("status"); return; }
+        if (!parsed || !parsed.groups.length) { window.TJA_UI.alert("Couldn't read any rows from that sheet — check the link is shared and the columns match Service Line, Effort, Update & Next Steps, Status, Deadline."); repaint("status"); return; }
         eng.status = parsed; eng.statusSheetUrl = raw.trim();
         saveState(); repaint("status");
-      }).catch(() => { alert("Couldn't reach that sheet."); repaint("status"); });
+      }).catch(() => { window.TJA_UI.alert("Couldn't reach that sheet."); repaint("status"); });
       return;
     }
   });
@@ -473,7 +475,7 @@ function initFiles() {
   el("#filesInput").addEventListener("change", async e => {
     const f = e.target.files[0]; if (!f) return;
     e.target.value = "";
-    if (f.size > 10 * 1024 * 1024) { alert("Files over 10 MB can't be uploaded here yet — share big files via your Drive folder directly."); return; }
+    if (f.size > 10 * 1024 * 1024) { window.TJA_UI.alert("Files over 10 MB can't be uploaded here yet — share big files via your Drive folder directly."); return; }
     const row = { id: "f_" + Date.now(), name: f.name, type: (f.name.split(".").pop() || "file").toUpperCase(),
       status: "Uploaded", date: new Date().toLocaleDateString(), size: fmtSize(f.size),
       by: (typeof effectiveRole === "function" && effectiveRole() === "client") ? D.client.name : "TJA Team" };
@@ -784,7 +786,7 @@ function applyEngagement() {
   });
 
   // Monthly Services add/hide (admin + manager) — see applyEngagement() for the state machine.
-  document.getElementById("engActions").addEventListener("click", e => {
+  document.getElementById("engActions").addEventListener("click", async e => {
     const addBtn = e.target.closest("#addRetainerBtn, #showRetainerBtn");
     if (addBtn) {
       const r = STATE.engagements.retainer || (STATE.engagements.retainer = clone(D.engagements.retainer));
@@ -798,7 +800,7 @@ function applyEngagement() {
     }
     const hideBtn = e.target.closest("#hideRetainerBtn");
     if (hideBtn) {
-      if (!confirm("Hide the Monthly Services tab? Nothing is deleted — bring it back anytime with “Show Monthly Services tab.”")) return;
+      if (!(await window.TJA_UI.confirm("Hide the Monthly Services tab? Nothing is deleted — bring it back anytime with “Show Monthly Services tab.”", { title: "Hide Monthly Services", okText: "Hide tab" }))) return;
       const r = STATE.engagements.retainer; if (!r) return;
       r.tabHidden = true;
       saveState();

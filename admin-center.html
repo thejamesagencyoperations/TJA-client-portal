@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=244" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=244">
+<link rel="icon" href="assets/img/favicon.ico?v=245" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=245">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=244">
+<link rel="stylesheet" href="assets/css/styles.css?v=245">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -122,11 +122,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=244"></script>
-<script src="assets/js/version-check.js?v=244"></script>
-<script src="assets/js/supabase-sync.js?v=244"></script>
-<script src="assets/js/ui.js?v=244"></script>
-<script src="assets/js/auth.js?v=244"></script>
+<script src="assets/js/supabase-config.js?v=245"></script>
+<script src="assets/js/version-check.js?v=245"></script>
+<script src="assets/js/supabase-sync.js?v=245"></script>
+<script src="assets/js/ui.js?v=245"></script>
+<script src="assets/js/auth.js?v=245"></script>
 <script>
   requireAuth();
   // The agency account (role=admin) only. AM/PMs are role=manager and land back on
@@ -135,9 +135,9 @@
   if (typeof isAdmin === "function" && !isAdmin())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=244"></script>
-<script src="assets/js/client-template.js?v=244"></script>
-<script src="assets/js/client-store.js?v=244"></script>
+<script src="assets/js/clients.js?v=245"></script>
+<script src="assets/js/client-template.js?v=245"></script>
+<script src="assets/js/client-store.js?v=245"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -261,14 +261,15 @@
     // Demoting to client needs a workspace — staff sentinels aren't real clients.
     if (role === "client" && (!clientId || clientId.startsWith("_"))) {
       const list = (window.TJA_STORE.list() || []).map(c => `${c.id} — ${c.name}`).join("\n");
-      const pick = prompt("Which client workspace should this login open?\n\nType the id exactly:\n\n" + list);
+      const pick = await window.TJA_UI.prompt("Which client workspace should this login open?\n\nType the id exactly:\n\n" + list,
+        { title: "Pick a workspace", placeholder: "client-id" });
       if (!pick) { sel.value = prev; return; }
       clientId = pick.trim();
     }
     sel.disabled = true;
     const r = await call({ action: "update", id, role, clientId, name: u.name });
     sel.disabled = false;
-    if (r.error) { alert(r.error); sel.value = prev; return; }
+    if (r.error) { window.TJA_UI.alert(r.error); sel.value = prev; return; }
     // mirror the function's workspaceFor() — it normalises this server-side anyway
     const SENTINEL = { admin: "_admin", manager: "_manager", creative: "_creative" };
     u.role = role; u.clientId = SENTINEL[role] || clientId;
@@ -281,21 +282,23 @@
     if (ri) {
       const u = users.find(x => x.id === ri.dataset.reinvite);
       const verb = u.invitedPending ? "Resend the invite to" : "Send a password-reset link to";
-      if (!confirm(`${verb} ${u.email}?\n\nThey'll get a fresh link to set their password. Any previous link stops working.`)) return;
+      if (!(await window.TJA_UI.confirm(`${verb} ${u.email}?\n\nThey'll get a fresh link to set their password. Any previous link stops working.`,
+        { title: u.invitedPending ? "Resend invite" : "Send reset link", okText: "Send" }))) return;
       const was = ri.textContent; ri.disabled = true; ri.textContent = "Sending…";
       const r = await call({ action: "reinvite", id: u.id, role: u.role, email: u.email, clientId: u.clientId, name: u.name });
       ri.disabled = false; ri.textContent = was;
-      alert(r.error ? r.error : `Sent to ${u.email}.`);
+      window.TJA_UI.alert(r.error ? r.error : `Sent to ${u.email}.`);
       return;
     }
     const pw = e.target.closest("[data-pw]");
     if (pw) {
       const u = users.find(x => x.id === pw.dataset.pw);
       // pre-filled with a strong one — accept it or type your own
-      const p = prompt(`Set a new password for ${u.email}\n\nA strong one is filled in — keep it or type your own (8+ characters).\nNobody is emailed automatically, so pass it on yourself.`, genPassword());
+      const p = await window.TJA_UI.prompt(`Set a new password for ${u.email}\n\nA strong one is filled in — keep it or type your own (8+ characters).\nNobody is emailed automatically, so pass it on yourself.`,
+        { title: "Reset password", value: genPassword(), okText: "Set password" });
       if (!p) return;
       const r = await call({ action: "password", id: pw.dataset.pw, password: p });
-      if (r.error) { alert(r.error); return; }
+      if (r.error) { window.TJA_UI.alert(r.error); return; }
       // same one-time reveal: this is the only readable copy of the new password
       showCreated(u.email, p, u.role, u.name, u.clientId);
       $("tmDoneLead").textContent = `Password reset for ${u.name || u.email}. Send them these details.`;
@@ -304,9 +307,10 @@
     const del = e.target.closest("[data-del]");
     if (del) {
       const u = users.find(x => x.id === del.dataset.del);
-      if (!confirm(`Remove the login for ${u.email}?\n\nThey lose access immediately. Their client's workspace data is NOT deleted.`)) return;
+      if (!(await window.TJA_UI.confirm(`Remove the login for ${u.email}?\n\nThey lose access immediately. Their client's workspace data is NOT deleted.`,
+        { title: "Remove login", okText: "Remove", danger: true }))) return;
       const r = await call({ action: "remove", id: del.dataset.del });
-      if (r.error) { alert(r.error); return; }
+      if (r.error) { window.TJA_UI.alert(r.error); return; }
       users = users.filter(x => x.id !== del.dataset.del);
       render();
     }
@@ -388,7 +392,7 @@
     $("tmSave").disabled = false; $("tmSave").textContent = label;
     if (r.error) { $("tmErr").textContent = r.error; return; }
     close();
-    if (invite) alert(`Invite sent to ${payload.email}.\n\nThey'll set their own password and land in ${clientName(payload.clientId)}'s workspace. The link expires in 24 hours — you can resend it from the list.`);
+    if (invite) window.TJA_UI.alert(`Invite sent to ${payload.email}.\n\nThey'll set their own password and land in ${clientName(payload.clientId)}'s workspace. The link expires in 24 hours — you can resend it from the list.`, { title: "Invite sent ✓" });
     else showCreated(payload.email, payload.password, role, payload.name, payload.clientId);
     await load();
   });

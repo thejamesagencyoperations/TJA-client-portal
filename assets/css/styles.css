@@ -1238,6 +1238,27 @@ body[data-role="creative"] .admin-only { display: none !important; }
   border-radius: 8px; padding: 6px 12px; font-size: .72rem; font-weight: 700; cursor: pointer; transition: all .12s ease; }
 .exec-actuals-btn:hover { background: var(--orange); color: #111; }
 /* burn → disciplines distribution popup */
+/* themed scrollbars — the browser's default grey bars look foreign on the dark theme */
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--text-faint); }
+
+/* in-app alert/confirm/prompt — replaces the browser's native dialogs (TJA_UI) */
+.tja-dlg-overlay { position: fixed; inset: 0; z-index: 13000; display: flex; align-items: center; justify-content: center;
+  background: rgba(10,10,12,.5); backdrop-filter: blur(2px); }
+.tja-dlg { width: min(440px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow); padding: 20px; }
+.tja-dlg-title { font-size: 1rem; font-weight: 800; color: var(--text); margin-bottom: 8px; }
+.tja-dlg-msg { font-size: .85rem; color: var(--text-dim); line-height: 1.55; margin-bottom: 16px; overflow-wrap: break-word; }
+.tja-dlg-msg b { color: var(--text); }
+.tja-dlg-input { width: 100%; font: inherit; font-size: .85rem; color: var(--text); background: var(--input);
+  border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; margin-bottom: 16px; }
+.tja-dlg-input:focus { outline: none; border-color: var(--orange); }
+.tja-dlg-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.tja-dlg-danger { background: #ef5350 !important; border-color: #ef5350 !important; color: #fff !important; }
+
 .burn-pop-overlay { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center;
   background: rgba(10,10,12,.5); backdrop-filter: blur(2px); }
 .burn-pop { width: min(440px, 92vw); background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
