@@ -208,6 +208,7 @@ window.PresentDocs = (function () {
               Export PDF
             </button>
             <div class="pd-meta-line" id="pdMeta"></div>
+            <div class="pd-specs-line" id="pdSpecsLine" style="display:none"></div>
           </div>
         </div>
 
@@ -245,6 +246,8 @@ window.PresentDocs = (function () {
         <input type="text" id="pdUpSubject" class="pd-up-subject" placeholder="e.g. Logo concepts — round 1">
         <label class="pd-review-label" for="pdUpMsg">Message to client</label>
         <textarea id="pdUpMsg" class="pd-up-msg" placeholder="Context for this round — what you'd like feedback on…"></textarea>
+        <label class="pd-review-label" for="pdUpSpecs">Specifications <span style="opacity:.55;font-weight:400">— optional</span></label>
+        <input type="text" id="pdUpSpecs" class="pd-up-subject" placeholder='e.g. 8.5" X 11" // Print Document // CMYK // 4/4 Process Color'>
         <div class="pd-revdue-row">
           <label class="pd-review-label" for="pdUpDue">Feedback due</label>
           <input type="date" id="pdUpDue" class="pd-revdue">
@@ -397,6 +400,7 @@ window.PresentDocs = (function () {
       ? `${processed[0].name} · V1`
       : `${processed.length} files · V1 each`;
     $("pdUpSubject").value = ""; $("pdUpMsg").value = ""; $("pdUpDue").value = "";
+    if ($("pdUpSpecs")) $("pdUpSpecs").value = "";
     ov.style.display = "flex";
     setTimeout(() => $("pdUpSubject").focus(), 0);
   }
@@ -412,6 +416,10 @@ window.PresentDocs = (function () {
     const subject = $("pdUpSubject") ? $("pdUpSubject").value.trim() : "";
     const message = $("pdUpMsg") ? $("pdUpMsg").value.trim() : "";
     const due = $("pdUpDue") ? $("pdUpDue").value : "";
+    // Specifications: OPTIONAL (an AM/PM uploading may not know them — Cameron 2026-07-20).
+    // Lives on the DELIVERABLE (set at V1, carried by every later version) — it describes
+    // the artwork, not the round. Shown small on the review screen + in the PDF header.
+    const specs = $("pdUpSpecs") ? $("pdUpSpecs").value.trim() : "";
     const toDraft = uploadsToDraft();
     const multi = (pendingUpload || []).length > 1;
     // The card is named by the SUBJECT you typed, not the raw filename — that's what the
@@ -425,7 +433,7 @@ window.PresentDocs = (function () {
       const name = nameFor(p);
       if (toDraft) {
         v.state = "pending_approval";
-        draftItems.unshift({ id: uid(), name: name, active: 0, versions: [v] });
+        draftItems.unshift({ id: uid(), name: name, active: 0, versions: [v], specs: specs });
         if (window.TJA_NOTIFY) {
           // admin-bell discovery of pending work (the CLIENT hears nothing until release)
           try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
@@ -435,7 +443,7 @@ window.PresentDocs = (function () {
         // releasing a draft does. It previously did neither: an AM/PM uploading directly
         // (the common path — not everything goes via a creative) silently notified nobody.
         v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
-        items.unshift({ id: uid(), name: name, active: 0, versions: [v] });
+        items.unshift({ id: uid(), name: name, active: 0, versions: [v], specs: specs });
         announceSend({ id: v.vid, name: name, version: v });
       }
     });
@@ -825,6 +833,9 @@ window.PresentDocs = (function () {
     const d = deliv(curId); if (!d) return; const v = active(d);
     const rev = v.reviewedAt ? ` · reviewed ${v.reviewedAt}${v.reviewedStatus ? " (" + (STATUS_WORD[v.reviewedStatus] || v.reviewedStatus) + ")" : ""}` : "";
     $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"}${rev} · ${d.versions.length} version(s)`;
+    // small specs line so the client sees the artwork's specifications at a glance
+    const sl = $("pdSpecsLine");
+    if (sl) { sl.style.display = d.specs ? "" : "none"; sl.textContent = d.specs ? "Specs: " + d.specs : ""; }
   }
   async function finishSubmit() {
     const d = deliv(curId);
@@ -1052,43 +1063,58 @@ window.PresentDocs = (function () {
 
       const setF = (family, style, size, color) => { pdf.setFont(family, style); pdf.setFontSize(size); pdf.setTextColor(...color); };
       const label = (txt, x, y2) => { setF("Inter", "bold", 6.2, ORANGE); pdf.text(txt, x, y2, { charSpace: 0.4 }); };
+      // wrap into at most maxLines, ellipsizing the last — header meta must never run
+      // under the approval box (tight on the 8.5×11 vertical format)
+      const fitLines = (txt, maxW, maxLines) => {
+        const lines = pdf.splitTextToSize(String(txt || ""), maxW);
+        if (lines.length > maxLines) { lines.length = maxLines; lines[maxLines - 1] = lines[maxLines - 1].replace(/.{2}$/, "") + "…"; }
+        return lines;
+      };
 
       /* ---- header — full on page 1, slim (no approval box) on overflow pages ---- */
+      const BOX_W = 320, BOX_X = pageW - M - BOX_W;
       const drawHeader = (slim) => {
         setF("InterBlack", "normal", 15, INK); pdf.text("PROOF", M, 32, { charSpace: 0.5 });
         label("DATE:", M, 52); setF("Inter", "normal", 7.5, INK); pdf.text(dateStr, M, 63);
         pdf.setDrawColor(...LINE); pdf.setLineWidth(0.8); pdf.line(M + 86, 16, M + 86, 74);
         const mx = M + 104;
+        const metaMaxW = (slim ? pageW - M : BOX_X - 10) - mx;
         label("ROUND:", mx, 22); setF("Inter", "normal", 7.5, INK); pdf.text(String(v.label || ""), mx + 32, 22);
-        label("JOB NUMBER // CLIENT // ARTWORK/PROJECT:", mx, 36);
+        // this label is the longest thing in the header — on the narrow vertical format
+        // it would run under the approval box at full size, so it steps down slightly
+        setF("Inter", "bold", horizontal ? 6.2 : 5.5, ORANGE);
+        pdf.text("JOB NUMBER // CLIENT // ARTWORK/PROJECT:", mx, 36, { charSpace: horizontal ? 0.4 : 0.1 });
         setF("Inter", "normal", 7.5, INK);
-        pdf.text(`${clientCode ? clientCode + " // " : ""}${clientName} // ${d.name}`, mx, 47);
-        // SPECIFICATIONS: static template line — final wording bookmarked with Cameron.
-        label("SPECIFICATIONS:", mx, 61);
+        const jobLines = fitLines(`${clientCode ? clientCode + " // " : ""}${clientName} // ${d.name}`, metaMaxW, 2);
+        jobLines.forEach((ln, i) => pdf.text(ln, mx, 46 + i * 9));
+        // SPECIFICATIONS: entered (optionally) in the upload dialog, stored per deliverable
+        label("SPECIFICATIONS:", mx, 64);
         setF("Inter", "normal", 7.5, INK);
-        pdf.text(`${horizontal ? '17" X 11"' : '8.5" X 11"'} // Print Document // CMYK // 4/4 Process Color`, mx, 72);
+        pdf.text(fitLines(d.specs || "—", metaMaxW, 1), mx, 74);
         pdf.setDrawColor(...LINE); pdf.setLineWidth(0.8); pdf.line(0, HEAD_RULE, pageW, HEAD_RULE);
         if (slim) return;
 
-        /* approval box, top-right: signature cell · status checkboxes · disclaimer */
-        const bw = 300, bx = pageW - M - bw, by = 14, bh = 62;
-        const sigW = 84, ckW = 102, disW = bw - sigW - ckW;
+        /* approval box, top-right: signature cell · status checkboxes · disclaimer.
+           The signature cell is the WIDEST cell — the drawn signature must be readable
+           on the export (Cameron 2026-07-20). */
+        const bx = BOX_X, by = 12, bh = 66;
+        const sigW = 122, ckW = 94, disW = BOX_W - sigW - ckW;
         // signature cell
         pdf.setDrawColor(...ORANGE); pdf.setLineWidth(1.2); pdf.rect(bx, by, sigW, bh, "S");
         label("CLIENT SIGNATURE", bx + 4, by + 9);
         if (v.signature) {
-          try { pdf.addImage(v.signature, "PNG", bx + 5, by + 13, sigW - 10, bh - 26); } catch (e) {}
-          setF("Inter", "normal", 4.6, GRAY);
+          try { pdf.addImage(v.signature, "PNG", bx + 5, by + 12, sigW - 10, bh - 24); } catch (e) {}
+          setF("Inter", "normal", 5, GRAY);
           pdf.text(`${v.signedBy || ""}${v.signedDate ? " · " + v.signedDate : ""}`.trim(), bx + 4, by + bh - 4);
         }
         // status checkboxes — the three portal statuses, checked per this version
         pdf.setFillColor(...ORANGE); pdf.rect(bx + sigW, by, ckW, bh, "F");
         const rows = [["approved", STATUS.approved.label], ["changes", STATUS.changes.label], ["revisions", STATUS.revisions.label]];
         rows.forEach(([key, txt], i) => {
-          const ry = by + 12 + i * 19;
-          pdf.setFillColor(255, 255, 255); pdf.rect(bx + sigW + 7, ry - 6.5, 8, 8, "F");
-          if (v.status === key) { pdf.setFillColor(...INK); pdf.rect(bx + sigW + 8.5, ry - 5, 5, 5, "F"); }
-          setF("Inter", "bold", 6, [255, 255, 255]); pdf.text(txt.toUpperCase(), bx + sigW + 20, ry, { charSpace: 0.3 });
+          const ry = by + 13 + i * 20;
+          pdf.setFillColor(255, 255, 255); pdf.rect(bx + sigW + 6, ry - 6.5, 8, 8, "F");
+          if (v.status === key) { pdf.setFillColor(...INK); pdf.rect(bx + sigW + 7.5, ry - 5, 5, 5, "F"); }
+          setF("Inter", "bold", 5.6, [255, 255, 255]); pdf.text(txt.toUpperCase(), bx + sigW + 18, ry, { charSpace: 0.2 });
         });
         // disclaimer cell
         pdf.setDrawColor(...ORANGE); pdf.setLineWidth(1.2); pdf.rect(bx + sigW + ckW, by, disW, bh, "S");
@@ -1096,7 +1122,7 @@ window.PresentDocs = (function () {
         pdf.text("Mistakes Cost Money.", bx + sigW + ckW + 4, by + 8);
         setF("Inter", "normal", 4.4, [60, 60, 60]);
         const disLines = pdf.splitTextToSize(PDF_DISCLAIMER.replace(/^Mistakes Cost Money\.\s*/, ""), disW - 8);
-        pdf.text(disLines.slice(0, 10), bx + sigW + ckW + 4, by + 14);
+        pdf.text(disLines.slice(0, 11), bx + sigW + ckW + 4, by + 14);
       };
 
       /* ---- footer on every page: tja lockup + page number ---- */

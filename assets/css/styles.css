@@ -700,6 +700,7 @@ body[data-role="creative"] .admin-only { display: none !important; }
 .pd-saved { font-size: .76rem; color: var(--good); opacity: 0; transition: opacity .2s ease; }
 .pd-saved.show { opacity: 1; }
 .pd-meta-line { font-size: .72rem; color: var(--text-faint); }
+.pd-specs-line { font-size: .68rem; color: var(--text-faint); margin-top: 2px; letter-spacing: .02em; }
 
 /* segmented tool switch (Draw / Comment) */
 .pd-seg { display: inline-flex; background: var(--input); border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
