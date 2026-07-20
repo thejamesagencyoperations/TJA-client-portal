@@ -130,7 +130,12 @@ window.TJA_STORE = (function () {
       engagements: meta.engagements || (meta.kind === "both" ? "Monthly Services · 1 project"
         : meta.kind === "project" ? "1 project" : "Monthly Services"),
       kind: meta.kind || "retainer",
-      login: meta.login || { email: id.replace(/-/g, "") + "@client.tja", password: id.slice(0, 6) + Math.floor(Math.random() * 90 + 10) },
+      // Distribution address (the TJA team inbox for this client), by the SAME convention
+      // WMJ uses: <name, lowercased, alphanumeric>@thejamesagency.com. This is where the
+      // client-response email goes — so every manually-added client gets one automatically,
+      // just like WMJ-synced ones (no per-client setup). It is NOT a sign-in — real logins
+      // are Supabase users made in the Admin Center. (Was a dead "@client.tja" mock.)
+      login: meta.login || { email: window.tjaSlugify(name).replace(/-/g, "") + "@thejamesagency.com" },
       createdAt: new Date().toISOString(),
     };
     const added = readAdded();
