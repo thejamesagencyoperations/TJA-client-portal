@@ -1110,7 +1110,7 @@ body[data-role="creative"] .admin-only { display: none !important; }
 .cond-dot.on { opacity: 1; box-shadow: 0 0 0 4px rgba(255,255,255,.06); }
 .cond-label { font-weight: 800; font-size: 1.1rem; }
 .cond-label.green { color: var(--good); } .cond-label.yellow { color: var(--warn); } .cond-label.red { color: var(--bad); }
-.cond-note { font-size: .82rem; color: var(--text-dim); margin-top: 8px; }
+.cond-note { font-size: .82rem; color: var(--text-dim); margin-top: 8px; white-space: pre-wrap; }
 
 /* Service lines */
 .svc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -1194,13 +1194,23 @@ body[data-role="creative"] .admin-only { display: none !important; }
 /* Executive Summary — free canvas: tiles are absolutely positioned and drag anywhere */
 .exec-canvas { position: relative; width: 100%; min-height: 200px; }
 .exec-tile { position: absolute; box-sizing: border-box; overflow: hidden; transition: box-shadow .12s ease; }
-/* content scrolls inside the tile when it doesn't fit — never clipped text (both roles) */
+/* content scrolls inside the tile when it doesn't fit — never clipped text (both roles).
+   The thumb is clearly visible BY DEFAULT (not just on hover) so an overflowing tile —
+   e.g. a long Service Lines list — always signals there's more below. A tile that fits
+   shows no scrollbar at all (overflow:auto), so this only ever appears when it's needed.
+   scrollbar-gutter keeps the track's width reserved so the bar doesn't jump in/out. */
+/* An overflowing tile (e.g. a long Service Lines list) must ALWAYS show its scrollbar so
+   you can see there's more below. The app-wide `* { scrollbar-width: thin }` (themed
+   scrollbars) forces a ~2px hairline here and — because a standard scrollbar-width is set
+   globally — Blink ignores ::-webkit-scrollbar too. So override with the STANDARD props at
+   full width: auto (normal, clearly visible) + a mid-gray thumb. scrollbar-gutter:stable
+   reserves the track so it never jumps content in/out. A tile that fits shows no bar. */
 .exec-tile > .module { height: 100%; overflow-y: auto; overflow-x: hidden; box-sizing: border-box;
-  scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-.exec-tile > .module::-webkit-scrollbar { width: 10px; }
+  scrollbar-width: auto; scrollbar-color: auto; scrollbar-gutter: stable; }
+.exec-tile > .module::-webkit-scrollbar { width: 12px; -webkit-appearance: none; }
 .exec-tile > .module::-webkit-scrollbar-track { background: transparent; }
-.exec-tile > .module::-webkit-scrollbar-thumb { background: var(--line); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
-.exec-tile > .module:hover::-webkit-scrollbar-thumb { background: var(--text-faint); background-clip: padding-box; }
+.exec-tile > .module::-webkit-scrollbar-thumb { background: var(--text-faint); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+.exec-tile > .module:hover::-webkit-scrollbar-thumb { background: var(--text-dim); background-clip: padding-box; }
 /* small screens: fall back to a simple vertical stack */
 @media (max-width: 760px) {
   .exec-canvas { height: auto !important; }

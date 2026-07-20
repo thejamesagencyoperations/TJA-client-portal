@@ -347,7 +347,13 @@ window.ExecSummary = (function () {
     // "needs setup" keys off the DISCIPLINES (not the total, which may come from the SOW feed):
     // until the admin splits hours across disciplines, rows stay neutral and the note shows.
     const unset = disc.reduce((s, d2) => s + (+d2.contracted || 0), 0) <= 0;
-    const rows = disc.map((d, i) => {
+    // Strategic Oversight always sits at the top (Cameron's rule, 2026-07-17). Sort a VIEW
+    // that carries each discipline's ORIGINAL index — the index drives inline edit, the drag
+    // handle and delete, so it must stay bound to the real serviceDisciplines slot, not the
+    // display position. Array.sort is stable, so every other discipline keeps its order.
+    const discView = disc.map((d, i) => ({ d, i }))
+      .sort((a, b) => (canon(a.d.name) === "oversight" ? 0 : 1) - (canon(b.d.name) === "oversight" ? 0 : 1));
+    const rows = discView.map(({ d, i }) => {
       const contracted = +d.contracted || 0;
       const act = actual[canon(d.name)] || 0;
       const share = total > 0 ? Math.round(contracted / total * 100) : 0;
