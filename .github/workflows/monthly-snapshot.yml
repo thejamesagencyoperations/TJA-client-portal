@@ -1,0 +1,28 @@
+name: Monthly data snapshot
+
+# Freezes each retainer client's month-end burn + service-line %s into their
+# month-over-month history, with NO dependency on anyone having the portal open.
+# Runs DAILY (idempotent — it upserts the current calendar month), so the closing
+# month holds its last-day value and the 1st of the new month starts a fresh entry.
+# The heavy lifting is in the snapshot-months Edge Function; this just triggers it.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"      # 06:00 UTC every day
+  workflow_dispatch: {}       # allow manual runs from the Actions tab
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the snapshot function
+        env:
+          # SNAPSHOT_SECRET is the gate (repo secret). The anon key is public
+          # (it already ships in the portal) and only satisfies the API gateway.
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        run: |
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/snapshot-months" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+            -H "Authorization: Bearer ${ANON_KEY}" \
+            -w "\nHTTP %{http_code}\n" --fail-with-body

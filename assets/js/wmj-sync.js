@@ -242,6 +242,20 @@ window.WMJ_SYNC = (function () {
      rollover to a new month starts a fresh entry instead of clobbering the last. */
   const SNAP_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const SNAP_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  // Per-discipline snapshot: {name, contracted, billable} for each service line, from the
+  // manual contracted hours + the WMJ actuals matched by canon key. Used for the historical
+  // "Service Lines" MoM view. KEEP IN SYNC with the server port in
+  // supabase/functions/snapshot-months (same shape, same math).
+  function snapshotLines(e) {
+    const canon = window.tjaCanonDiscipline || ((s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
+    const act = {};
+    (e.wmjServiceLines || []).forEach((l) => { const k = canon(l.name); act[k] = (act[k] || 0) + (+l.billable || 0); });
+    return (e.serviceDisciplines || []).map((d) => ({
+      name: d.name,
+      contracted: +d.contracted || 0,
+      billable: Math.round((act[canon(d.name)] || 0) * 100) / 100,
+    }));
+  }
   function snapshotMonth(e) {
     if (!e || !e.burn) return;
     e.mom = e.mom || [];
@@ -251,13 +265,14 @@ window.WMJ_SYNC = (function () {
     e.burn.periodLabel = `${SNAP_FULL[mi]} ${yr}`;   // keep the tile's month label current
     const used = +e.burn.usedHours || 0;             // real WMJ actuals (not a presentation override)
     const total = +e.burn.contractedHours || 0;
+    const lines = snapshotLines(e);
     const last = e.mom[e.mom.length - 1];
     // match the current month's entry: same short month AND (same year, or a legacy
     // entry with no year — assume it's this year's and adopt it).
     if (last && last.month === short && (last.year == null || last.year === yr)) {
-      last.year = yr; last.usedHours = used; last.contractedHours = total;
+      last.year = yr; last.usedHours = used; last.contractedHours = total; last.lines = lines;
     } else {
-      e.mom.push({ month: short, year: yr, usedHours: used, contractedHours: total });
+      e.mom.push({ month: short, year: yr, usedHours: used, contractedHours: total, lines });
     }
     // guard against unbounded growth — keep the trailing 24 months
     if (e.mom.length > 24) e.mom = e.mom.slice(-24);

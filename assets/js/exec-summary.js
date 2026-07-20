@@ -144,11 +144,15 @@ window.ExecSummary = (function () {
     // touching the burn updates THIS month's entry rather than creating a mismatched one, and
     // a past (frozen) month is never overwritten.
     const now = new Date(), yr = now.getFullYear(), short = MONTHS[now.getMonth()].slice(0, 3);
+    const actMap = actualByDiscipline(eng);
+    const lines = (eng.serviceDisciplines || []).map((d) => ({
+      name: d.name, contracted: +d.contracted || 0, billable: round2(actMap[canon(d.name)] || 0),
+    }));
     const last = eng.mom[eng.mom.length - 1];
     if (last && last.month === short && (last.year == null || last.year === yr)) {
-      last.year = yr; last.usedHours = usedNow; last.contractedHours = totalNow;
+      last.year = yr; last.usedHours = usedNow; last.contractedHours = totalNow; last.lines = lines;
     } else {
-      eng.mom.push({ month: short, year: yr, usedHours: usedNow, contractedHours: totalNow });
+      eng.mom.push({ month: short, year: yr, usedHours: usedNow, contractedHours: totalNow, lines });
     }
   }
   function nextMonthLabel(periodLabel) {
@@ -344,7 +348,44 @@ window.ExecSummary = (function () {
   function retainerActualUsed(e) {   // true WMJ total billable (all depts, ignoring overrides)
     return (e.wmjServiceLines || []).reduce((s, l) => s + (+l.billable || 0), 0);
   }
+  // Read-only Service Lines for a PAST month, from that month's snapshot (mom[i].lines).
+  // Same %s as the live view — share = contracted / Σcontracted, util = billable / contracted.
+  function historicalServiceModule(m) {
+    const lines = (m && m.lines) || [];
+    const totalC = lines.reduce((s, l) => s + (+l.contracted || 0), 0);
+    if (!lines.length) {
+      return `<div class="module">
+        <div class="module-head"><span class="module-title">${IC.svc}Service Lines · ${esc(m.month)} ${m.year || ""}</span><span class="rsvc-legend">% of retainer</span></div>
+        <div class="rsvc-list"><div class="pr-date">No service-line detail captured for this month.</div></div>
+      </div>`;
+    }
+    const ordered = lines.map((l, i) => ({ l, i }))
+      .sort((a, b) => (canon(a.l.name) === "oversight" ? 0 : 1) - (canon(b.l.name) === "oversight" ? 0 : 1));
+    const rows = ordered.map(({ l }) => {
+      const c = +l.contracted || 0, bill = +l.billable || 0;
+      const share = totalC > 0 ? Math.round(c / totalC * 100) : 0;
+      const util = c > 0 ? (bill / c * 100) : 0;
+      const fill = Math.max(0, Math.min(100, util));
+      let st = "not-started", lbl = "Not started";
+      if (c <= 0) { st = "not-started"; lbl = "—"; }
+      else if (util > 120) { st = "over"; lbl = "Over"; }
+      else if (util >= 100) { st = "complete"; lbl = "Completed"; }
+      else if (util > 0) { st = "in-progress"; lbl = "In progress"; }
+      return `<div class="rsvc-row">
+        <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}</span>
+          <span class="rsvc-right"><span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span></span></div>
+        <div class="rsvc-bar${st === "over" ? " over" : ""}"><span style="width:${fill}%"></span></div>
+        <div class="rsvc-cap">${round2(bill)} of ${c} hrs${c > 0 ? ` · ${Math.round(util)}%` : ""}</div>
+      </div>`;
+    }).join("");
+    return `<div class="module">
+      <div class="module-head"><span class="module-title">${IC.svc}Service Lines · ${esc(m.month)} ${m.year || ""}</span><span class="rsvc-legend">% of retainer</span></div>
+      <div class="rsvc-list">${rows}</div>
+    </div>`;
+  }
   function retainerServiceModule(e) {
+    // Viewing a frozen past month → show that month's snapshot, read-only.
+    if (viewMonthIdx != null && e.mom && e.mom[viewMonthIdx]) return historicalServiceModule(e.mom[viewMonthIdx]);
     const admin = canAdmin();
     const disc = Array.isArray(e.serviceDisciplines) ? e.serviceDisciplines : [];
     const actual = actualByDiscipline(e);
@@ -1086,7 +1127,14 @@ window.ExecSummary = (function () {
       if (ms && canAdmin()) { const m = eng.milestones[+ms.dataset.mstoggle]; m.done = !m.done; window.DASH.saveState(); rerender(); return; }
 
       const mom = e.target.closest("[data-mom]");
-      if (mom) { viewMonthIdx = +mom.dataset.mom; rerender(); return; }
+      if (mom) {
+        const idx = +mom.dataset.mom;
+        const eng2 = window.DASH.getEng();
+        // clicking the CURRENT (last) month returns to the live, editable view;
+        // clicking a past month shows its frozen snapshot (burn + service lines).
+        viewMonthIdx = (eng2.mom && idx === eng2.mom.length - 1) ? null : idx;
+        rerender(); return;
+      }
 
       const nm = e.target.closest("[data-newmonth]");
       if (nm && canAdmin()) {
