@@ -323,6 +323,9 @@ a { color: inherit; text-decoration: none; }
    shows every admin control, because the selector below only matches "client". */
 body[data-role="client"] .admin-only,
 body[data-role="creative"] .admin-only { display: none !important; }
+/* staff-only: hide from CLIENTS only — admin, manager AND creative keep it. Used for the
+   internal proof-PDF export, which creatives can run too (Cameron 2026-07-20). */
+body[data-role="client"] .staff-only { display: none !important; }
 
 .role-switch {
   display: inline-flex; align-items: center; gap: 4px;

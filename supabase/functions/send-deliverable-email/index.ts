@@ -32,6 +32,7 @@
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
+import { portalEmail } from "../_shared/email.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // The only place the portal's own URL exists in the backend. On a future custom
@@ -122,18 +123,19 @@ Deno.serve(async (req) => {
     `\nProof it in your portal: ${REVIEW_URL}`,
     `\n— The James Agency`,
   ].join("\n");
-  const html = `
-    <div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;color:#222">
-      <div style="background:#F68E21;border-radius:8px 8px 0 0;padding:14px 20px;color:#fff;font-weight:800;font-size:18px">The James Agency</div>
-      <div style="border:1px solid #e5e5e5;border-top:none;border-radius:0 0 8px 8px;padding:20px">
-        <p style="margin:0 0 6px;font-size:16px"><b>You have a deliverable to proof.</b></p>
-        <p style="margin:0 0 12px;color:#555"><b>${esc(docName)} ${esc(version)}</b> is ready for your review in the TJA client portal.</p>
-        ${message ? `<p style="margin:0 0 12px;white-space:pre-wrap">${esc(message)}</p>` : ""}
-        ${due ? `<p style="margin:0 0 12px"><b>Feedback due:</b> ${esc(due)}</p>` : ""}
-        <p style="margin:18px 0 6px"><a href="${REVIEW_URL}" style="background:#F68E21;color:#fff;text-decoration:none;font-weight:700;padding:11px 20px;border-radius:8px;display:inline-block">Proof it in your portal →</a></p>
-        <p style="margin:14px 0 0;color:#999;font-size:12px">Review, comment on and approve the work right in the portal — no downloads needed.</p>
-      </div>
-    </div>`;
+  const bodyHtml = [
+    `<p style="margin:0 0 14px"><b>${esc(docName)} ${esc(version)}</b> is ready for your review in your client portal.</p>`,
+    message ? `<p style="margin:0 0 14px;white-space:pre-wrap">${esc(message)}</p>` : "",
+    `<p style="margin:0;color:#555">Review, comment on and approve the work right in the portal — no downloads needed.</p>`,
+  ].join("");
+  const html = portalEmail({
+    preheader: `${docName} ${version} is ready for your review.`,
+    heading: "You have a deliverable to proof",
+    bodyHtml,
+    metaRows: [["Feedback due", due]],
+    ctaText: "Proof it in your portal",
+    ctaUrl: REVIEW_URL,
+  });
 
   try {
     const out = await sendViaResend(recipients, subject, html, text);

@@ -203,7 +203,7 @@ window.PresentDocs = (function () {
             <button class="btn btn-primary" id="pdSubmit">Submit Review</button>
             <div class="pd-saved" id="pdSaved">✓ Review saved</div>
             <div class="pd-sign-status" id="pdSignStatus"></div>
-            <button class="pd-tool-btn pd-export-btn admin-only" id="pdExport" title="Internal proof PDF for your records — the client reviews in-portal">
+            <button class="pd-tool-btn pd-export-btn staff-only" id="pdExport" title="Internal proof PDF for your records — the client reviews in-portal">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>
               Export PDF
             </button>
@@ -333,7 +333,7 @@ window.PresentDocs = (function () {
       const last = d.versions[d.versions.length - 1] || v;
       return `<div class="pd-card" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
-        <button class="pd-card-export admin-only" data-export="${d.id}" title="Export proof PDF (internal record)">⬇</button>
+        <button class="pd-card-export staff-only" data-export="${d.id}" title="Export proof PDF (internal record)">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
         <div class="pd-thumb"><img src="${v.dataUrl}" alt="${esc(d.name)}"></div>
         <div class="pd-card-foot">
