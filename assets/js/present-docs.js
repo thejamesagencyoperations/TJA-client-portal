@@ -725,6 +725,7 @@ window.PresentDocs = (function () {
     persistCanvas(); saveCur();
     d.active = i;
     loadVersionIntoModal();
+    maybeShowDisclaimer();   // each version is its own proof — first view gets the disclaimer
   }
 
   /* ---------- modal ---------- */
@@ -770,6 +771,27 @@ window.PresentDocs = (function () {
     m.classList.toggle("pd-ro", typeof isCreative === "function" && isCreative() && !isDraft(d));
     $("pdSaved").classList.remove("show");
     loadVersionIntoModal();
+    maybeShowDisclaimer();
+  }
+
+  /* ---------- proof disclaimer (client-facing, Cameron 2026-07-20) ----------
+     The template's "Mistakes Cost Money" text, shown ONCE per version the first
+     time a client opens it (tracked per browser — reshowing on a new device is
+     harmless and arguably right). Also re-fires on version switch, since each
+     version is its own proof. */
+  const DISC_SEEN_KEY = "tja_pd_disclaimer_" + ((typeof getSession === "function" && getSession() && getSession().client) || "demo");
+  function maybeShowDisclaimer() {
+    try {
+      if (typeof effectiveRole !== "function" || effectiveRole() !== "client") return;
+      const d = deliv(curId); if (!d || isDraft(d)) return;
+      const v = active(d); if (!v) return;
+      const key = d.id + "::" + (v.label || "");
+      const seen = JSON.parse(localStorage.getItem(DISC_SEEN_KEY) || "{}");
+      if (seen[key]) return;
+      seen[key] = Date.now();
+      localStorage.setItem(DISC_SEEN_KEY, JSON.stringify(seen));
+      if (window.TJA_UI) window.TJA_UI.alert(PDF_DISCLAIMER, { title: "Before you review " + (v.label || "this proof"), okText: "Got it" });
+    } catch (e) {}
   }
   function closeModal() {
     persistCanvas();
@@ -804,9 +826,20 @@ window.PresentDocs = (function () {
     const rev = v.reviewedAt ? ` · reviewed ${v.reviewedAt}${v.reviewedStatus ? " (" + (STATUS_WORD[v.reviewedStatus] || v.reviewedStatus) + ")" : ""}` : "";
     $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"}${rev} · ${d.versions.length} version(s)`;
   }
-  function finishSubmit() {
+  async function finishSubmit() {
     const d = deliv(curId);
     const v = active(d);
+    // Final client-facing confirm on any APPROVAL (approved / approved w/ changes) —
+    // the same "Mistakes Cost Money" terms, acknowledged at the moment of sign-off
+    // (Cameron, 2026-07-20). Covers both submit paths: direct submit with an existing
+    // signature, and straight out of the signature pad.
+    if (v && (v.status === "approved" || v.status === "changes")
+        && typeof effectiveRole === "function" && effectiveRole() === "client" && window.TJA_UI) {
+      const ok = await window.TJA_UI.confirm(
+        PDF_DISCLAIMER + "\n\nSubmit your approval?",
+        { title: "Confirm approval", okText: "Submit approval" });
+      if (!ok) return;
+    }
     if (v) { v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; }   // stamp date+time of this review submit
     // Notify the TJA team when a CLIENT submits a review (not when an admin does).
     if (v && d && window.TJA_NOTIFY && getSession && getSession() && getSession().role === "client") {
@@ -886,7 +919,24 @@ window.PresentDocs = (function () {
     closeSignaturePad(); finishSubmit();
   }
 
-  /* ---------- PDF export (image + drawings + numbered comments + sign-off) ---------- */
+  /* ---------- PDF export — renders the TJA Present Template 2025 ----------
+     Rebuilt (2026-07-20) to Cameron's InDesign proof template spec:
+       • two page formats — vertical 612×792pt (8.5×11) and horizontal 1224×792pt
+         (17×11), auto-chosen by the creative's aspect ratio;
+       • the image NEVER changes aspect ratio — scaled to fit its bounding box;
+       • real Inter (Regular/Bold/Black) embedded from assets/fonts;
+       • header: PROOF · DATE (signature date on approved/approved-w-changes,
+         else export date) · ROUND (version) · CLIENT // ARTWORK · SPECIFICATIONS
+         (static line — final wording bookmarked with Cameron);
+       • top-right approval box: CLIENT SIGNATURE cell (portal signature pad
+         image), the three portal statuses as checkboxes, Mistakes-Cost-Money
+         disclaimer;
+       • comments listed below the image, numbered to match the pins;
+       • overflow pages get a SLIM header (no signature/approval box);
+       • footer on every page: tja mark + THE JAMES AGENCY + page number.
+     Brand color #F68E21 sampled from the logo file (assets/img/tja-logo.svg —
+     the designer-authored vector; the EPS's embedded 2017 preview renders a
+     shifted #FF9A33 and is not trusted). Wordmark gray #666 from the lockup. */
   function loadJsPDF() {
     return new Promise((resolve, reject) => {
       if (window.jspdf && window.jspdf.jsPDF) return resolve(window.jspdf.jsPDF);
@@ -897,6 +947,54 @@ window.PresentDocs = (function () {
       document.head.appendChild(s);
     });
   }
+
+  // Inter TTFs, fetched once per session only when an export actually happens
+  // (~940KB total — never loaded on normal page views).
+  let interFonts = null;
+  async function loadInterFonts() {
+    if (interFonts) return interFonts;
+    const b64 = async (path) => {
+      const buf = await (await fetch(path)).arrayBuffer();
+      let s = ""; const bytes = new Uint8Array(buf), CH = 0x8000;
+      for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+      return btoa(s);
+    };
+    const [reg, bold, black] = await Promise.all([
+      b64("assets/fonts/Inter-Regular.ttf"), b64("assets/fonts/Inter-Bold.ttf"), b64("assets/fonts/Inter-Black.ttf"),
+    ]);
+    interFonts = { reg, bold, black };
+    return interFonts;
+  }
+  function registerInter(pdf, f) {
+    pdf.addFileToVFS("Inter-Regular.ttf", f.reg); pdf.addFont("Inter-Regular.ttf", "Inter", "normal");
+    pdf.addFileToVFS("Inter-Bold.ttf", f.bold); pdf.addFont("Inter-Bold.ttf", "Inter", "bold");
+    pdf.addFileToVFS("Inter-Black.ttf", f.black); pdf.addFont("Inter-Black.ttf", "InterBlack", "normal");
+  }
+
+  // the tja mark (assets/img/tja-logo.svg) rasterized at 3× for crisp embedding
+  let tjaMarkPng = null;
+  function loadTjaMark() {
+    if (tjaMarkPng) return Promise.resolve(tjaMarkPng);
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth * 3 || 1420; c.height = img.naturalHeight * 3 || 648;
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        try { tjaMarkPng = { data: c.toDataURL("image/png"), ratio: c.width / c.height }; } catch (e) { tjaMarkPng = null; }
+        resolve(tjaMarkPng);
+      };
+      img.onerror = () => resolve(null);
+      img.src = "assets/img/tja-logo.svg";
+    });
+  }
+
+  const PDF_DISCLAIMER =
+    "Mistakes Cost Money. Proof this document for typographic errors, images and all content or " +
+    "pertinent information. Note that colors may differ when viewing on various electronic devices and " +
+    "when printed using office vs. professional printers. Signed approval of this document means the " +
+    "content has been reviewed thoroughly and it is to your liking. Changes made after approval may " +
+    "result in additional charges or fees based on project.";
   function buildComposite(v) {     // base image + saved drawing + numbered pins, at full resolution
     return new Promise((resolve) => {
       const base = new Image();
@@ -928,100 +1026,139 @@ window.PresentDocs = (function () {
     try {
       if (btn) { btn.disabled = true; btn.textContent = "Generating…"; }
       const jsPDF = await loadJsPDF(); if (!jsPDF) throw new Error("no jsPDF");
+      const [fonts, mark] = await Promise.all([loadInterFonts(), loadTjaMark()]);
       const v = active(d), composite = await buildComposite(v);
-      const pdf = new jsPDF({ unit: "pt", format: "letter" });
-      const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight(), M = 46;
-      const ORANGE = [246, 142, 33], INK = [26, 26, 26], DIM = [110, 110, 110], FAINT = [150, 150, 150];
-      const clientName = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name) || "";
-      const FOOT = 34;                       // space reserved for the footer on every page
-      const bottom = () => pageH - M - FOOT;
 
-      /* ---- masthead (first page): orange band + tja logotype ---- */
-      pdf.setFillColor(...ORANGE); pdf.rect(0, 0, pageW, 66, "F");
-      pdf.setFillColor(255, 255, 255); pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(30); pdf.setTextColor(255, 255, 255); pdf.text("tja", M, 44);
-      pdf.setFontSize(8); pdf.setFont("helvetica", "bold");
-      pdf.text("THE JAMES AGENCY  ·  CLIENT PORTAL", pageW - M, 40, { align: "right", charSpace: 1 });
-      let y = 66 + 34;
-
-      /* ---- title block ---- */
-      pdf.setFont("helvetica", "bold"); pdf.setFontSize(18); pdf.setTextColor(...INK);
-      pdf.text(d.name, M, y);
-      // status pill, right-aligned on the title line
-      const dir = v.status ? STATUS[v.status].label : "Pending Review";
-      const PILL = { approved: [54, 194, 117], "changes-requested": [245, 179, 66], revisions: [239, 83, 80] };
-      const pillC = PILL[v.status] || [150, 150, 150];
-      pdf.setFontSize(8.5); pdf.setFont("helvetica", "bold");
-      const pw = pdf.getTextWidth(dir.toUpperCase()) + 16;
-      pdf.setFillColor(...pillC); pdf.roundedRect(pageW - M - pw, y - 11, pw, 15, 7.5, 7.5, "F");
-      pdf.setTextColor(255, 255, 255); pdf.text(dir.toUpperCase(), pageW - M - pw / 2, y - 0.5, { align: "center" });
-      y += 18;
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(...DIM);
-      pdf.text([clientName, "Version " + v.label, "Exported " + new Date().toLocaleDateString()].filter(Boolean).join("    ·    "), M, y);
-      y += 10; pdf.setDrawColor(...ORANGE); pdf.setLineWidth(1.4); pdf.line(M, y, pageW - M, y); y += 20;
-
+      // ---- orientation: the IMAGE decides. Wide creative → 17×11 horizontal,
+      // tall/square → 8.5×11 vertical. Aspect ratio itself is never touched.
+      let imgW = 0, imgH = 0;
       if (composite) {
-        const props = pdf.getImageProperties(composite), maxW = pageW - M * 2, ratio = props.height / props.width;
-        let w = maxW, h = maxW * ratio; const maxH = pageH * 0.44; if (h > maxH) { h = maxH; w = h / ratio; }
-        pdf.addImage(composite, "JPEG", M + (maxW - w) / 2, y, w, h); y += h + 22;
+        const probe = new Image();
+        await new Promise((res) => { probe.onload = res; probe.onerror = res; probe.src = composite; });
+        imgW = probe.naturalWidth; imgH = probe.naturalHeight;
       }
+      const horizontal = imgW > imgH;
+      const pageW = horizontal ? 1224 : 612, pageH = 792;
+      const pdf = new jsPDF({ unit: "pt", format: [pageW, pageH], orientation: pageW > pageH ? "landscape" : "portrait" });
+      registerInter(pdf, fonts);
 
-      /* ---- section heading: small orange tab + label ---- */
-      const heading = (label) => {
-        if (y + 40 > bottom()) { pdf.addPage(); y = M; }
-        pdf.setFillColor(...ORANGE); pdf.rect(M, y - 9, 3.5, 12, "F");
-        pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.setTextColor(...INK);
-        pdf.text(label, M + 10, y); y += 17;
+      const ORANGE = [246, 142, 33], INK = [34, 34, 34], GRAY = [102, 102, 102], LINE = [225, 225, 225];
+      const M = 24, HEAD_RULE = 86, FOOT_TOP = pageH - 42;
+      const clientName = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name) || "";
+      let clientCode = "";
+      try { const ent = window.TJA_STORE && window.TJA_STORE.get(getSession().client); if (ent && ent.code) clientCode = ent.code; } catch (e) {}
+      const approvedish = v.status === "approved" || v.status === "changes";
+      const dateStr = (approvedish && v.signedDate) ? v.signedDate : new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "2-digit" });
+
+      const setF = (family, style, size, color) => { pdf.setFont(family, style); pdf.setFontSize(size); pdf.setTextColor(...color); };
+      const label = (txt, x, y2) => { setF("Inter", "bold", 6.2, ORANGE); pdf.text(txt, x, y2, { charSpace: 0.4 }); };
+
+      /* ---- header — full on page 1, slim (no approval box) on overflow pages ---- */
+      const drawHeader = (slim) => {
+        setF("InterBlack", "normal", 15, INK); pdf.text("PROOF", M, 32, { charSpace: 0.5 });
+        label("DATE:", M, 52); setF("Inter", "normal", 7.5, INK); pdf.text(dateStr, M, 63);
+        pdf.setDrawColor(...LINE); pdf.setLineWidth(0.8); pdf.line(M + 86, 16, M + 86, 74);
+        const mx = M + 104;
+        label("ROUND:", mx, 22); setF("Inter", "normal", 7.5, INK); pdf.text(String(v.label || ""), mx + 32, 22);
+        label("JOB NUMBER // CLIENT // ARTWORK/PROJECT:", mx, 36);
+        setF("Inter", "normal", 7.5, INK);
+        pdf.text(`${clientCode ? clientCode + " // " : ""}${clientName} // ${d.name}`, mx, 47);
+        // SPECIFICATIONS: static template line — final wording bookmarked with Cameron.
+        label("SPECIFICATIONS:", mx, 61);
+        setF("Inter", "normal", 7.5, INK);
+        pdf.text(`${horizontal ? '17" X 11"' : '8.5" X 11"'} // Print Document // CMYK // 4/4 Process Color`, mx, 72);
+        pdf.setDrawColor(...LINE); pdf.setLineWidth(0.8); pdf.line(0, HEAD_RULE, pageW, HEAD_RULE);
+        if (slim) return;
+
+        /* approval box, top-right: signature cell · status checkboxes · disclaimer */
+        const bw = 300, bx = pageW - M - bw, by = 14, bh = 62;
+        const sigW = 84, ckW = 102, disW = bw - sigW - ckW;
+        // signature cell
+        pdf.setDrawColor(...ORANGE); pdf.setLineWidth(1.2); pdf.rect(bx, by, sigW, bh, "S");
+        label("CLIENT SIGNATURE", bx + 4, by + 9);
+        if (v.signature) {
+          try { pdf.addImage(v.signature, "PNG", bx + 5, by + 13, sigW - 10, bh - 26); } catch (e) {}
+          setF("Inter", "normal", 4.6, GRAY);
+          pdf.text(`${v.signedBy || ""}${v.signedDate ? " · " + v.signedDate : ""}`.trim(), bx + 4, by + bh - 4);
+        }
+        // status checkboxes — the three portal statuses, checked per this version
+        pdf.setFillColor(...ORANGE); pdf.rect(bx + sigW, by, ckW, bh, "F");
+        const rows = [["approved", STATUS.approved.label], ["changes", STATUS.changes.label], ["revisions", STATUS.revisions.label]];
+        rows.forEach(([key, txt], i) => {
+          const ry = by + 12 + i * 19;
+          pdf.setFillColor(255, 255, 255); pdf.rect(bx + sigW + 7, ry - 6.5, 8, 8, "F");
+          if (v.status === key) { pdf.setFillColor(...INK); pdf.rect(bx + sigW + 8.5, ry - 5, 5, 5, "F"); }
+          setF("Inter", "bold", 6, [255, 255, 255]); pdf.text(txt.toUpperCase(), bx + sigW + 20, ry, { charSpace: 0.3 });
+        });
+        // disclaimer cell
+        pdf.setDrawColor(...ORANGE); pdf.setLineWidth(1.2); pdf.rect(bx + sigW + ckW, by, disW, bh, "S");
+        setF("Inter", "bold", 4.4, [200, 60, 30]);
+        pdf.text("Mistakes Cost Money.", bx + sigW + ckW + 4, by + 8);
+        setF("Inter", "normal", 4.4, [60, 60, 60]);
+        const disLines = pdf.splitTextToSize(PDF_DISCLAIMER.replace(/^Mistakes Cost Money\.\s*/, ""), disW - 8);
+        pdf.text(disLines.slice(0, 10), bx + sigW + ckW + 4, by + 14);
       };
 
+      /* ---- footer on every page: tja lockup + page number ---- */
+      const drawFooter = (pageNo, pageCount) => {
+        const fy = FOOT_TOP + 8;
+        if (mark) { const mh = 17, mw = mh * mark.ratio; pdf.addImage(mark.data, "PNG", M, fy, mw, mh);
+          setF("Inter", "bold", 6, GRAY); pdf.text("THE JAMES AGENCY", M + mw + 8, fy + 11, { charSpace: 1.4 }); }
+        else { setF("InterBlack", "normal", 9, ORANGE); pdf.text("tja", M, fy + 11);
+          setF("Inter", "bold", 6, GRAY); pdf.text("THE JAMES AGENCY", M + 22, fy + 11, { charSpace: 1.4 }); }
+        setF("Inter", "normal", 7, GRAY); pdf.text(String(pageNo), pageW - M, fy + 11, { align: "right" });
+      };
+
+      drawHeader(false);
+      let y = HEAD_RULE + 22;
+      const bottom = () => FOOT_TOP - 10;
+      const newPage = () => { pdf.addPage([pageW, pageH], pageW > pageH ? "landscape" : "portrait"); drawHeader(true); y = HEAD_RULE + 22; };
+
+      /* ---- ADDITIONAL DETAILS (the portal notes), centered per the template ---- */
+      const noteBlocks = [];
+      if (v.clientNotes) noteBlocks.push(["CLIENT NOTES", v.clientNotes]);
+      if (v.agencyNotes) noteBlocks.push(["AGENCY NOTES", v.agencyNotes]);
+      if (noteBlocks.length) {
+        setF("Inter", "bold", 8, INK); pdf.text("ADDITIONAL DETAILS:", pageW / 2, y, { align: "center", charSpace: 0.3 });
+        y += 12;
+        noteBlocks.forEach(([lbl, txt]) => {
+          setF("Inter", "bold", 7, GRAY); pdf.text(lbl, pageW / 2, y, { align: "center", charSpace: 0.3 }); y += 10;
+          setF("Inter", "normal", 8, INK);
+          const lines = pdf.splitTextToSize(txt, Math.min(pageW * 0.72, 640));
+          lines.forEach(ln => { pdf.text(ln, pageW / 2, y, { align: "center" }); y += 10.5; });
+          y += 6;
+        });
+        y += 6;
+      }
+
+      /* ---- the creative: fit inside its box, aspect ratio untouched, centered ---- */
       const pins = v.pins || [];
-      heading(`Comments (${pins.length})`);
-      pdf.setFont("helvetica", "normal"); pdf.setFontSize(10);
-      if (!pins.length) { pdf.setTextColor(...FAINT); pdf.text("No pinned comments.", M, y); y += 14; }
-      pins.forEach((p, i) => {
-        // orange number badge matching the pins drawn on the image, text beside it
-        const lines = pdf.splitTextToSize(`${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
-        if (y + lines.length * 13 > bottom()) { pdf.addPage(); y = M; }
-        pdf.setFillColor(...(p.resolved ? [54, 194, 117] : ORANGE));
-        pdf.circle(M + 6.5, y - 3.5, 6.5, "F");
-        pdf.setFont("helvetica", "bold"); pdf.setFontSize(8); pdf.setTextColor(255, 255, 255);
-        pdf.text(String(i + 1), M + 6.5, y - 0.9, { align: "center" });
-        pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(40, 40, 40);
-        pdf.text(lines, M + 22, y); y += lines.length * 13 + 6;
-      });
-      y += 12;
-
-      const notes = (label, txt) => {
-        if (!txt) return;
-        heading(label);
-        pdf.setFont("helvetica", "normal"); pdf.setFontSize(10); pdf.setTextColor(40, 40, 40);
-        const lines = pdf.splitTextToSize(txt, pageW - M * 2);
-        if (y + lines.length * 13 > bottom()) { pdf.addPage(); y = M; }
-        pdf.text(lines, M, y); y += lines.length * 13 + 14;
-      };
-      notes("Client Notes", v.clientNotes); notes("Agency Notes", v.agencyNotes);
-
-      if (v.signature) {
-        if (y + 110 > bottom()) { pdf.addPage(); y = M; }
-        heading("Client Approval"); y += 2;
-        try { pdf.addImage(v.signature, "PNG", M, y, 170, 56); } catch (e) {}
-        pdf.setDrawColor(200, 200, 200); pdf.setLineWidth(0.8); pdf.line(M, y + 60, M + 220, y + 60);
-        pdf.setFont("helvetica", "normal"); pdf.setFontSize(9); pdf.setTextColor(...DIM);
-        pdf.text(`${v.signedBy || "Client"}${v.signedDate ? "    ·    " + v.signedDate : ""}`, M, y + 72);
+      if (composite && imgW && imgH) {
+        // reserve room below for the first chunk of comments (they continue to page 2+)
+        const reserve = pins.length ? Math.min(150, 34 + pins.length * 22) : 16;
+        const boxW = pageW - M * 2, boxH = Math.max(120, bottom() - y - reserve);
+        const scale = Math.min(boxW / imgW, boxH / imgH);
+        const w = imgW * scale, h = imgH * scale;
+        pdf.addImage(composite, "JPEG", M + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
+        y += boxH + 14;
       }
 
-      /* ---- footer on every page: rule + brand + page numbers ---- */
+      /* ---- comments below the doc, numbered exactly like the pins ---- */
+      if (pins.length) {
+        setF("Inter", "bold", 9, INK); pdf.text(`COMMENTS (${pins.length})`, M, y, { charSpace: 0.4 }); y += 14;
+        pins.forEach((p, i) => {
+          const lines = pdf.splitTextToSize(`${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
+          if (y + lines.length * 11.5 > bottom()) newPage();
+          pdf.setFillColor(...(p.resolved ? [54, 194, 117] : ORANGE));
+          pdf.circle(M + 6, y - 3, 6, "F");
+          setF("Inter", "bold", 7, [255, 255, 255]); pdf.text(String(i + 1), M + 6, y - 0.6, { align: "center" });
+          setF("Inter", "normal", 8.5, INK);
+          pdf.text(lines, M + 20, y); y += lines.length * 11.5 + 7;
+        });
+      }
+
       const pages = pdf.getNumberOfPages();
-      for (let p = 1; p <= pages; p++) {
-        pdf.setPage(p);
-        const fy = pageH - 30;
-        pdf.setDrawColor(...ORANGE); pdf.setLineWidth(0.8); pdf.line(M, fy, pageW - M, fy);
-        pdf.setFont("helvetica", "bold"); pdf.setFontSize(7.5); pdf.setTextColor(...FAINT);
-        pdf.text("THE JAMES AGENCY", M, fy + 12, { charSpace: 0.8 });
-        pdf.setFont("helvetica", "normal");
-        pdf.text(`${d.name} — ${v.label}`, pageW / 2, fy + 12, { align: "center" });
-        pdf.text(`Page ${p} of ${pages}`, pageW - M, fy + 12, { align: "right" });
-      }
+      for (let p = 1; p <= pages; p++) { pdf.setPage(p); drawFooter(p, pages); }
 
       pdf.save(`${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}.pdf`);
     } catch (e) {
