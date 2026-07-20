@@ -116,20 +116,23 @@ Deno.serve(async (req) => {
   // opens that page after login — no PDF is emailed; the client proofs it in the portal.
   const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs`;
 
+  const nameLine = `${docName}${version ? " " + version : ""}`;
   const text = [
-    `You have a deliverable to proof: ${docName} ${version}.`,
+    `"${nameLine}" is ready for review in your client portal.`,
     message ? `\n${message}` : "",
+    `\nOur partnership works best when we get your raw, honest feedback. Please be as detailed as possible to help us both get to the final product as efficiently as possible!`,
     due ? `\nFeedback due: ${due}` : "",
     `\nProof it in your portal: ${REVIEW_URL}`,
     `\n— The James Agency`,
   ].join("\n");
   const bodyHtml = [
-    `<p style="margin:0 0 14px"><b>${esc(docName)} ${esc(version)}</b> is ready for your review in your client portal.</p>`,
+    `<p style="margin:0 0 14px">&ldquo;<b>${esc(nameLine)}</b>&rdquo; is ready for review in your client portal.</p>`,
+    // the AM/PM's optional context for this round, if they wrote any
     message ? `<p style="margin:0 0 14px;white-space:pre-wrap">${esc(message)}</p>` : "",
-    `<p style="margin:0;color:#555">Review, comment on and approve the work right in the portal — no downloads needed.</p>`,
+    `<p style="margin:0">Our partnership works best when we get your raw, honest feedback. Please be as detailed as possible to help us both get to the final product as efficiently as possible!</p>`,
   ].join("");
   const html = portalEmail({
-    preheader: `${docName} ${version} is ready for your review.`,
+    preheader: `"${nameLine}" is ready for review in your client portal.`,
     heading: "You have a deliverable to proof",
     bodyHtml,
     metaRows: [["Feedback due", due]],

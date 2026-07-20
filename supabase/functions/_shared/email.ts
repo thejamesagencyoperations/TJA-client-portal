@@ -24,7 +24,9 @@ const ORANGE = "#f78f22";
 // final frame of the animated newsletter GIF (Outlook shows only frame 1 of a GIF, so a
 // static PNG is the safe choice for a transactional email).
 const ASSET_BASE = "https://thejamesagencyoperations.github.io/TJA-client-portal/assets/img/email";
-const LOGO = `${ASSET_BASE}/tja-logo-email.png`;
+// Animated GIF (the newsletter's draw-on reveal) rebuilt so FRAME 1 is the COMPLETE logo:
+// Gmail/Apple Mail animate it; Outlook (renders frame 1 only) still shows the finished mark.
+const LOGO = `${ASSET_BASE}/tja-logo-email.gif`;
 const ARROW = `${ASSET_BASE}/arrow-orange.png`;
 
 const esc = (s: string) =>
@@ -47,11 +49,11 @@ export function portalEmail(o: PortalEmailOpts): string {
          <b>${esc(k)}:</b> ${esc(v)}</p>`).join("");
 
   const cta = (o.ctaText && o.ctaUrl) ? `
-    <table role="presentation" class="tjaButton" style="height:30px;margin:24px 0 6px" border="0" cellpadding="0" cellspacing="0" align="left">
+    <table role="presentation" class="tjaButton" style="margin:24px 0 6px" border="0" cellpadding="0" cellspacing="0" align="left">
       <tbody><tr>
-        <td height="30" style="height:30px;border-radius:25px" align="left" bgcolor="#ffffff">
-          <a target="_blank" href="${o.ctaUrl}" style="border:2px solid ${ORANGE};color:${ORANGE};display:block;line-height:30px;height:30px;font-size:14px;text-align:left;text-decoration:none;font-family:Helvetica,Arial,sans-serif;font-weight:bold;padding:5px 16px 5px 20px;text-transform:uppercase;border-radius:25px;vertical-align:middle;-webkit-text-size-adjust:none">
-            ${esc(o.ctaText)} <img src="${ARROW}" width="22" height="22" style="padding:0 2px 2px 6px;vertical-align:middle" alt=""></a>
+        <td style="border-radius:25px" align="center" bgcolor="#ffffff">
+          <a target="_blank" href="${o.ctaUrl}" style="border:2px solid ${ORANGE};color:${ORANGE};display:inline-block;line-height:30px;font-size:14px;text-align:center;text-decoration:none;font-family:Helvetica,Arial,sans-serif;font-weight:bold;padding:6px 20px;text-transform:uppercase;border-radius:25px;vertical-align:middle;white-space:nowrap;-webkit-text-size-adjust:none">
+            ${esc(o.ctaText)} <img src="${ARROW}" width="20" height="20" style="padding:0 0 2px 6px;vertical-align:middle" alt=""></a>
         </td>
       </tr></tbody>
     </table>` : "";
