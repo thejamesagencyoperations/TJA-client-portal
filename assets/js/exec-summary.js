@@ -140,10 +140,16 @@ window.ExecSummary = (function () {
     const usedNow = (eng.serviceDisciplines && eng.serviceDisciplines.length) ? round2(retainerUsed(eng)) : eng.burn.usedHours;
     const totalNow = retainerTotalContracted(eng);
     eng.burn.usedHours = usedNow; eng.burn.contractedHours = totalNow;
-    const cur = (eng.burn.periodLabel || "").trim().slice(0, 3);
+    // Key by the CALENDAR month+year — same scheme as wmj-sync's snapshotMonth, so an admin
+    // touching the burn updates THIS month's entry rather than creating a mismatched one, and
+    // a past (frozen) month is never overwritten.
+    const now = new Date(), yr = now.getFullYear(), short = MONTHS[now.getMonth()].slice(0, 3);
     const last = eng.mom[eng.mom.length - 1];
-    if (last && last.month === cur) { last.usedHours = usedNow; last.contractedHours = totalNow; }
-    else eng.mom.push({ month: cur, usedHours: usedNow, contractedHours: totalNow });
+    if (last && last.month === short && (last.year == null || last.year === yr)) {
+      last.year = yr; last.usedHours = usedNow; last.contractedHours = totalNow;
+    } else {
+      eng.mom.push({ month: short, year: yr, usedHours: usedNow, contractedHours: totalNow });
+    }
   }
   function nextMonthLabel(periodLabel) {
     const parts = (periodLabel || "").trim().split(/\s+/);

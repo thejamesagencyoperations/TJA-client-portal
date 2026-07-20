@@ -226,7 +226,41 @@ window.WMJ_SYNC = (function () {
     e.status = e.status || { groups: [] };
     e.projectPlan = e.projectPlan || { outcome: "", startDate: "", endDate: "", status: { level: "green", pct: 0, note: "" }, criticalPath: [], phases: [], risks: [] };
     if (typeof e.northStar !== "string") e.northStar = "";
+    snapshotMonth(e);   // freeze the closing month + start the new one (see below)
     return e;
+  }
+
+  /* ---------- monthly snapshot / rollover ----------
+     The retainer burn is CURRENT-period: when August's timesheet flows in, it
+     overwrites July's actuals. Without a snapshot, July's closing numbers are lost.
+     This runs inside the hourly retainer sync (so it covers EVERY client, not just
+     ones someone opened) and keeps e.mom as a frozen month-by-month record:
+       • upsert the CURRENT calendar month's entry with the real WMJ actuals;
+       • past-month entries are never touched again — they're frozen at their
+         last in-month value (which, synced hourly, is that month's near-final).
+     Keyed by month+year so "Jul 2026" and "Jul 2027" never collide, and so the
+     rollover to a new month starts a fresh entry instead of clobbering the last. */
+  const SNAP_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const SNAP_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  function snapshotMonth(e) {
+    if (!e || !e.burn) return;
+    e.mom = e.mom || [];
+    const now = new Date();
+    const yr = now.getFullYear(), mi = now.getMonth();
+    const short = SNAP_MONTHS[mi];
+    e.burn.periodLabel = `${SNAP_FULL[mi]} ${yr}`;   // keep the tile's month label current
+    const used = +e.burn.usedHours || 0;             // real WMJ actuals (not a presentation override)
+    const total = +e.burn.contractedHours || 0;
+    const last = e.mom[e.mom.length - 1];
+    // match the current month's entry: same short month AND (same year, or a legacy
+    // entry with no year — assume it's this year's and adopt it).
+    if (last && last.month === short && (last.year == null || last.year === yr)) {
+      last.year = yr; last.usedHours = used; last.contractedHours = total;
+    } else {
+      e.mom.push({ month: short, year: yr, usedHours: used, contractedHours: total });
+    }
+    // guard against unbounded growth — keep the trailing 24 months
+    if (e.mom.length > 24) e.mom = e.mom.slice(-24);
   }
   async function syncRetainers() {
     if (!RT()) throw new Error("retainer-transform not loaded");
