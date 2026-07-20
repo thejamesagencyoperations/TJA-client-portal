@@ -17,8 +17,15 @@
    ============================================================ */
 
 const ORANGE = "#f78f22";
-const LOGO = "https://mcusercontent.com/877bc2a21a7f5005065ec6183/images/2fb815dc-5831-b1db-49f2-c1ebfef09ae3.gif";
-const ARROW = "https://mcusercontent.com/877bc2a21a7f5005065ec6183/images/486bbe00-1b5a-a980-256d-c127fb4b1fc0.png"; // orange arrow
+// Self-hosted on the portal's own GitHub Pages (NOT Mailchimp's CDN). The originals were
+// TJA newsletter-campaign assets in a Mailchimp content library — a marketing-team cleanup
+// or account lapse there would silently break every portal email. These are the exact same
+// assets, now versioned in this repo and deployed with the portal. The logo is the STATIC
+// final frame of the animated newsletter GIF (Outlook shows only frame 1 of a GIF, so a
+// static PNG is the safe choice for a transactional email).
+const ASSET_BASE = "https://thejamesagencyoperations.github.io/TJA-client-portal/assets/img/email";
+const LOGO = `${ASSET_BASE}/tja-logo-email.png`;
+const ARROW = `${ASSET_BASE}/arrow-orange.png`;
 
 const esc = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
