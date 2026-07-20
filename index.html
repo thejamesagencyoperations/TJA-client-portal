@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA Client Portal — Sign In</title>
-<link rel="icon" href="assets/img/favicon.ico?v=250" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=250">
+<link rel="icon" href="assets/img/favicon.ico?v=251" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=251">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=250">
+<link rel="stylesheet" href="assets/css/styles.css?v=251">
 </head>
 <body>
 <div class="login-wrap">
@@ -40,21 +40,29 @@
     </form>
 
     <div class="login-foot">
-      © 2026 The James Agency · v2.50
+      © 2026 The James Agency · v2.51
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=250"></script>
-<script src="assets/js/version-check.js?v=250"></script>
-<script src="assets/js/supabase-sync.js?v=250"></script>
-<script src="assets/js/auth.js?v=250"></script>
+<script src="assets/js/supabase-config.js?v=251"></script>
+<script src="assets/js/version-check.js?v=251"></script>
+<script src="assets/js/supabase-sync.js?v=251"></script>
+<script src="assets/js/auth.js?v=251"></script>
 <!-- client roster on the login page so per-client logins resolve to their own workspace -->
-<script src="assets/js/clients.js?v=250"></script>
-<script src="assets/js/client-template.js?v=250"></script>
-<script src="assets/js/client-store.js?v=250"></script>
+<script src="assets/js/clients.js?v=251"></script>
+<script src="assets/js/client-template.js?v=251"></script>
+<script src="assets/js/client-store.js?v=251"></script>
 <script>
+  // Deep-link from the deliverable email (?open=docs): stash the target page so app.js
+  // opens it after login. Same key the notification-center deep-link uses — the client
+  // lands straight on Present Docs whether they're already signed in or have to log in.
+  try {
+    const openTo = new URLSearchParams(location.search).get("open");
+    if (openTo) sessionStorage.setItem("tja_open_page", openTo);
+  } catch (e) {}
+
   // Staff (admin + creative) land on the client picker; clients go straight to their workspace.
   const landing = () => (typeof isStaff === "function" && isStaff()) ? "clients.html" : "dashboard.html";
 

@@ -491,7 +491,10 @@ body[data-role="creative"] .admin-only { display: none !important; }
 .btn-upload:hover { filter: brightness(1.06); }
 .pd-hint { font-size: .76rem; color: var(--text-dim); }
 
-.pd-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+/* align-items:start — each card sizes to its OWN content. Without it the grid default
+   (stretch) forces every card to the tallest one's height, which distorts shorter cards
+   (giant thumbnails) and pushed the draft "Send to client" button out of place. */
+.pd-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; align-items: start; }
 .pd-card {
   position: relative; background: var(--panel-2); border: 1px solid var(--line);
   border-radius: var(--radius); overflow: hidden; cursor: pointer;
@@ -637,6 +640,10 @@ body[data-role="creative"] .admin-only { display: none !important; }
   padding: 20px; box-shadow: var(--shadow); max-height: 90vh; overflow-y: auto; }
 .pd-up-card .pd-review-label { display: block; margin: 12px 0 6px; }
 .pd-up-card .pd-revdue-row .pd-review-label { margin: 0; }
+.pd-up-hint { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-faint); }
+.pd-up-hint.req { color: var(--orange); font-weight: 600; }
+.pd-up-err { display: none; margin-top: 12px; padding: 9px 12px; border-radius: 8px; font-size: .78rem;
+  background: rgba(239,83,80,.1); border: 1px solid rgba(239,83,80,.4); color: #ef5350; }
 .pd-up-subject, .pd-up-msg { width: 100%; padding: 9px 11px; background: var(--input); border: 1px solid var(--line);
   border-radius: 8px; color: var(--text); font-family: inherit; font-size: .85rem; }
 .pd-up-msg { min-height: 96px; resize: vertical; line-height: 1.5; }

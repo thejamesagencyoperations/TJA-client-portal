@@ -108,25 +108,30 @@ Deno.serve(async (req) => {
 
   const docName = String(body.docName ?? "deliverable");
   const version = String(body.versionLabel ?? "");
-  const subject = String(body.subject ?? "").trim() || `New deliverable for review: ${docName} ${version}`.trim();
+  const subject = String(body.subject ?? "").trim() || `You have a deliverable to proof: ${docName} ${version}`.trim();
   const message = String(body.message ?? "").trim();
   const due = fmtDue(String(body.dueDate ?? ""));
+  // Deep-link straight to Present Docs. index.html reads ?open=docs, stashes it, and app.js
+  // opens that page after login — no PDF is emailed; the client proofs it in the portal.
+  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs`;
 
   const text = [
-    `${docName} ${version} is ready for your review in the TJA client portal.`,
+    `You have a deliverable to proof: ${docName} ${version}.`,
     message ? `\n${message}` : "",
     due ? `\nFeedback due: ${due}` : "",
-    `\nReview it here: ${PORTAL_BASE_URL}`,
+    `\nProof it in your portal: ${REVIEW_URL}`,
     `\n— The James Agency`,
   ].join("\n");
   const html = `
     <div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;color:#222">
       <div style="background:#F68E21;border-radius:8px 8px 0 0;padding:14px 20px;color:#fff;font-weight:800;font-size:18px">The James Agency</div>
       <div style="border:1px solid #e5e5e5;border-top:none;border-radius:0 0 8px 8px;padding:20px">
-        <p style="margin:0 0 12px"><b>${esc(docName)} ${esc(version)}</b> is ready for your review.</p>
+        <p style="margin:0 0 6px;font-size:16px"><b>You have a deliverable to proof.</b></p>
+        <p style="margin:0 0 12px;color:#555"><b>${esc(docName)} ${esc(version)}</b> is ready for your review in the TJA client portal.</p>
         ${message ? `<p style="margin:0 0 12px;white-space:pre-wrap">${esc(message)}</p>` : ""}
         ${due ? `<p style="margin:0 0 12px"><b>Feedback due:</b> ${esc(due)}</p>` : ""}
-        <p style="margin:18px 0 0"><a href="${PORTAL_BASE_URL}" style="background:#F68E21;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:8px;display:inline-block">Review in the portal →</a></p>
+        <p style="margin:18px 0 6px"><a href="${REVIEW_URL}" style="background:#F68E21;color:#fff;text-decoration:none;font-weight:700;padding:11px 20px;border-radius:8px;display:inline-block">Proof it in your portal →</a></p>
+        <p style="margin:14px 0 0;color:#999;font-size:12px">Review, comment on and approve the work right in the portal — no downloads needed.</p>
       </div>
     </div>`;
 

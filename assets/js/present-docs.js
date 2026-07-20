@@ -203,7 +203,7 @@ window.PresentDocs = (function () {
             <button class="btn btn-primary" id="pdSubmit">Submit Review</button>
             <div class="pd-saved" id="pdSaved">✓ Review saved</div>
             <div class="pd-sign-status" id="pdSignStatus"></div>
-            <button class="pd-tool-btn pd-export-btn" id="pdExport">
+            <button class="pd-tool-btn pd-export-btn admin-only" id="pdExport" title="Internal proof PDF for your records — the client reviews in-portal">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>
               Export PDF
             </button>
@@ -242,16 +242,17 @@ window.PresentDocs = (function () {
       <div class="pd-up-card">
         <div class="pd-sign-title">Send deliverable</div>
         <div class="pd-sign-sub" id="pdUpSub"></div>
-        <label class="pd-review-label" for="pdUpSubject">Subject</label>
+        <label class="pd-review-label" for="pdUpSubject">Subject <span class="pd-up-hint" id="pdUpSubjectHint"></span></label>
         <input type="text" id="pdUpSubject" class="pd-up-subject" placeholder="e.g. Logo concepts — round 1">
-        <label class="pd-review-label" for="pdUpMsg">Message to client</label>
+        <label class="pd-review-label" for="pdUpMsg">Message to client <span class="pd-up-hint">— optional</span></label>
         <textarea id="pdUpMsg" class="pd-up-msg" placeholder="Context for this round — what you'd like feedback on…"></textarea>
-        <label class="pd-review-label" for="pdUpSpecs">Specifications <span style="opacity:.55;font-weight:400">— optional</span></label>
+        <label class="pd-review-label" for="pdUpSpecs">Specifications <span class="pd-up-hint" id="pdUpSpecsHint"></span></label>
         <input type="text" id="pdUpSpecs" class="pd-up-subject" placeholder='e.g. 8.5" X 11" // Print Document // CMYK // 4/4 Process Color'>
         <div class="pd-revdue-row">
-          <label class="pd-review-label" for="pdUpDue">Feedback due</label>
+          <label class="pd-review-label" for="pdUpDue">Feedback due <span class="pd-up-hint" id="pdUpDueHint"></span></label>
           <input type="date" id="pdUpDue" class="pd-revdue">
         </div>
+        <div class="pd-up-err" id="pdUpErr" style="display:none"></div>
         <div class="pd-sign-actions">
           <button class="pd-tool-btn" id="pdUpCancel">Cancel</button>
           <button class="btn btn-primary" id="pdUpSend">Add deliverable</button>
@@ -332,7 +333,7 @@ window.PresentDocs = (function () {
       const last = d.versions[d.versions.length - 1] || v;
       return `<div class="pd-card" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
-        <button class="pd-card-export" data-export="${d.id}" title="Export PDF">⬇</button>
+        <button class="pd-card-export admin-only" data-export="${d.id}" title="Export proof PDF (internal record)">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
         <div class="pd-thumb"><img src="${v.dataUrl}" alt="${esc(d.name)}"></div>
         <div class="pd-card-foot">
@@ -401,8 +402,27 @@ window.PresentDocs = (function () {
       : `${processed.length} files · V1 each`;
     $("pdUpSubject").value = ""; $("pdUpMsg").value = ""; $("pdUpDue").value = "";
     if ($("pdUpSpecs")) $("pdUpSpecs").value = "";
+    if ($("pdUpErr")) $("pdUpErr").style.display = "none";
+    applyUploadRequirements();
     ov.style.display = "flex";
     setTimeout(() => $("pdUpSubject").focus(), 0);
+  }
+  /* Required fields differ by who's uploading (Cameron 2026-07-20):
+       CREATIVE  → Subject + Specifications required; Message + Feedback-due optional
+                   (they know the artwork's specs; the AM/PM sets the client deadline on release)
+       AM/PM     → Subject + Feedback-due required; Message + Specifications optional
+                   (they own the client timeline; may not know the print specs)
+     Subject is always required; Message is always optional. */
+  function uploadRules() {
+    const creative = uploadsToDraft();
+    return { specs: creative, due: !creative };   // subject always required; message never
+  }
+  function applyUploadRequirements() {
+    const r = uploadRules();
+    const set = (id, req) => { const el = $(id); if (el) { el.textContent = req ? "— required" : "— optional"; el.classList.toggle("req", req); } };
+    set("pdUpSubjectHint", true);
+    set("pdUpSpecsHint", r.specs);
+    set("pdUpDueHint", r.due);
   }
   function closeUploadDialog() {
     const ov = $("pdUpOverlay"); if (ov) ov.style.display = "none";
@@ -416,6 +436,21 @@ window.PresentDocs = (function () {
     const subject = $("pdUpSubject") ? $("pdUpSubject").value.trim() : "";
     const message = $("pdUpMsg") ? $("pdUpMsg").value.trim() : "";
     const due = $("pdUpDue") ? $("pdUpDue").value : "";
+    // validate required fields (only when the dialog is actually present)
+    if ($("pdUpOverlay") && $("pdUpErr")) {
+      const r = uploadRules();
+      const specsVal = $("pdUpSpecs") ? $("pdUpSpecs").value.trim() : "";
+      const missing = [];
+      if (!subject) missing.push("Subject");
+      if (r.specs && !specsVal) missing.push("Specifications");
+      if (r.due && !due) missing.push("Feedback due");
+      if (missing.length) {
+        const err = $("pdUpErr");
+        err.textContent = "Please fill in: " + missing.join(", ") + ".";
+        err.style.display = "";
+        return;
+      }
+    }
     // Specifications: OPTIONAL (an AM/PM uploading may not know them — Cameron 2026-07-20).
     // Lives on the DELIVERABLE (set at V1, carried by every later version) — it describes
     // the artwork, not the round. Shown small on the review screen + in the PDF header.
