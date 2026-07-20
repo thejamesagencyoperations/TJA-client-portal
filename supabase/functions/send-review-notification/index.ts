@@ -20,6 +20,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
+import { postToSlack } from "../_shared/slack.ts";
 
 const PORTAL_BASE_URL = "https://thejamesagencyoperations.github.io/TJA-client-portal";
 
@@ -95,6 +96,12 @@ Deno.serve(async (req) => {
     ctaText: "Open it in the portal",
     ctaUrl: PORTAL_BASE_URL,
   });
+
+  // Slack (fire-and-forget, no-op until a Slack credential is set).
+  const emoji = body.status === "approved" ? "✅" : body.status === "changes" ? "📝" : "🔄";
+  postToSlack(entry.integrations?.slackChannel,
+    `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}`)
+    .catch(() => {});
 
   try {
     const out = await sendViaResend(uniq, subject, html, text);

@@ -33,6 +33,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
+import { postToSlack } from "../_shared/slack.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // The only place the portal's own URL exists in the backend. On a future custom
@@ -139,6 +140,12 @@ Deno.serve(async (req) => {
     ctaText: "Proof it in your portal",
     ctaUrl: REVIEW_URL,
   });
+
+  // Slack (fire-and-forget, no-op until a Slack credential is set) — same event,
+  // routed to the client's integrations.slackChannel.
+  postToSlack(entry.integrations?.slackChannel,
+    `📤 Sent *${nameLine}* to *${entry.name}* for review${due ? ` · feedback due ${due}` : ""}`)
+    .catch(() => {});
 
   try {
     const out = await sendViaResend(recipients, subject, html, text);
