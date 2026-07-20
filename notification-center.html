@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Notification Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=246" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=246">
+<link rel="icon" href="assets/img/favicon.ico?v=247" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=247">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=246">
+<link rel="stylesheet" href="assets/css/styles.css?v=247">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -23,7 +23,8 @@
     </div>
     <div class="topbar-right">
       <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
-      <a class="btn btn-ghost" href="clients.html">← All clients</a>
+      <button class="btn btn-ghost" id="ncBackClient" style="display:none"></button>
+      <a class="btn btn-ghost" href="clients.html">All clients</a>
       <button class="btn btn-ghost" onclick="logout()">Sign Out</button>
     </div>
   </header>
@@ -82,10 +83,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=246"></script>
-<script src="assets/js/version-check.js?v=246"></script>
-<script src="assets/js/supabase-sync.js?v=246"></script>
-<script src="assets/js/auth.js?v=246"></script>
+<script src="assets/js/supabase-config.js?v=247"></script>
+<script src="assets/js/version-check.js?v=247"></script>
+<script src="assets/js/supabase-sync.js?v=247"></script>
+<script src="assets/js/auth.js?v=247"></script>
 <script>
   requireAuth();
   // Admin-only. Creatives bounce to the PICKER — they have no client workspace,
@@ -94,15 +95,34 @@
   if (typeof isAdminOrManager === "function" && !isAdminOrManager())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=246"></script>
-<script src="assets/js/client-template.js?v=246"></script>
-<script src="assets/js/client-store.js?v=246"></script>
-<script src="assets/js/notifications.js?v=246"></script>
+<script src="assets/js/clients.js?v=247"></script>
+<script src="assets/js/client-template.js?v=247"></script>
+<script src="assets/js/client-store.js?v=247"></script>
+<script src="assets/js/notifications.js?v=247"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const N = window.TJA_NOTIFY;
+
+  // "← Back to <client>" — shown only when we arrived from a client's dashboard
+  // (the bell passes ?from=<clientId>). Restores that client into the session and
+  // returns to the dashboard, so you don't have to re-pick from All clients.
+  (function backToClient() {
+    try {
+      const fromId = new URLSearchParams(location.search).get("from");
+      if (!fromId) return;
+      const ent = window.TJA_STORE && window.TJA_STORE.get(fromId);
+      const name = (ent && ent.name) || "client";
+      const btn = $("ncBackClient");
+      btn.textContent = "← Back to " + name;
+      btn.style.display = "";
+      btn.addEventListener("click", () => {
+        try { const s = JSON.parse(sessionStorage.getItem("tja_portal_session") || "{}"); s.client = fromId; sessionStorage.setItem("tja_portal_session", JSON.stringify(s)); } catch (e) {}
+        window.location.href = "dashboard.html";
+      });
+    } catch (e) {}
+  })();
 
   // theme toggle (mirrors the other pages)
   const applyTheme = (t) => { document.documentElement.setAttribute("data-theme", t); };

@@ -89,14 +89,17 @@ window.ExecSummary = (function () {
     const due = (e.type === "project")
       ? `<div class="proj-due"><span class="proj-due-cal">${IC.cal}</span><span class="proj-due-label">Due date</span>${dueVal}</div>`
       : "";
-    // Admin edits the note in a roomy popup (a single-line field opens it, so it never
-    // gets squished inside the tile). Clients see the note read-only, exactly as before.
-    const noteHtml = canAdmin()
-      ? `<button class="cond-note-btn ${c.note ? "" : "empty"}" data-condnote title="Edit condition note">${c.note ? esc(c.note) : "＋ Add a condition note"}</button>`
-      : (c.note ? `<div class="cond-note">${esc(c.note)}</div>` : "");
+    // Admin edits the note in a roomy popup. The edit affordance is a compact button to
+    // the RIGHT of the Condition label — the old full-width button sat BELOW the row and
+    // in the project tile it fell out of view, so it was hard to reach. The note itself
+    // renders read-only below for everyone (admin + client see it the same way).
+    const editBtn = canAdmin()
+      ? `<button class="cond-note-edit" data-condnote title="${c.note ? "Edit condition note" : "Add a condition note"}">${c.note ? "✎ Note" : "＋ Note"}</button>`
+      : "";
+    const noteHtml = c.note ? `<div class="cond-note">${esc(c.note)}</div>` : "";
     return `<div class="burn-cond">
       ${due}
-      <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span><span class="cond-label ${lvl}">${labels[lvl] || "—"}</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span></div>
+      <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span>${editBtn}<span class="cond-label ${lvl}">${labels[lvl] || "—"}</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span></div>
       ${noteHtml}
     </div>`;
   }
@@ -253,7 +256,7 @@ window.ExecSummary = (function () {
           </div>`; }).join("")}
       </div>`).join("");
     return `<div class="module module--tasks">
-      <div class="module-head"><span class="module-title">${IC.svc}Tasks</span><span class="module-link" data-go="status">View status →</span></div>
+      <div class="module-head"><span class="module-title">${IC.svc}Tasks</span><span class="module-link" data-go="plan">View project plan →</span></div>
       <div class="task-list-wrap">${body || `<div class="pr-date">No tasks yet.</div>`}</div>
     </div>`;
   }

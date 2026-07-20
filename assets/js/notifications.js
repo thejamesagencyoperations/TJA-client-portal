@@ -151,7 +151,19 @@ window.TJA_NOTIFY = (function () {
       if (dot) { dot.style.display = unread ? "" : "none"; dot.textContent = unread > 9 ? "9+" : String(unread); }
       if (panel.style.display !== "none") renderPanel();
     }
-    const centerBtn = `<a class="notif-center-link" href="notification-center.html">Open Notification Center →</a>`;
+    // Carry the client you're viewing so the Notification Center can offer a "back to
+    // this client" button. window.DASH exists only on the dashboard (a real client is
+    // open); on the clients picker there's nothing to go back to, so the link stays bare.
+    function centerHref() {
+      try {
+        if (window.DASH && typeof getSession === "function") {
+          const cid = getSession().client;
+          if (cid && String(cid).charAt(0) !== "_") return "notification-center.html?from=" + encodeURIComponent(cid);
+        }
+      } catch (e) {}
+      return "notification-center.html";
+    }
+    const centerBtn = `<a class="notif-center-link" href="${centerHref()}">Open Notification Center →</a>`;
     function renderPanel() {
       if (!cache.length) { panel.innerHTML = `<div class="notif-empty">No client activity yet.</div>${centerBtn}`; return; }
       const groups = new Map();

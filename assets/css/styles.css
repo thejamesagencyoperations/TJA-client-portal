@@ -1056,6 +1056,11 @@ body[data-role="creative"] .admin-only { display: none !important; }
   cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cond-note-btn:hover { border-color: var(--orange); }
 .cond-note-btn.empty { color: var(--text-faint); }
+/* compact condition-note edit button, sits inline right after the "Condition" label */
+.cond-note-edit { flex: none; font: inherit; font-size: .68rem; font-weight: 700; line-height: 1;
+  color: var(--accent-text); background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 9px; cursor: pointer; white-space: nowrap; }
+.cond-note-edit:hover { border-color: var(--orange); background: rgba(246,142,33,.08); }
 .note-pop .note-pop-ta { width: 100%; box-sizing: border-box; resize: vertical; min-height: 96px; font: inherit; font-size: .9rem;
   color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; outline: none; }
 .note-pop .note-pop-ta:focus { border-color: var(--orange); box-shadow: 0 0 0 3px rgba(246,142,33,.14); }

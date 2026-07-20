@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=246" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=246">
+<link rel="icon" href="assets/img/favicon.ico?v=247" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=247">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=246">
+<link rel="stylesheet" href="assets/css/styles.css?v=247">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -48,6 +48,14 @@
       </div>
       <label class="nc-filter-wrap">Manager
         <select id="clMgrFilter" class="nc-filter"><option value="">All</option></select>
+      </label>
+      <label class="nc-filter-wrap">Sort
+        <select id="clSort" class="nc-filter">
+          <option value="name-asc">Name A→Z</option>
+          <option value="name-desc">Name Z→A</option>
+          <option value="added-new">Newest added</option>
+          <option value="added-old">Oldest added</option>
+        </select>
       </label>
     </div>
     <div class="proj-grid" id="clientGrid"></div>
@@ -147,11 +155,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=246"></script>
-<script src="assets/js/version-check.js?v=246"></script>
-<script src="assets/js/supabase-sync.js?v=246"></script>
-<script src="assets/js/ui.js?v=246"></script>
-<script src="assets/js/auth.js?v=246"></script>
+<script src="assets/js/supabase-config.js?v=247"></script>
+<script src="assets/js/version-check.js?v=247"></script>
+<script src="assets/js/supabase-sync.js?v=247"></script>
+<script src="assets/js/ui.js?v=247"></script>
+<script src="assets/js/auth.js?v=247"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -180,17 +188,17 @@
     });
   }
 </script>
-<script src="assets/js/clients.js?v=246"></script>
-<script src="assets/js/client-template.js?v=246"></script>
-<script src="assets/js/client-store.js?v=246"></script>
-<script src="assets/js/wmj-transform.js?v=246"></script>
-<script src="assets/js/retainer-transform.js?v=246"></script>
-<script src="assets/js/client-logos.js?v=246"></script>
-<script src="assets/js/client-pr-sheets.js?v=246"></script>
-<script src="assets/js/mgr-sheet.js?v=246"></script>
-<script src="assets/js/retainer-value.js?v=246"></script>
-<script src="assets/js/wmj-sync.js?v=246"></script>
-<script src="assets/js/notifications.js?v=246"></script>
+<script src="assets/js/clients.js?v=247"></script>
+<script src="assets/js/client-template.js?v=247"></script>
+<script src="assets/js/client-store.js?v=247"></script>
+<script src="assets/js/wmj-transform.js?v=247"></script>
+<script src="assets/js/retainer-transform.js?v=247"></script>
+<script src="assets/js/client-logos.js?v=247"></script>
+<script src="assets/js/client-pr-sheets.js?v=247"></script>
+<script src="assets/js/mgr-sheet.js?v=247"></script>
+<script src="assets/js/retainer-value.js?v=247"></script>
+<script src="assets/js/wmj-sync.js?v=247"></script>
+<script src="assets/js/notifications.js?v=247"></script>
 <script>
   if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -263,6 +271,23 @@
   let mgrFilter = "";
   try { const s = sessionStorage.getItem(MGR_FILTER_KEY); if (s !== null) mgrFilter = s; } catch (e) {}
   let mgrFilterChosen = (() => { try { return sessionStorage.getItem(MGR_FILTER_KEY) !== null; } catch (e) { return false; } })();
+
+  // sort order — persists per browser (localStorage, not per-session, so it sticks
+  // across visits). Defaults to A→Z.
+  const SORT_KEY = "tja_client_sort";
+  let sortMode = "name-asc";
+  try { const s = localStorage.getItem(SORT_KEY); if (s) sortMode = s; } catch (e) {}
+  function sortClients(list) {
+    const name = (c) => String(c.name || "").toLowerCase();
+    const added = (c) => Date.parse(c.createdAt || "") || 0;   // built-ins/legacy with no stamp sort last on "newest"
+    const cmp = {
+      "name-asc": (a, b) => name(a).localeCompare(name(b)),
+      "name-desc": (a, b) => name(b).localeCompare(name(a)),
+      "added-new": (a, b) => added(b) - added(a) || name(a).localeCompare(name(b)),
+      "added-old": (a, b) => added(a) - added(b) || name(a).localeCompare(name(b)),
+    }[sortMode] || ((a, b) => name(a).localeCompare(name(b)));
+    return list.slice().sort(cmp);
+  }
   function defaultMgrFilter(all) {
     if (mgrFilterChosen) return;   // the user already picked — never override
     const me = ((typeof getSession === "function" && getSession()) || {}).name || "";
@@ -292,7 +317,7 @@
     document.getElementById("nArchived").textContent = nArc;
     defaultMgrFilter(all);
     fillMgrFilter(all);
-    const clients = all.filter(c => isArchived(c) === (bucket === "archived")).filter(matchesMgr);
+    const clients = sortClients(all.filter(c => isArchived(c) === (bucket === "archived")).filter(matchesMgr));
     // Creatives get the picker to OPEN clients, nothing else: no tile actions,
     // no Add tile — their registry writes would be rejected by RLS anyway.
     // AM/PMs get everything EXCEPT delete: RLS refuses their DELETE (schema-v7),
@@ -336,6 +361,15 @@
     try { sessionStorage.setItem(MGR_FILTER_KEY, mgrFilter); } catch (err) {}
     renderGrid();
   });
+  (function initSort() {
+    const sel = document.getElementById("clSort");
+    sel.value = sortMode;
+    sel.addEventListener("change", e => {
+      sortMode = e.target.value;
+      try { localStorage.setItem(SORT_KEY, sortMode); } catch (err) {}
+      renderGrid();
+    });
+  })();
   tabs.addEventListener("dragover", e => { const t = e.target.closest(".cl-tab"); if (t) { e.preventDefault(); t.classList.add("drop-hover"); } });
   tabs.addEventListener("dragleave", e => { const t = e.target.closest(".cl-tab"); if (t) t.classList.remove("drop-hover"); });
   tabs.addEventListener("drop", e => {
