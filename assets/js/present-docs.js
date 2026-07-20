@@ -888,12 +888,23 @@ window.PresentDocs = (function () {
     }
     if (v) { v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; }   // stamp date+time of this review submit
     // Notify the TJA team when a CLIENT submits a review (not when an admin does).
-    if (v && d && window.TJA_NOTIFY && getSession && getSession() && getSession().role === "client") {
-      window.TJA_NOTIFY.record({
-        type: "review", docId: d.id, docName: d.name, versionLabel: v.label,
-        status: v.status || null, comments: (v.pins || []).length,
-        by: getSession().name || "Client",
-      });
+    if (v && d && getSession && getSession() && getSession().role === "client") {
+      if (window.TJA_NOTIFY) {
+        window.TJA_NOTIFY.record({
+          type: "review", docId: d.id, docName: d.name, versionLabel: v.label,
+          status: v.status || null, comments: (v.pins || []).length,
+          by: getSession().name || "Client",
+        });
+      }
+      // …and email the team's distribution address for this client (fire-and-forget).
+      if (window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
+        try {
+          window.TJA_MAIL.sendReviewResponse({
+            docName: d.name, versionLabel: v.label,
+            status: v.status || null, comments: (v.pins || []).length,
+          });
+        } catch (e) { console.warn("review-response email failed", e); }
+      }
     }
     saveCur(); renderGallery(); updateSignStatus(); updateMeta();
     const s = $("pdSaved"); s.classList.add("show");

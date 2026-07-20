@@ -67,5 +67,23 @@ window.TJA_MAIL = (function () {
     }
   }
 
-  return { enabled, sendDeliverable };
+  // Fires when a CLIENT submits their review — emails the TJA team's distribution
+  // address for that client. The function derives the client + recipients server-side,
+  // so the payload is just the deliverable context. Fails soft (never blocks the review).
+  // payload: { docName, versionLabel, status, comments }
+  async function sendReviewResponse(payload) {
+    if (!enabled()) return { ok: false, skipped: true };
+    const token = await accessToken();
+    if (!token) return { ok: false, skipped: true };
+    try {
+      const r = await fetch(fnBase() + "/send-review-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify(payload),
+      });
+      return r.ok ? { ok: true } : { ok: false, error: r.status };
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
+  return { enabled, sendDeliverable, sendReviewResponse };
 })();
