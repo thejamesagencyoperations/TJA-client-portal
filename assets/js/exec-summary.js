@@ -138,8 +138,9 @@ window.ExecSummary = (function () {
     eng.mom = eng.mom || [];
     // for disciplines-driven retainers, the live burn = Σ used across disciplines
     const usedNow = (eng.serviceDisciplines && eng.serviceDisciplines.length) ? round2(retainerUsed(eng)) : eng.burn.usedHours;
-    // this month's scope extension (if tagged for the live month) rides into the banked total
-    const scopeExtNow = (eng.burn.scopeExtMonth && eng.burn.scopeExtMonth === eng.burn.periodLabel) ? (+(eng.burn.scopeExtHours || 0)) : 0;
+    // this month's scope extensions (if tagged for the live month) ride into the banked total
+    const scopeExtNow = (eng.burn.scopeExtMonth && eng.burn.scopeExtMonth === eng.burn.periodLabel && Array.isArray(eng.burn.scopeExts))
+      ? eng.burn.scopeExts.reduce((s, x) => s + (+x.hours || 0), 0) : 0;
     const baseTotal = retainerTotalContracted(eng);
     const totalNow = baseTotal + scopeExtNow;
     eng.burn.usedHours = usedNow; eng.burn.contractedHours = baseTotal;   // store the BASE; scope ext stays separate
@@ -212,12 +213,12 @@ window.ExecSummary = (function () {
     // WMJ timesheet. Admins can DRAG the dial to override the shown total % for a presentation;
     // the real hours stay in the subtext, and "Reset to actuals" (Service Lines) clears it.
     const b = (viewMonthIdx == null) ? e.burn : e.mom[viewMonthIdx];
-    // Scope extension: extra hours added to THIS month's contracted total (a mid-month scope
-    // bump on the retainer) so the burn % reflects reality and doesn't false-alarm over 100%.
-    // Tagged with the month it was set for (scopeExtMonth) so it auto-expires when the
-    // calendar rolls — July's extension never leaks into August. Live month only.
-    const scopeExt = (viewMonthIdx == null && e.burn && e.burn.scopeExtMonth && e.burn.scopeExtMonth === e.burn.periodLabel)
-      ? (+(e.burn.scopeExtHours || 0)) : 0;
+    // Scope extensions: a LIST of {hours, note} added to THIS month's contracted total (mid-
+    // month retainer scope bumps) so the burn % reflects reality and doesn't false-alarm over
+    // 100%. Tagged with the month (scopeExtMonth) so they auto-expire when the calendar rolls.
+    // Shown as removable chips. Live month only.
+    const scopeList = (e.burn && e.burn.scopeExtMonth && e.burn.scopeExtMonth === e.burn.periodLabel && Array.isArray(e.burn.scopeExts)) ? e.burn.scopeExts : [];
+    const scopeExt = (viewMonthIdx == null) ? scopeList.reduce((s, x) => s + (+x.hours || 0), 0) : 0;
     const total = (viewMonthIdx == null) ? (retainerTotalContracted(e) + scopeExt) : b.contractedHours;
     const used = (viewMonthIdx == null) ? round2(retainerUsed(e)) : b.usedHours;   // burn = SUM of the disciplines' used hrs
     const realPct = total > 0 ? Math.round(used / total * 100) : 0;
@@ -235,7 +236,8 @@ window.ExecSummary = (function () {
       : canAdmin() ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
       : `${pct}%`;
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.burn}Monthly Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span>${(canAdmin() && viewMonthIdx == null) ? `<button class="burn-scope-btn" data-scopeext title="Add scope-extension hours to this month's contracted total">${scopeExt > 0 ? "✎ Scope +" + round1(scopeExt) + "h" : "＋ Scope extension"}</button>` : ""}</div>
+      <div class="module-head"><span class="module-title">${IC.burn}Monthly Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span>${(canAdmin() && viewMonthIdx == null) ? `<button class="burn-scope-btn" data-scopeext title="Add a scope-extension (hours + description) to this month">＋ Scope extension</button>` : ""}</div>
+      ${(canAdmin() && viewMonthIdx == null && scopeList.length) ? `<div class="scope-chips">${scopeList.map((x, i) => `<span class="scope-chip"><b>+${round1(x.hours)}h</b>${x.note ? " " + esc(x.note) : ""}<button class="scope-chip-x" data-scopedel="${i}" title="Remove this scope extension">✕</button></span>`).join("")}</div>` : ""}
       <div class="burn-wrap">
         ${gauge(unset ? 0 : pct, interactive)}
         <div class="burn-readout">
@@ -798,6 +800,40 @@ window.ExecSummary = (function () {
      disciplines. Each row is independently editable — hours don't have to split evenly,
      but the rows must sum to EXACTLY the total change or Apply stays disabled (no silent
      rounding that leaves the real total drifted from what the gauge/field said). */
+  // Add-a-scope-extension dialog: hours + a short description. Each add appends a chip to
+  // e.burn.scopeExts (tagged to the current month via scopeExtMonth). Multiple per month.
+  function openScopeExtPopup() {
+    const eng = window.DASH.getEng(); eng.burn = eng.burn || {};
+    const old = document.getElementById("scopePop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "scopePop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Add scope extension · ${esc(eng.burn.periodLabel || "this month")}</div>
+      <p class="bp-lead">Extra hours added to this month's contracted total (a mid-month retainer scope bump). Add one per extension — they appear as chips you can remove.</p>
+      <div class="scope-add-row">
+        <input type="number" id="scopeHrs" class="scope-hrs" min="0" step="0.5" placeholder="Hours">
+        <input type="text" id="scopeNote" class="scope-note" placeholder="What is it? (e.g. extra landing page)">
+      </div>
+      <div class="bp-actions"><button type="button" class="btn btn-ghost" data-scopecancel>Cancel</button><button type="button" class="btn btn-primary" data-scopeadd>Add extension</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    ov.querySelector("[data-scopecancel]").addEventListener("click", close);
+    ov.addEventListener("click", (e2) => { if (e2.target === ov) close(); });
+    const add = () => {
+      const hrs = Math.max(0, parseFloat(ov.querySelector("#scopeHrs").value) || 0);
+      const note = ov.querySelector("#scopeNote").value.trim();
+      if (!hrs) { ov.querySelector("#scopeHrs").focus(); return; }
+      // start fresh if the stored list is from a previous month
+      eng.burn.scopeExts = (Array.isArray(eng.burn.scopeExts) && eng.burn.scopeExtMonth === eng.burn.periodLabel) ? eng.burn.scopeExts : [];
+      eng.burn.scopeExts.push({ hours: hrs, note });
+      eng.burn.scopeExtMonth = eng.burn.periodLabel;
+      close(); viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender();
+    };
+    ov.querySelector("[data-scopeadd]").addEventListener("click", add);
+    ov.querySelector("#scopeNote").addEventListener("keydown", (e2) => { if (e2.key === "Enter") add(); });
+    setTimeout(() => ov.querySelector("#scopeHrs").focus(), 30);
+  }
   function openBurnPopup(targetPct) {
     const eng = window.DASH.getEng();
     const disc = eng.serviceDisciplines || [];
@@ -1179,17 +1215,15 @@ window.ExecSummary = (function () {
       }
 
       const sx = e.target.closest("[data-scopeext]");
-      if (sx && canAdmin()) {
-        const engS = window.DASH.getEng(); engS.burn = engS.burn || {};
-        const active = (engS.burn.scopeExtMonth === engS.burn.periodLabel) ? (+(engS.burn.scopeExtHours || 0)) : 0;
-        const raw = await window.TJA_UI.prompt(
-          "Scope-extension hours to add to THIS month's contracted total (a mid-month retainer scope bump). Enter the total extension for the month; 0 to clear.",
-          { title: "Scope extension · " + (engS.burn.periodLabel || "this month"), value: active ? String(active) : "", okText: "Apply" });
-        if (raw == null) return;
-        const v = Math.max(0, parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0);
-        engS.burn.scopeExtHours = v;
-        engS.burn.scopeExtMonth = v > 0 ? engS.burn.periodLabel : "";   // tag the month; clear tag when zeroed
-        viewMonthIdx = null; syncCurrentMonth(engS); window.DASH.saveState(); rerender(); return;
+      if (sx && canAdmin()) { openScopeExtPopup(); return; }
+      const sxd = e.target.closest("[data-scopedel]");
+      if (sxd && canAdmin()) {
+        const engD = window.DASH.getEng();
+        if (engD.burn && Array.isArray(engD.burn.scopeExts)) {
+          engD.burn.scopeExts.splice(+sxd.dataset.scopedel, 1);
+          if (!engD.burn.scopeExts.length) engD.burn.scopeExtMonth = "";
+        }
+        viewMonthIdx = null; syncCurrentMonth(engD); window.DASH.saveState(); rerender(); return;
       }
 
       const nm = e.target.closest("[data-newmonth]");
