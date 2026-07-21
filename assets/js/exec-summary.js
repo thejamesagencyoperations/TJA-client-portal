@@ -232,10 +232,10 @@ window.ExecSummary = (function () {
         <div class="burn-readout">
           <div class="big">${bigPct}${canAdmin() && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</div>
           ${unset
-            ? `<div class="sub">${used} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>
+            ? `<div class="sub">${round1(used)} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>
                ${(canAdmin() && e.retainerValueHasPending) ? `<div class="burn-hint">a pending (unsigned) SOW exists — it isn't counted until signed</div>` : ""}`
             : canAdmin()
-            ? `<div class="sub">${used} of ${total} hrs used${hasOv ? ` · actual ${actualUsed}` : ""}</div>`
+            ? `<div class="sub">${round1(used)} of ${round1(total)} hrs used${hasOv ? ` · actual ${round1(actualUsed)}` : ""}</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
@@ -289,6 +289,9 @@ window.ExecSummary = (function () {
   // allocated for that line — how much of its hours are used up).
   const canon = (s) => (window.tjaCanonDiscipline ? window.tjaCanonDiscipline(s) : String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
   const round2 = (n) => Math.round((+n || 0) * 100) / 100;
+  // Retainer HOURS are shown to 1 decimal (Cameron 2026-07-20) — burn + WMJ-fed service
+  // lines. Display-only: the underlying values stay full-precision so the % math is exact.
+  const round1 = (n) => Math.round((+n || 0) * 10) / 10;
   // total monthly contracted hours: the admin's per-discipline budgets when entered; otherwise
   // fall back to the SOW-derived total from the retainer-value feed (signed retainer $ ÷ rate ÷ 12).
   // The TOTAL is real contract data — only the per-discipline SPLIT stays manual (never guessed).
@@ -388,7 +391,7 @@ window.ExecSummary = (function () {
         <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}</span>
           <span class="rsvc-right"><span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span></span></div>
         <div class="rsvc-bar${st === "over" ? " over" : ""}"><span style="width:${fill}%"></span></div>
-        <div class="rsvc-cap">${round2(bill)} of ${c} hrs${c > 0 ? ` · ${Math.round(util)}%` : ""}</div>
+        <div class="rsvc-cap">${round1(bill)} of ${round1(c)} hrs${c > 0 ? ` · ${Math.round(util)}%` : ""}</div>
       </div>`;
     }).join("");
     return `<div class="module">
@@ -431,7 +434,7 @@ window.ExecSummary = (function () {
       const nameCell = admin ? ed(d.name, "serviceDisciplines." + i + ".name") : esc(d.name);
       // admin caption = the REAL actual/contracted + real % (ground truth); client sees only the shown %
       const hrsCell = admin
-        ? `${round2(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs${contracted > 0 ? ` · ${Math.round(realUtil)}%` : ""}`
+        ? `${round1(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs${contracted > 0 ? ` · ${Math.round(realUtil)}%` : ""}`
         : `${contracted > 0 ? Math.round(dispUtil) + "% of hours used" : ""}`;
       const handle = admin ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %"></button>` : "";
       return `<div class="rsvc-row">
@@ -448,11 +451,11 @@ window.ExecSummary = (function () {
     const miscRow = (admin && misc > 0)
       ? `<div class="rsvc-row rsvc-unalloc" data-unalloctoggle title="Click to see the projects behind these hours">
            <div class="rsvc-top"><span class="rsvc-name">Unallocated <span class="rsvc-caret">view ›</span></span><span class="rsvc-right"><span class="rsvc-status is-unalloc">In burn</span></span></div>
-           <div class="rsvc-cap">${misc} hrs billable · not in a discipline</div>
+           <div class="rsvc-cap">${round1(misc)} hrs billable · not in a discipline</div>
          </div>` : "";
     const setupNote = (admin && unset && !e.projectOnly)
       ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0
-            ? `The burn total (~${e.retainerValueTarget} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
+            ? `The burn total (~${round1(e.retainerValueTarget)} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
             : `No contracted hours yet — set them per discipline.`}</div>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span style="display:flex;align-items:center;gap:10px"><span class="module-link" data-go="status">View status →</span><span class="rsvc-legend">% of retainer</span></span></div>
@@ -765,20 +768,20 @@ window.ExecSummary = (function () {
     if (!disc.length) { burnPreviewPct = null; rerender(); return; }
     const total = retainerTotalContracted(eng);
     const actMap = actualByDiscipline(eng);
-    const currentUsed = round2(retainerUsed(eng));
-    const targetUsed = round2(Math.max(0, Math.min(100, targetPct)) / 100 * total);
-    const delta = round2(targetUsed - currentUsed);
+    const currentUsed = round1(retainerUsed(eng));
+    const targetUsed = round1(Math.max(0, Math.min(100, targetPct)) / 100 * total);
+    const delta = round1(targetUsed - currentUsed);
     const old = document.getElementById("burnPop"); if (old) old.remove();
     const ov = document.createElement("div");
     ov.id = "burnPop"; ov.className = "burn-pop-overlay";
     // Even-split default, computed so the STARTING state already sums exactly (last row
     // absorbs the rounding remainder) — Apply is valid immediately, editing is optional.
-    const evenBase = disc.length > 1 ? round2(delta / disc.length) : delta;
+    const evenBase = disc.length > 1 ? round1(delta / disc.length) : delta;
     const rowsHtml = disc.map((d, i) => {
-      const used = round2(discUsed(eng, d, actMap));
-      const rowDelta = i === disc.length - 1 ? round2(delta - evenBase * (disc.length - 1)) : evenBase;
+      const used = round1(discUsed(eng, d, actMap));
+      const rowDelta = i === disc.length - 1 ? round1(delta - evenBase * (disc.length - 1)) : evenBase;
       return `<div class="bp-row">
-        <span class="bp-name">${esc(d.name)}</span><span class="bp-cur">${used} / ${(+d.contracted || 0)} hrs</span>
+        <span class="bp-name">${esc(d.name)}</span><span class="bp-cur">${round1(used)} / ${round1(+d.contracted || 0)} hrs</span>
         <input type="number" step="0.1" class="bp-delta" data-i="${i}" data-used="${used}" data-contracted="${+d.contracted || 0}" value="${rowDelta}">
       </div>`;
     }).join("");
@@ -794,8 +797,8 @@ window.ExecSummary = (function () {
     const applyBtn = ov.querySelector("[data-bpapply]");
     function checkValid() {
       const inputs = [...ov.querySelectorAll(".bp-delta")];
-      const sum = round2(inputs.reduce((a, inp) => a + (parseFloat(inp.value) || 0), 0));
-      const ok = Math.abs(sum - delta) < 0.01;
+      const sum = round1(inputs.reduce((a, inp) => a + (parseFloat(inp.value) || 0), 0));
+      const ok = Math.abs(sum - delta) < 0.05;
       totalEl.textContent = `Allocated: ${sum} / ${delta} hrs`;
       totalEl.classList.toggle("bp-total-bad", !ok);
       applyBtn.disabled = !ok;
@@ -828,10 +831,10 @@ window.ExecSummary = (function () {
     const old = document.getElementById("burnPop"); if (old) old.remove();
     const ov = document.createElement("div");
     ov.id = "burnPop"; ov.className = "burn-pop-overlay";
-    const rows = projects.map(p => `<div class="up-row"><span class="up-name">${esc(p.name)}</span><span class="up-hrs">${p.billable} hrs</span></div>`).join("")
+    const rows = projects.map(p => `<div class="up-row"><span class="up-name">${esc(p.name)}</span><span class="up-hrs">${round1(p.billable)} hrs</span></div>`).join("")
       || `<div class="up-row">No project detail available.</div>`;
     ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
-      <div class="bp-head">Unallocated hours <span class="up-total">${misc} hrs</span></div>
+      <div class="bp-head">Unallocated hours <span class="up-total">${round1(misc)} hrs</span></div>
       <p class="bp-lead">Billable work in WMJ departments with no matching discipline. It still counts toward the burn — add a discipline to categorize it.</p>
       <div class="up-rows">${rows}</div>
       <div class="bp-actions"><button type="button" class="btn btn-primary" data-bpclose>Close</button></div>
