@@ -513,9 +513,11 @@ const RENDERERS = {
 };
 
 /* ---------- Project Plan (projects only) ----------
-   The full-page view of a project's plan: phases + tasks + progress, fed by Workamajig.
-   Sits under Status and may later replace it. Tasks are read-only here (WMJ is the source of
-   truth); only the outcome is admin-editable. */
+   Fed by the connected project-plan sheet (the team's Gantt workbook in Drive) — the
+   single source of truth. The old Workamajig-derived task view was retired 2026-07-20
+   (Cameron: "we are not going to be using that moving forward"); WMJ tasks still power
+   the Exec Summary's task module, just not this page. Until a sheet is connected the
+   page is an empty state: staff see the connect button, clients see a friendly note. */
 // admin-only "connect / change" button for the project-plan sheet (shown in both views)
 const planConnectBtn = (e, admin) => admin
   ? `<button class="btn btn-ghost" data-planconnect title="${esc(e.projectPlanSheetUrl || "")}">${e.projectPlanSheetUrl ? "✎ Change / refresh plan sheet" : "🔗 Connect project-plan sheet"}</button>`
@@ -524,58 +526,16 @@ const planConnectBtn = (e, admin) => admin
 function renderPlan() {
   const e = getEng();
   const admin = ppAdmin();
-  // A connected Google Sheet is the source of truth when present (the Gantt-plan view);
-  // otherwise fall back to the Workamajig-derived task list below.
   if (e.projectPlanSheet && e.projectPlanSheet.groups && e.projectPlanSheet.groups.length) return renderPlanSheet(e, admin);
-  const pp = e.projectPlan || {};
-  const all = Array.isArray(e.wmjTasks) ? e.wmjTasks : [];
-  // Client visibility is ONE rule, owned by exec-summary. Reuse it — never re-implement a
-  // permissions predicate in a second place, or the two drift and a client sees internal work.
-  const isInternal = (t) => window.ExecSummary.taskInternal(e, t);
-  const tasks = admin ? all : all.filter(t => !isInternal(t));
-
-  const order = (e.pizza && e.pizza.phases) ? e.pizza.phases.map(p => p.label) : [];
-  const groups = {};
-  tasks.forEach(t => { (groups[t.phase] = groups[t.phase] || []).push(t); });
-  const names = Object.keys(groups)
-    .sort((a, b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
-
-  const stCls = { Completed: "complete", Production: "in-progress", "On Hold": "on-hold" };
-  const pct = projectPct(e);
-  const body = names.map(pn => {
-    const rows = groups[pn];
-    const done = rows.filter(t => t.status === "Completed").length;
-    return `<div class="plan-phase">
-      <div class="plan-phase-head">
-        <span class="plan-phase-name">${esc(pn || "Unphased")}</span>
-        <span class="grp-count">${done}/${rows.length} complete</span>
-      </div>
-      ${rows.map(t => { const internal = isInternal(t); return `
-        <div class="plan-task${internal ? " is-internal" : ""}">
-          <span class="task-dot ${stCls[t.status] || "pending"}" title="${esc(t.status || "")}"></span>
-          <span class="plan-task-name">${esc(t.name)}${internal ? ` <span class="task-int">internal</span>` : ""}</span>
-          ${t.service ? `<span class="task-svc">${esc(t.service)}</span>` : ""}
-          <span class="plan-task-status">${esc(t.status || "")}</span>
-        </div>`; }).join("")}
-    </div>`;
-  }).join("");
-
-  const outcome = admin
-    ? `<span class="ed" contenteditable="true" data-plan="projectPlan.outcome">${esc(pp.outcome || "")}</span>`
-    : esc(pp.outcome || "");
   return `
-  ${admin ? `<div class="admin-hint">✎ Admin — the outcome is editable here. Phases &amp; tasks come from Workamajig; set task visibility on the Executive Summary.</div>` : ""}
   <div class="page-head">
     <div class="page-title">Project Plan</div>
-    <div class="page-desc">${esc(e.label || e.name || "Project")} — phases, tasks and progress.</div>
+    <div class="page-desc">${esc(e.label || e.name || "Project")}</div>
     ${planConnectBtn(e, admin)}
   </div>
-  <div class="plan-card">
-    <div class="plan-row"><span class="plan-lbl">Outcome</span><span class="plan-outcome">${outcome}</span></div>
-    <div class="plan-row"><span class="plan-lbl">Progress</span>
-      <div class="bar plan-bar"><span style="width:${pct}%"></span></div><span class="plan-pct">${pct}%</span></div>
-  </div>
-  <div class="plan-phases">${body || `<div class="placeholder-note" style="margin-top:10px">No tasks yet — this plan fills in from Workamajig${admin ? `, or connect a project-plan Google Sheet above` : ""}.</div>`}</div>`;
+  <div class="placeholder-note" style="margin-top:10px">${admin
+    ? `No project plan connected yet — click “🔗 Connect project-plan sheet” above and paste the plan's Drive link.`
+    : `Your project plan is being prepared — it will appear here soon.`}</div>`;
 }
 
 /* ---------- Project Plan from a connected Google Sheet (the Gantt-plan view) ----------
