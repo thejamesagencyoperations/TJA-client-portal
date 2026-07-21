@@ -49,13 +49,21 @@ window.CLIENT_PR_SHEETS = (function () {
   // → [{date, outlet, link, impressions, adValue, source:"sheet"}], newest first
   function parseHits(text) {
     const hits = [];
-    parseRows(text).forEach(r => {
+    const rows = parseRows(text);
+    for (const r of rows) {
+      // A "Pending Media Coverage" (or any "Pending …") DIVIDER row marks the start of
+      // anticipated / not-yet-launched coverage. Everything below it is NOT a real hit and
+      // must never show as secured PR (esp. client-facing). We detect the divider as a row
+      // that says "pending" but carries NO link (a section label, not an article), then stop.
+      // No manual management: keep the pending rows under that divider and they're auto-hidden.
+      const rowText = r.join(" ");
+      if (/\bpending\b/i.test(rowText) && !/https?:\/\//i.test(rowText)) break;
       const date = (r[0] || "").trim(), outlet = (r[1] || "").trim(), link = (r[2] || "").trim(),
         impressions = (r[3] || "").trim(), adValue = (r[4] || "").trim();
-      if (!outlet) return;                                  // skip blank / spacer rows
-      if (/^outlet$/i.test(outlet)) return;                 // skip the header cell
+      if (!outlet) continue;                                // skip blank / spacer rows
+      if (/^outlet$/i.test(outlet)) continue;               // skip the header cell
       hits.push({ date, outlet, link, impressions, adValue, source: "sheet" });
-    });
+    }
     hits.sort((a, b) => dateKey(b.date) - dateKey(a.date));
     return hits;
   }

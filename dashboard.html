@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA Client Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=275" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=275">
+<link rel="icon" href="assets/img/favicon.ico?v=276" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=276">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=275">
+<link rel="stylesheet" href="assets/css/styles.css?v=276">
 </head>
 <body>
 <div class="app">
@@ -71,8 +71,8 @@
         <button class="btn btn-ghost" id="clientsBack" style="display:none" onclick="window.location.href='clients.html'" title="Back to all clients">All clients</button>
       </div>
       <div class="topbar-right">
-        <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
         <div id="engActions"></div>
+        <button class="icon-btn" id="themeToggle" title="Light / dark mode" aria-label="Toggle theme"></button>
         <div class="eng-toggle" id="engToggle">
           <button class="eng-seg active" data-engmode="retainer">Monthly Services</button>
           <button class="eng-seg" data-engmode="project">Projects</button>
@@ -102,23 +102,23 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=275"></script>
-<script src="assets/js/version-check.js?v=275"></script>
-<script src="assets/js/supabase-sync.js?v=275"></script>
-<script src="assets/js/ui.js?v=275"></script>
-<script src="assets/js/auth.js?v=275"></script>
-<script src="assets/js/chrome-menu.js?v=275"></script>
+<script src="assets/js/supabase-config.js?v=276"></script>
+<script src="assets/js/version-check.js?v=276"></script>
+<script src="assets/js/supabase-sync.js?v=276"></script>
+<script src="assets/js/ui.js?v=276"></script>
+<script src="assets/js/auth.js?v=276"></script>
+<script src="assets/js/chrome-menu.js?v=276"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=275"></script>
-<script src="assets/js/client-template.js?v=275"></script>
-<script src="assets/js/client-store.js?v=275"></script>
-<script src="assets/js/wmj-transform.js?v=275"></script>
-<script src="assets/js/retainer-transform.js?v=275"></script>
-<script src="assets/js/client-logos.js?v=275"></script>
-<script src="assets/js/client-pr-sheets.js?v=275"></script>
-<script src="assets/js/retainer-value.js?v=275"></script>
-<script src="assets/js/wmj-sync.js?v=275"></script>
-<script src="assets/data/celtic-elevator.js?v=275"></script>
+<script src="assets/js/clients.js?v=276"></script>
+<script src="assets/js/client-template.js?v=276"></script>
+<script src="assets/js/client-store.js?v=276"></script>
+<script src="assets/js/wmj-transform.js?v=276"></script>
+<script src="assets/js/retainer-transform.js?v=276"></script>
+<script src="assets/js/client-logos.js?v=276"></script>
+<script src="assets/js/client-pr-sheets.js?v=276"></script>
+<script src="assets/js/retainer-value.js?v=276"></script>
+<script src="assets/js/wmj-sync.js?v=276"></script>
+<script src="assets/data/celtic-elevator.js?v=276"></script>
 <script>
   /* bootstrap: resolve the selected client's data BEFORE app.js reads window.CLIENT_DATA.
      Built-in clients use their rich seed; added clients build from the registry template. */
@@ -148,14 +148,14 @@
     }
   })();
 </script>
-<script src="assets/js/slack-wins.js?v=275"></script>
-<script src="assets/js/notifications.js?v=275"></script>
-<script src="assets/js/presence.js?v=275"></script>
-<script src="assets/js/mail.js?v=275"></script>
-<script src="assets/js/drive.js?v=275"></script>
-<script src="assets/js/present-docs.js?v=275"></script>
-<script src="assets/js/exec-summary.js?v=275"></script>
-<script src="assets/js/app.js?v=275"></script>
+<script src="assets/js/slack-wins.js?v=276"></script>
+<script src="assets/js/notifications.js?v=276"></script>
+<script src="assets/js/presence.js?v=276"></script>
+<script src="assets/js/mail.js?v=276"></script>
+<script src="assets/js/drive.js?v=276"></script>
+<script src="assets/js/present-docs.js?v=276"></script>
+<script src="assets/js/exec-summary.js?v=276"></script>
+<script src="assets/js/app.js?v=276"></script>
 <script>
   // Admin-only notification bell (client Present-Docs activity, grouped by client)
   if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {

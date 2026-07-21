@@ -34,7 +34,7 @@
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
     const items = [];
-    if (staff) items.push({ label: "All clients", href: "clients.html" });
+    if (staff) items.push({ label: "All Clients", href: "clients.html" });
     if (r === "admin") items.push({ label: "Admin Center", href: "admin-center.html" });
     if (r === "admin") items.push({ label: "Backup & Sync", href: "backup.html" });
     const links = items
