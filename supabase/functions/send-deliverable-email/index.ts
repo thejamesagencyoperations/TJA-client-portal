@@ -92,6 +92,20 @@ Deno.serve(async (req) => {
      NOTE there is deliberately NO fallback to entry.login.email. For 48 of 49 clients
      that's a TJA DISTRIBUTION address (anewleaf@thejamesagency.com), not the client —
      the mail would have gone to TJA's own inbox while the UI said "Emailed the client ✓". */
+  const docName = String(body.docName ?? "deliverable");
+  const version = String(body.versionLabel ?? "");
+  const due = fmtDue(String(body.dueDate ?? ""));
+  const nameLine = `${docName}${version ? " " + version : ""}`;
+
+  // Slack fires INDEPENDENTLY of email — a client with no email address on file must
+  // NOT suppress the team's Slack ping (separate channels). Await it so we can report
+  // whether it landed even when there's no email recipient and we bail below.
+  const slackRes = await postToSlack(entry.integrations?.slackChannel,
+    `📤 Sent *${nameLine}* to *${entry.name}* for review${due ? ` · feedback due ${due}` : ""}`)
+    .catch(() => ({ ok: false }));
+  const slacked = !!(slackRes && slackRes.ok);
+
+  /* ---- who gets the EMAIL ---- */
   const svc = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -103,23 +117,21 @@ Deno.serve(async (req) => {
   const recipients = [...new Set([...fromLogins, ...extra].map((e) => String(e).trim().toLowerCase()))];
 
   if (!recipients.length) {
+    // Slack may already have gone out — say so, so the UI doesn't imply nothing happened.
     return json(req, 409, {
-      error: "Nobody to email for this client. Invite them in the Admin Center, or add an address under Clients → Edit → Integrations.",
+      slacked,
+      error: "No email address on file for this client. Invite them in the Admin Center, or add an address under Clients → Edit → Integrations.",
     });
   }
 
-  const docName = String(body.docName ?? "deliverable");
-  const version = String(body.versionLabel ?? "");
   const subject = String(body.subject ?? "").trim() || `You have a deliverable to proof: ${docName} ${version}`.trim();
   const message = String(body.message ?? "").trim();
-  const due = fmtDue(String(body.dueDate ?? ""));
   // Deep-link straight to Present Docs — and to the SPECIFIC deliverable when we know its
   // id (?open=docs&doc=<id>). index.html stashes both, and app.js opens the page + the
   // deliverable modal after login. No PDF is emailed; the client proofs it in the portal.
   const docId = String(body.docId ?? "").trim();
   const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
 
-  const nameLine = `${docName}${version ? " " + version : ""}`;
   const text = [
     `"${nameLine}" is ready for review in your client portal.`,
     message ? `\n${message}` : "",
@@ -143,15 +155,9 @@ Deno.serve(async (req) => {
     ctaUrl: REVIEW_URL,
   });
 
-  // Slack (fire-and-forget, no-op until a Slack credential is set) — same event,
-  // routed to the client's integrations.slackChannel.
-  postToSlack(entry.integrations?.slackChannel,
-    `📤 Sent *${nameLine}* to *${entry.name}* for review${due ? ` · feedback due ${due}` : ""}`)
-    .catch(() => {});
-
   try {
     const out = await sendViaResend(recipients, subject, html, text);
-    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length });
+    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length, slacked });
   } catch (e) {
     // Surface WHY. This used to return a bare "email send failed", which told the
     // admin nothing and made the thing undiagnosable from the UI — Resend's own

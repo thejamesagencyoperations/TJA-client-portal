@@ -56,8 +56,13 @@ window.TJA_MAIL = (function () {
         body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
-      if (r.ok) { toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")"); return { ok: true }; }
-      if (r.status === 409) { toast("Sent to the portal — no notification email set for this client (add one in the client's Integrations)."); return { ok: false, noRecipients: true }; }
+      if (r.ok) { toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")" + (j.slacked ? " · posted to Slack" : "")); return { ok: true }; }
+      if (r.status === 409) {
+        toast(j.slacked
+          ? "💬 Posted to Slack — but no client email address is on file, so no email went out (add one in the client's Integrations)."
+          : "Sent to the portal — no notification email set for this client (add one in the client's Integrations).");
+        return { ok: false, noRecipients: true };
+      }
       if (r.status === 503) return { ok: false, skipped: true };   // email not configured yet — stay quiet
       toast("Sent to the portal, but the email failed — you may want to notify the client directly.");
       return { ok: false, error: j.error || r.status };

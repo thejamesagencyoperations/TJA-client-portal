@@ -59,25 +59,33 @@ Deno.serve(async (req) => {
   const entry = await registryEntry(clientId);
   if (!entry) return json(req, 404, { error: "unknown client" });
 
-  // distribution address (auto-created per client) + any extra integrations recipients
-  const recipients = [
-    ...(entry.login?.email ? [entry.login.email] : []),
-    ...(entry.integrations?.emailRecipients ?? []),
-  ].filter(Boolean).map((e) => String(e).trim().toLowerCase());
-  const uniq = [...new Set(recipients)];
-  if (!uniq.length) return json(req, 409, { error: "no distribution address for this client" });
-
   const clientName = entry.name || clientId;
   const docName = String(body.docName ?? "a deliverable");
   const version = String(body.versionLabel ?? "");
   const st = STATUS[(body.status ?? "") as keyof typeof STATUS];
   const statusLabel = st ? st.label : "Responded";
   const nComments = Number(body.comments ?? 0);
+  const nameLine = `${docName}${version ? " " + version : ""}`;
+
+  // Slack fires INDEPENDENTLY of email — a client with no distribution address must not
+  // suppress the team's Slack ping. Await it so the 409 below can report it landed.
+  const emoji = body.status === "approved" ? "✅" : body.status === "changes" ? "📝" : "🔄";
+  const slackRes = await postToSlack(entry.integrations?.slackChannel,
+    `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}`)
+    .catch(() => ({ ok: false }));
+  const slacked = !!(slackRes && slackRes.ok);
+
+  // distribution address (auto-created per client) + any extra integrations recipients
+  const recipients = [
+    ...(entry.login?.email ? [entry.login.email] : []),
+    ...(entry.integrations?.emailRecipients ?? []),
+  ].filter(Boolean).map((e) => String(e).trim().toLowerCase());
+  const uniq = [...new Set(recipients)];
+  if (!uniq.length) return json(req, 409, { slacked, error: "no distribution address for this client" });
+
   const commentLine = nComments > 0
     ? `They left ${nComments} comment${nComments === 1 ? "" : "s"} on the proof.`
     : `No comments were left on the proof.`;
-  const nameLine = `${docName}${version ? " " + version : ""}`;
-
   const subject = `${clientName} responded: ${statusLabel} — ${nameLine}`;
   const text = [
     `${clientName} has reviewed "${nameLine}".`,
@@ -97,15 +105,9 @@ Deno.serve(async (req) => {
     ctaUrl: PORTAL_BASE_URL,
   });
 
-  // Slack (fire-and-forget, no-op until a Slack credential is set).
-  const emoji = body.status === "approved" ? "✅" : body.status === "changes" ? "📝" : "🔄";
-  postToSlack(entry.integrations?.slackChannel,
-    `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}`)
-    .catch(() => {});
-
   try {
     const out = await sendViaResend(uniq, subject, html, text);
-    return json(req, 200, { ok: true, id: out.id, recipients: uniq.length });
+    return json(req, 200, { ok: true, id: out.id, recipients: uniq.length, slacked });
   } catch (e) {
     console.error("review-notification send failed", e);
     return json(req, 502, { error: String((e as Error).message || e).slice(0, 220) });
