@@ -892,6 +892,15 @@ body[data-role="client"] .staff-only { display: none !important; }
 .scope-add-row input { font: inherit; font-size: .88rem; padding: 9px 11px; border-radius: 9px;
   background: var(--input); border: 1px solid var(--line); color: var(--text); }
 .scope-add-row input:focus { outline: none; border-color: var(--orange); }
+.scope-add-row select { font: inherit; font-size: .88rem; padding: 9px 11px; border-radius: 9px;
+  background: var(--input); border: 1px solid var(--line); color: var(--text); flex: 1; }
+.scope-add-row select:focus { outline: none; border-color: var(--orange); }
+/* service-line reallocation */
+.rsvc-realloc { border: none; background: none; cursor: pointer; color: var(--text-faint); font-size: .82rem;
+  line-height: 1; padding: 0 4px; }
+.rsvc-realloc:hover { color: var(--orange); }
+.rsvc-moved { font-size: .64rem; font-weight: 700; color: #6aa6ff; background: rgba(106,166,255,.16);
+  padding: 1px 6px; border-radius: 999px; vertical-align: middle; }
 /* combined To Do's / Dependencies tile — section subheads */
 .td-sub { font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint);
   font-weight: 700; margin: 4px 0 6px; }
@@ -1449,6 +1458,11 @@ body[data-role="admin"] .ed[contenteditable="true"]:empty::before {
   border-radius: 7px; padding: 7px 11px; font-size: .74rem; cursor: pointer; font-family: inherit; margin-top: 10px;
 }
 .row-add:hover { border-color: var(--orange); color: var(--orange); }
+/* add buttons that live in a tile header / section subhead (Cameron 2026-07-20) — compact,
+   no top margin, so they sit inline to the right of the title instead of at the tile bottom */
+.mh-actions { display: inline-flex; align-items: center; gap: 8px; }
+.module-head .row-add, .td-sub .row-add { margin: 0; padding: 3px 9px; font-size: .68rem; border-radius: 999px; }
+.td-sub { display: flex; align-items: center; justify-content: space-between; }
 .row-del {
   background: transparent; border: none; color: var(--text-faint); cursor: pointer; font-size: .8rem; flex: none;
 }

@@ -342,6 +342,12 @@ window.ExecSummary = (function () {
   function actualByDiscipline(e) {
     const map = {};
     (e.wmjServiceLines || []).forEach(l => { const k = canon(l.name); map[k] = (map[k] || 0) + (+l.billable || 0); });
+    // Manual reallocation (Cameron 2026-07-20): move billable hours between disciplines when
+    // WMJ filed them under the wrong one (e.g. Web/SEO hours that are really Creative). Keyed
+    // by canon discipline; deltas SUM TO ZERO, so the burn total is unchanged — only WHERE the
+    // hours are counted moves. "Reset to actuals" wipes this back to the raw WMJ split.
+    const rl = e.hoursRealloc || {};
+    Object.keys(rl).forEach(k => { map[k] = (map[k] || 0) + (+rl[k] || 0); });
     return map;
   }
   // effective USED hours for a discipline = manual override (% of contracted) if set, else WMJ actual.
@@ -450,10 +456,12 @@ window.ExecSummary = (function () {
         ? `${round1(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs${contracted > 0 ? ` · ${Math.round(realUtil)}%` : ""}`
         : `${contracted > 0 ? Math.round(dispUtil) + "% of hours used" : ""}`;
       const handle = admin ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %"></button>` : "";
+      const moved = +(((e.hoursRealloc || {})[canon(d.name)]) || 0);   // net hours moved in/out of this line
+      const movedTag = (admin && Math.abs(moved) > 0.001) ? ` <span class="rsvc-moved" title="Hours reallocated to/from other service lines">⇄ ${moved > 0 ? "+" : ""}${round1(moved)}h</span>` : "";
       return `<div class="rsvc-row">
         <div class="rsvc-top">
-          <span class="rsvc-name">${nameCell}${admin && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</span>
-          <span class="rsvc-right"><span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span>${admin ? listDel("serviceDisciplines", i) : ""}</span>
+          <span class="rsvc-name">${nameCell}${admin && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}${movedTag}</span>
+          <span class="rsvc-right">${admin ? `<button class="rsvc-realloc" data-realloc="${i}" title="Reallocate hours from this line to another">⇄</button>` : ""}<span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span>${admin ? listDel("serviceDisciplines", i) : ""}</span>
         </div>
         <div class="rsvc-bar${st === "over" ? " over" : ""}${admin ? " rsvc-bar--drag" : ""}"><span style="width:${fill}%"></span>${handle}</div>
         <div class="rsvc-cap">${hrsCell}</div>
@@ -479,7 +487,10 @@ window.ExecSummary = (function () {
   }
   // any manual % override active (service-line sliders)? → show the Reset-to-actuals control
   function hasActualsOverride(e) {
-    return e && e.type === "retainer" && e.svcUtilOverride && Object.keys(e.svcUtilOverride).length > 0;
+    if (!e || e.type !== "retainer") return false;
+    const ovKeys = e.svcUtilOverride && Object.keys(e.svcUtilOverride).length;
+    const rlKeys = e.hoursRealloc && Object.keys(e.hoursRealloc).some(k => Math.abs(+e.hoursRealloc[k] || 0) > 0.001);
+    return !!(ovKeys || rlKeys);
   }
 
   function serviceModule(e) {
@@ -533,9 +544,8 @@ window.ExecSummary = (function () {
     // page (it force-redirects to exec), so the link only shows for projects.
     const planLink = e.type === "project" ? `<span class="module-link" data-go="plan">View plan →</span>` : "";
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.flag}${isRet ? "Sprint Goals" : "Milestones"}</span>${planLink}</div>
+      <div class="module-head"><span class="module-title">${IC.flag}${isRet ? "Sprint Goals" : "Milestones"}</span><span class="mh-actions">${planLink}${listAdd("milestones", isRet ? "Add sprint goal" : "Add milestone")}</span></div>
       <div class="ms-list">${items}</div>
-      ${listAdd("milestones", isRet ? "Add sprint goal" : "Add milestone")}
     </div>`;
   }
 
@@ -604,12 +614,10 @@ window.ExecSummary = (function () {
       ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.todo}To Do's / Dependencies</span>${colorPick}</div>
-      <div class="td-sub">To-Do's</div>
+      <div class="td-sub"><span>To-Do's</span>${listAdd("todos", "Add to-do")}</div>
       <div class="tile-list">${todoRows || `<div class="pr-date">Nothing outstanding.</div>`}</div>
-      ${listAdd("todos", "Add to-do")}
-      <div class="td-sub td-sub-dep">Dependencies</div>
+      <div class="td-sub td-sub-dep"><span>Dependencies</span>${listAdd("dependencies", "Add dependency")}</div>
       <div class="tile-list">${depRows || `<div class="pr-date">No open dependencies.</div>`}</div>
-      ${listAdd("dependencies", "Add dependency")}
     </div>`;
   }
 
@@ -620,9 +628,8 @@ window.ExecSummary = (function () {
         <span class="kpi-val"><b>${ed(k.current, "kpis." + i + ".current")}</b> <span class="t">/ ${ed(k.target, "kpis." + i + ".target")}</span> ${listDel("kpis", i)}</span>
       </div>`).join("");
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.kpi}KPIs / Goals</span></div>
+      <div class="module-head"><span class="module-title">${IC.kpi}KPIs / Goals</span>${listAdd("kpis", "Add KPI")}</div>
       <div>${rows || `<div class="pr-date">No KPIs set.</div>`}</div>
-      ${listAdd("kpis", "Add KPI")}
     </div>`;
   }
 
@@ -833,6 +840,45 @@ window.ExecSummary = (function () {
     ov.querySelector("[data-scopeadd]").addEventListener("click", add);
     ov.querySelector("#scopeNote").addEventListener("keydown", (e2) => { if (e2.key === "Enter") add(); });
     setTimeout(() => ov.querySelector("#scopeHrs").focus(), 30);
+  }
+  // Reallocate hours from one service line to another (Cameron 2026-07-20) — for when WMJ
+  // filed billable under the wrong discipline. Stored as signed canon deltas in
+  // e.hoursRealloc (sum to zero); "Reset to actuals" clears it.
+  function openReallocPopup(fromIdx) {
+    const eng = window.DASH.getEng();
+    const disc = eng.serviceDisciplines || [];
+    const from = disc[fromIdx]; if (!from) return;
+    const others = disc.map((d, i) => ({ d, i })).filter(x => x.i !== fromIdx);
+    if (!others.length) { window.TJA_UI.alert("Add another service line first — there's nowhere to move hours to."); return; }
+    const fromCanon = canon(from.name);
+    const fromAvail = round1(actualByDiscipline(eng)[fromCanon] || 0);   // current (post-realloc) hours here
+    const old = document.getElementById("reallocPop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "reallocPop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Reallocate hours · ${esc(from.name)}</div>
+      <p class="bp-lead">Move logged hours from <b>${esc(from.name)}</b> (currently ${fromAvail}h) to another service line — for when WMJ filed them under the wrong one. The burn total doesn't change, only where the hours count. "Reset to actuals" undoes it.</p>
+      <div class="scope-add-row">
+        <input type="number" id="rlHrs" class="scope-hrs" min="0" step="0.5" placeholder="Hours">
+        <select id="rlTo" class="scope-note">${others.map(x => `<option value="${x.i}">${esc(x.d.name)}</option>`).join("")}</select>
+      </div>
+      <div class="bp-actions"><button type="button" class="btn btn-ghost" data-rlcancel>Cancel</button><button type="button" class="btn btn-primary" data-rlapply>Move hours</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    ov.querySelector("[data-rlcancel]").addEventListener("click", close);
+    ov.addEventListener("click", (e2) => { if (e2.target === ov) close(); });
+    ov.querySelector("[data-rlapply]").addEventListener("click", () => {
+      const hrs = Math.max(0, parseFloat(ov.querySelector("#rlHrs").value) || 0);
+      const to = disc[+ov.querySelector("#rlTo").value];
+      if (!hrs || !to) { ov.querySelector("#rlHrs").focus(); return; }
+      const toCanon = canon(to.name);
+      eng.hoursRealloc = eng.hoursRealloc || {};
+      eng.hoursRealloc[fromCanon] = (+eng.hoursRealloc[fromCanon] || 0) - hrs;
+      eng.hoursRealloc[toCanon] = (+eng.hoursRealloc[toCanon] || 0) + hrs;
+      close(); viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender();
+    });
+    setTimeout(() => ov.querySelector("#rlHrs").focus(), 30);
   }
   function openBurnPopup(targetPct) {
     const eng = window.DASH.getEng();
@@ -1125,7 +1171,10 @@ window.ExecSummary = (function () {
 
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
-      if (ra && canAdmin()) { delete eng.svcUtilOverride; if (eng.burn) delete eng.burn.pctOverride; window.DASH.saveState(); rerender(); return; }
+      if (ra && canAdmin()) { delete eng.svcUtilOverride; delete eng.hoursRealloc; if (eng.burn) delete eng.burn.pctOverride; viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return; }
+
+      const rlBtn = e.target.closest("[data-realloc]");
+      if (rlBtn && canAdmin()) { openReallocPopup(+rlBtn.dataset.realloc); return; }
 
       // Unallocated drill-down → popup listing the projects behind the misc hours
       const ut = e.target.closest("[data-unalloctoggle]");
