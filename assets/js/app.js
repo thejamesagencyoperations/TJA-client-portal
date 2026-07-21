@@ -635,21 +635,55 @@ function initPlan() {
     const conn = ev.target.closest("[data-planconnect]"); if (!conn) return;
     const eng = getEng();
     const raw = await window.TJA_UI.prompt(
-      "Paste the project-plan Google Sheet share link (must be a NATIVE Google Sheet, shared “Anyone with the link – Viewer”).\n\nWe read columns A–H: #, Task, Who, Dependency, Start, End, % Done, Notes. The timeline grid (columns I onward) is ignored.",
+      "Paste the project-plan link.\n\n• A PRIVATE Drive file (.xlsx or Google Sheet) is read securely by the portal's backend — share it with the service account first.\n• A public Google Sheet (“Anyone with the link – Viewer”) is read directly.\n\nWe read columns A–H: #, Task, Who, Dependency, Start, End, % Done, Notes. The timeline grid (columns I onward) is ignored.",
       { title: "Connect project-plan sheet", value: eng.projectPlanSheetUrl || "", okText: "Connect" });
     if (raw == null) return;
     const reg = window.CLIENT_PR_SHEETS;
     if (!raw.trim()) { delete eng.projectPlanSheet; delete eng.projectPlanSheetUrl; saveState(); repaint("plan"); return; }
-    const cfg = reg && reg.parseSheetUrl(raw);
-    if (!cfg) { window.TJA_UI.alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
     conn.disabled = true; conn.textContent = "Connecting…";
-    fetch(reg.csvUrl(cfg), { cache: "no-store" }).then(r => r.ok ? r.text() : null).then(text => {
-      const parsed = text && reg.parseProjectPlan(text);
-      if (!parsed || !parsed.groups.length) { window.TJA_UI.alert("Couldn't read a project plan from that sheet — check it's shared and has the #, Task, Who, Dependency, Start, End, % Done, Notes columns."); repaint("plan"); return; }
-      eng.projectPlanSheet = parsed; eng.projectPlanSheetUrl = raw.trim();
-      saveState(); repaint("plan");
-    }).catch(() => { window.TJA_UI.alert("Couldn't reach that sheet."); repaint("plan"); });
+    const store = (parsed) => { eng.projectPlanSheet = parsed; eng.projectPlanSheetUrl = raw.trim(); saveState(); repaint("plan"); };
+
+    // 1) A public native Google Sheet → read the CSV directly in the browser (no backend needed).
+    const cfg = reg && reg.parseSheetUrl(raw);
+    if (cfg && /docs\.google\.com\/spreadsheets/.test(raw)) {
+      try {
+        const res = await fetch(reg.csvUrl(cfg), { cache: "no-store" });
+        if (res.ok) {
+          const parsed = reg.parseProjectPlan(await res.text());
+          if (parsed && parsed.groups.length) { store(parsed); return; }
+        }
+      } catch (e) { /* fall through to the backend */ }
+    }
+    // 2) A private file (.xlsx or private Sheet) → the backend reads it via the Drive service account.
+    const srv = await planServerFetch(raw, clientId());
+    if (srv.ok && srv.plan && srv.plan.groups && srv.plan.groups.length) { store(srv.plan); return; }
+    repaint("plan");
+    if (srv.status === 503) window.TJA_UI.alert("That looks like a private file. Reading private plans needs the Google Drive service account configured (GOOGLE_SA_KEY) — not set up yet. For now a public Google Sheet link works, or finish the service-account setup.");
+    else if (srv.status === 404) window.TJA_UI.alert("The portal's service account can't see that file yet. Share the file (or its Drive folder) with the service account's email as Viewer, then try again.");
+    else if (srv.status === 403) window.TJA_UI.alert("Only staff can connect a project-plan sheet.");
+    else window.TJA_UI.alert(srv.error || "Couldn't read a project plan from that link — check it has the #, Task, Who, Dependency, Start, End, % Done, Notes columns.");
   });
+}
+
+// Ask the plan-fetch Edge Function to read a PRIVATE plan file from Drive (via the
+// service account) and return it parsed. Used as the fallback when the browser can't
+// read the file itself (uploaded .xlsx, or a Sheet that isn't publicly shared).
+async function planServerFetch(fileUrl, cid) {
+  try {
+    const cfg = window.SUPABASE_CONFIG || {};
+    const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
+    if (!base || !(window.SUPA && window.SUPA.enabled && window.SUPA.client)) return { ok: false, status: 0, error: "backend unavailable" };
+    const { data } = await window.SUPA.client.auth.getSession();
+    const token = data && data.session ? data.session.access_token : null;
+    if (!token) return { ok: false, status: 401, error: "not signed in" };
+    const r = await fetch(base + "/plan-fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ fileUrl, clientId: cid }),
+    });
+    const j = await r.json().catch(() => ({}));
+    return { ok: r.ok, status: r.status, plan: j.plan, error: j.error };
+  } catch (e) { return { ok: false, status: 0, error: String(e) }; }
 }
 function renderReporting() {
   return `

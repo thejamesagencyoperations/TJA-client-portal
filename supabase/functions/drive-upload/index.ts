@@ -29,47 +29,9 @@
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
+import { driveAccessToken } from "../_shared/google.ts";
 
 const MAX_BYTES = 10 * 1024 * 1024;
-
-/* ---- Google SA auth: JWT grant signed with WebCrypto ---- */
-function pemToDer(pem: string): ArrayBuffer {
-  const b64 = pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
-  const bin = atob(b64);
-  const buf = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-  return buf.buffer;
-}
-const b64url = (data: string | Uint8Array) => {
-  const bin = typeof data === "string" ? data : String.fromCharCode(...data);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-};
-
-async function driveAccessToken(): Promise<string> {
-  const raw = Deno.env.get("GOOGLE_SA_KEY");
-  if (!raw) throw new Error("GOOGLE_SA_KEY not set");
-  const sa = JSON.parse(atob(raw.trim()));
-  const now = Math.floor(Date.now() / 1000);
-  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = b64url(JSON.stringify({
-    iss: sa.client_email,
-    scope: "https://www.googleapis.com/auth/drive",
-    aud: sa.token_uri,
-    iat: now, exp: now + 3600,
-  }));
-  const key = await crypto.subtle.importKey("pkcs8", pemToDer(sa.private_key),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key,
-    new TextEncoder().encode(`${header}.${claims}`)));
-  const jwt = `${header}.${claims}.${b64url(sig)}`;
-  const r = await fetch(sa.token_uri, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }),
-  });
-  if (!r.ok) throw new Error(`token ${r.status}: ${await r.text()}`);
-  return (await r.json()).access_token;
-}
 
 /* ---- Drive multipart upload (metadata + media in one request) ---- */
 async function uploadToDrive(token: string, folderId: string, file: File): Promise<{ id: string; webViewLink: string }> {
