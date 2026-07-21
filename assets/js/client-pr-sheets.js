@@ -62,5 +62,78 @@ window.CLIENT_PR_SHEETS = (function () {
   // "… YTD Hits: 24 …" in the title cell, else the parsed count
   function hitCount(text, fallback) { const m = /hits:\s*(\d+)/i.exec(text || ""); return m ? +m[1] : fallback; }
 
-  return { SHEETS, forClient, csvUrl, parseSheetUrl, parseRows, parseHits, hitCount };
+  /* ---- PROJECT PLAN (Gantt-style sheet) ----
+     TJA's project plans are wide Gantt workbooks. We read only the LEFT block —
+     columns A-H: # | TASK | WHO | DEPENDENCY | START | END | % DONE | NOTES —
+     and ignore the timeline grid (columns I onward). Integer-numbered rows
+     (1, 2, 4.0) with no WHO/dates are PHASE headers; decimal rows are tasks.
+     A small header block above the table carries Outcome/Deliverables/Weeks/
+     Start/End/Condition. Verified against the real "CEL Project Plan 2026". */
+  const PLAN_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function planFmtDate(raw) {
+    const s = String(raw || "").trim(); if (!s) return "";
+    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(s);
+    if (!m) return s;                                   // leave ISO / text as-is
+    const y = m[3].length === 2 ? +("20" + m[3]) : +m[3];
+    const mo = +m[1]; if (mo < 1 || mo > 12) return s;
+    return PLAN_MONTHS[mo - 1] + " " + (+m[2]) + ", " + y;
+  }
+  function planPct(raw) {
+    const s = String(raw || "").trim(); if (!s) return null;
+    let v = parseFloat(s.replace("%", "")); if (isNaN(v)) return null;
+    if (s.indexOf("%") >= 0) return Math.round(v);      // "75%"
+    if (v <= 1) return Math.round(v * 100);             // 0.75 -> 75
+    return Math.round(v);
+  }
+  function planStatus(notes, pct) {
+    const n = String(notes || "").toLowerCase();
+    if (/complet|done/.test(n)) return "complete";
+    if (/progress/.test(n)) return "in-progress";
+    if (/hold/.test(n)) return "on-hold";
+    if (/block/.test(n)) return "blocked";
+    if (pct != null) { if (pct >= 100) return "complete"; if (pct > 0) return "in-progress"; }
+    return "pending";
+  }
+  function planAfterColon(s) { const i = String(s).indexOf(":"); return i < 0 ? "" : s.slice(i + 1).trim(); }
+
+  // → { meta:{title,outcome,deliverables,weeks,startDate,endDate,condition:{level,pct}},
+  //     groups:[{num,name,tasks:[{num,task,who,dep,start,end,pct,notes,status}]}] } | null
+  function parseProjectPlan(text) {
+    const rows = parseRows(text);
+    const meta = { title: "", outcome: "", deliverables: "", weeks: "", startDate: "", endDate: "", condition: { level: "green", pct: null } };
+    let headerIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const a = (rows[i][0] || "").trim(), c = (rows[i][2] || "").trim();
+      if (a === "#" && /^task$/i.test((rows[i][1] || "").trim())) { headerIdx = i; break; }
+      if (i === 0 && a && !/^(outcome|deliverables|weeks):/i.test(a)) meta.title = a;
+      if (/^outcome:/i.test(a)) meta.outcome = planAfterColon(a) || c;
+      else if (/^deliverables:/i.test(a)) meta.deliverables = planAfterColon(a) || c;
+      else if (/^weeks:/i.test(a)) meta.weeks = c || planAfterColon(a);
+      else if (/^project start date:/i.test(a)) meta.startDate = planFmtDate(c || planAfterColon(a));
+      else if (/^project end date:/i.test(a)) meta.endDate = planFmtDate(c || planAfterColon(a));
+      else if (/^project condition:/i.test(a)) {
+        const lvl = planAfterColon(a).toLowerCase();
+        meta.condition.level = /red/.test(lvl) ? "red" : (/(amber|yellow)/.test(lvl) ? "amber" : "green");
+        meta.condition.pct = planPct(c);
+      }
+    }
+    if (headerIdx < 0) return null;
+    const groups = []; let cur = null;
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      const num = (r[0] || "").trim(), task = (r[1] || "").trim(), who = (r[2] || "").trim(),
+        dep = (r[3] || "").trim(), start = (r[4] || "").trim(), end = (r[5] || "").trim(),
+        pctRaw = (r[6] || "").trim(), notes = (r[7] || "").trim();
+      if (!num && !task) continue;                       // blank / spacer
+      const isGroup = !who && !start && !end && !pctRaw;  // section header row
+      if (isGroup) { cur = { num, name: task, tasks: [] }; groups.push(cur); continue; }
+      if (!cur) { cur = { num: "", name: "Tasks", tasks: [] }; groups.push(cur); }
+      const pct = planPct(pctRaw);
+      cur.tasks.push({ num, task, who, dep, start: planFmtDate(start), end: planFmtDate(end), pct, notes, status: planStatus(notes, pct) });
+    }
+    if (!groups.length) return null;
+    return { meta, groups };
+  }
+
+  return { SHEETS, forClient, csvUrl, parseSheetUrl, parseRows, parseHits, hitCount, parseProjectPlan };
 })();

@@ -516,9 +516,17 @@ const RENDERERS = {
    The full-page view of a project's plan: phases + tasks + progress, fed by Workamajig.
    Sits under Status and may later replace it. Tasks are read-only here (WMJ is the source of
    truth); only the outcome is admin-editable. */
+// admin-only "connect / change" button for the project-plan sheet (shown in both views)
+const planConnectBtn = (e, admin) => admin
+  ? `<button class="btn btn-ghost" data-planconnect title="${esc(e.projectPlanSheetUrl || "")}">${e.projectPlanSheetUrl ? "✎ Change / refresh plan sheet" : "🔗 Connect project-plan sheet"}</button>`
+  : "";
+
 function renderPlan() {
   const e = getEng();
   const admin = ppAdmin();
+  // A connected Google Sheet is the source of truth when present (the Gantt-plan view);
+  // otherwise fall back to the Workamajig-derived task list below.
+  if (e.projectPlanSheet && e.projectPlanSheet.groups && e.projectPlanSheet.groups.length) return renderPlanSheet(e, admin);
   const pp = e.projectPlan || {};
   const all = Array.isArray(e.wmjTasks) ? e.wmjTasks : [];
   // Client visibility is ONE rule, owned by exec-summary. Reuse it — never re-implement a
@@ -560,20 +568,87 @@ function renderPlan() {
   <div class="page-head">
     <div class="page-title">Project Plan</div>
     <div class="page-desc">${esc(e.label || e.name || "Project")} — phases, tasks and progress.</div>
+    ${planConnectBtn(e, admin)}
   </div>
   <div class="plan-card">
     <div class="plan-row"><span class="plan-lbl">Outcome</span><span class="plan-outcome">${outcome}</span></div>
     <div class="plan-row"><span class="plan-lbl">Progress</span>
       <div class="bar plan-bar"><span style="width:${pct}%"></span></div><span class="plan-pct">${pct}%</span></div>
   </div>
-  <div class="plan-phases">${body || `<div class="placeholder-note" style="margin-top:10px">No tasks yet — this plan fills in from Workamajig.</div>`}</div>`;
+  <div class="plan-phases">${body || `<div class="placeholder-note" style="margin-top:10px">No tasks yet — this plan fills in from Workamajig${admin ? `, or connect a project-plan Google Sheet above` : ""}.</div>`}</div>`;
+}
+
+/* ---------- Project Plan from a connected Google Sheet (the Gantt-plan view) ----------
+   Reads columns A-H of a TJA project-plan sheet (see CLIENT_PR_SHEETS.parseProjectPlan).
+   Phase-grouped like the Status page; each task shows owner (WHO), date range, % and a
+   status badge. The connected sheet is client-facing — project plans are shared work. */
+function renderPlanSheet(e, admin) {
+  const p = e.projectPlanSheet, m = p.meta || {};
+  const whoClass = (w) => { const s = (w || "").toLowerCase(); return /tja/.test(s) ? "tja" : (/both/.test(s) ? "both" : (w ? "client" : "")); };
+  let done = 0, total = 0;
+  p.groups.forEach(g => g.tasks.forEach(t => { total++; if (t.status === "complete") done++; }));
+  const pct = (m.condition && m.condition.pct != null) ? m.condition.pct : (total ? Math.round(done / total * 100) : 0);
+  const lvl = (m.condition && m.condition.level) || "green";
+  const body = p.groups.map(g => {
+    const gdone = g.tasks.filter(t => t.status === "complete").length;
+    return `<div class="plan-phase">
+      <div class="plan-phase-head">
+        <span class="plan-phase-name">${g.num ? `<span class="plan-gnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}</span>
+        <span class="grp-count">${gdone}/${g.tasks.length} complete</span>
+      </div>
+      ${g.tasks.map(t => `
+        <div class="plan-task"${t.dep ? ` title="Depends on ${esc(t.dep)}"` : ""}>
+          <span class="task-dot ${t.status}"></span>
+          <span class="plan-task-name">${t.num ? `<span class="plan-tnum">${esc(t.num)}</span> ` : ""}${esc(t.task)}${(t.notes && !/complet|progress/i.test(t.notes)) ? ` <span class="task-note">${esc(t.notes)}</span>` : ""}</span>
+          ${t.who ? `<span class="plan-who ${whoClass(t.who)}">${esc(t.who)}</span>` : ""}
+          ${(t.start || t.end) ? `<span class="plan-dates">${esc(t.start || "")}${(t.end && t.end !== t.start) ? " – " + esc(t.end) : ""}</span>` : ""}
+          <span class="plan-task-status">${badge(t.status)}</span>
+        </div>`).join("")}
+    </div>`;
+  }).join("");
+  return `
+  ${admin ? `<div class="admin-hint">✎ Admin — this plan is read from the connected Google Sheet. Edit the sheet, then hit “Change / refresh” to re-pull.</div>` : ""}
+  <div class="page-head">
+    <div class="page-title">Project Plan</div>
+    <div class="page-desc">${esc(m.title || e.label || e.name || "Project")}</div>
+    ${planConnectBtn(e, admin)}
+  </div>
+  <div class="plan-card plan-sheet-summary">
+    ${m.outcome ? `<div class="plan-row"><span class="plan-lbl">Outcome</span><span class="plan-outcome">${esc(m.outcome)}</span></div>` : ""}
+    ${m.deliverables ? `<div class="plan-row"><span class="plan-lbl">Deliverables</span><span>${esc(m.deliverables)}</span></div>` : ""}
+    ${(m.startDate || m.endDate) ? `<div class="plan-row"><span class="plan-lbl">Timeline</span><span>${esc(m.startDate || "?")} → ${esc(m.endDate || "?")}${m.weeks ? ` · ${esc(m.weeks)} weeks` : ""}</span></div>` : ""}
+    <div class="plan-row"><span class="plan-lbl">Condition</span>
+      <span class="plan-cond ${lvl}">${esc(lvl.toUpperCase())}</span>
+      <div class="bar plan-bar"><span style="width:${pct}%"></span></div><span class="plan-pct">${pct}%</span></div>
+  </div>
+  <div class="plan-phases">${body}</div>`;
 }
 let planWired = false;
 function initPlan() {
   if (planWired) return; planWired = true;
-  document.querySelector('.page[data-page="plan"]').addEventListener("focusout", e => {
+  const page = document.querySelector('.page[data-page="plan"]');
+  page.addEventListener("focusout", e => {
     const f = e.target.closest("[data-plan]"); if (!f) return;
     setPath(getEng(), f.dataset.plan, f.textContent.trim()); saveState();
+  });
+  page.addEventListener("click", async ev => {
+    const conn = ev.target.closest("[data-planconnect]"); if (!conn) return;
+    const eng = getEng();
+    const raw = await window.TJA_UI.prompt(
+      "Paste the project-plan Google Sheet share link (must be a NATIVE Google Sheet, shared “Anyone with the link – Viewer”).\n\nWe read columns A–H: #, Task, Who, Dependency, Start, End, % Done, Notes. The timeline grid (columns I onward) is ignored.",
+      { title: "Connect project-plan sheet", value: eng.projectPlanSheetUrl || "", okText: "Connect" });
+    if (raw == null) return;
+    const reg = window.CLIENT_PR_SHEETS;
+    if (!raw.trim()) { delete eng.projectPlanSheet; delete eng.projectPlanSheetUrl; saveState(); repaint("plan"); return; }
+    const cfg = reg && reg.parseSheetUrl(raw);
+    if (!cfg) { window.TJA_UI.alert("That doesn't look like a Google Sheets link. Paste the full share URL."); return; }
+    conn.disabled = true; conn.textContent = "Connecting…";
+    fetch(reg.csvUrl(cfg), { cache: "no-store" }).then(r => r.ok ? r.text() : null).then(text => {
+      const parsed = text && reg.parseProjectPlan(text);
+      if (!parsed || !parsed.groups.length) { window.TJA_UI.alert("Couldn't read a project plan from that sheet — check it's shared and has the #, Task, Who, Dependency, Start, End, % Done, Notes columns."); repaint("plan"); return; }
+      eng.projectPlanSheet = parsed; eng.projectPlanSheetUrl = raw.trim();
+      saveState(); repaint("plan");
+    }).catch(() => { window.TJA_UI.alert("Couldn't reach that sheet."); repaint("plan"); });
   });
 }
 function renderReporting() {

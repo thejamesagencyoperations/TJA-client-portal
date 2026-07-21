@@ -819,6 +819,27 @@ body[data-role="client"] .staff-only { display: none !important; }
 .plan-task-status { flex: none; font-size: .72rem; color: var(--text-dim); }
 @media (max-width: 620px) { .plan-task-status { display: none; } }
 
+/* Project Plan — connected-sheet (Gantt-plan) view extras */
+.task-dot.pending { background: var(--text-faint); }
+.task-dot.blocked { background: var(--bad, #ef5350); }
+.plan-gnum { color: var(--orange); font-weight: 800; margin-right: 4px; }
+.plan-tnum { color: var(--text-faint); font-weight: 600; margin-right: 4px; font-variant-numeric: tabular-nums; }
+.task-note { font-size: .7rem; color: var(--text-faint); font-style: italic; }
+.plan-who { flex: none; font-size: .66rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; background: rgba(154,154,159,.16); color: var(--text-dim); }
+.plan-who.tja { background: rgba(255,120,0,.16); color: var(--orange); }
+.plan-who.both { background: rgba(86,156,255,.14); color: #6aa6ff; }
+.plan-who.client { background: rgba(54,194,117,.16); color: var(--good); }
+.plan-dates { flex: none; font-size: .72rem; color: var(--text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.plan-cond { flex: none; font-size: .66rem; font-weight: 800; letter-spacing: .04em; padding: 2px 9px; border-radius: 999px; margin-right: 4px; }
+.plan-cond.green { background: rgba(54,194,117,.16); color: var(--good); }
+.plan-cond.amber { background: rgba(245,179,66,.18); color: var(--warn); }
+.plan-cond.red   { background: rgba(239,83,80,.18);  color: var(--bad, #ef5350); }
+.plan-sheet-summary .plan-row { margin: 4px 0; }
+.plan-sheet-summary .plan-lbl { width: 94px; white-space: nowrap; }
+@media (max-width: 760px) { .plan-dates { display: none; } }
+@media (max-width: 520px) { .plan-who { display: none; } }
+
 /* Projects tab — tile / folder picker */
 .proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-top: 4px; }
 .proj-tile { font: inherit; color: inherit; text-align: left; background: var(--panel-2);
