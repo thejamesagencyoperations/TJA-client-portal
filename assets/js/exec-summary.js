@@ -585,6 +585,31 @@ window.ExecSummary = (function () {
       ${listAdd("dependencies", "Add dependency")}
     </div>`;
   }
+  // Combined "To Do's / Dependencies" tile (Cameron 2026-07-20) — two sections in one tile,
+  // reusing the SAME data (e.todos / e.dependencies) + the same add/remove handlers, so the
+  // standalone todos/dependencies tiles are fully replaced.
+  function todosDepModule(e) {
+    const cc = e.todoClientColor || logoAccent() || "#6aa6ff";
+    const tag = (t, i) => {
+      const style = t.owner === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
+      return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>`;
+    };
+    const todoRows = (e.todos || []).map((t, i) => `
+      <div class="tile-item">${tag(t, i)}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text")}</span>${listDel("todos", i)}</div>`).join("");
+    const depRows = (e.dependencies || []).map((d, i) => `
+      <div class="tile-item"><span class="dep-mark">▴</span><span style="flex:1">${ed(d.text, "dependencies." + i + ".text")}</span>${listDel("dependencies", i)}</div>`).join("");
+    const colorPick = canAdmin()
+      ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>` : "";
+    return `<div class="module">
+      <div class="module-head"><span class="module-title">${IC.todo}To Do's / Dependencies</span>${colorPick}</div>
+      <div class="td-sub">To-Do's</div>
+      <div class="tile-list">${todoRows || `<div class="pr-date">Nothing outstanding.</div>`}</div>
+      ${listAdd("todos", "Add to-do")}
+      <div class="td-sub td-sub-dep">Dependencies</div>
+      <div class="tile-list">${depRows || `<div class="pr-date">No open dependencies.</div>`}</div>
+      ${listAdd("dependencies", "Add dependency")}
+    </div>`;
+  }
 
   function kpiModule(e) {
     const rows = (e.kpis || []).map((k, i) => `
@@ -663,8 +688,7 @@ window.ExecSummary = (function () {
     burn:         { label: "Burn",          fn: burnModule },
     service:      { label: "Service Lines", fn: serviceModule },
     milestones:   { label: "Milestones",    fn: milestoneModule },
-    todos:        { label: "To-Do's",       fn: todosModule },
-    dependencies: { label: "Dependencies",  fn: dependencyModule },
+    todosdep:     { label: "To Do's / Dependencies", fn: todosDepModule },
     kpis:         { label: "KPIs",          fn: kpiModule },
     pr:           { label: "PR Coverage",   fn: prModule },
   };
@@ -674,9 +698,10 @@ window.ExecSummary = (function () {
   const DEFAULT_RETAINER_FREE = {
     burn:         { x: 0,    y: 0,   w: 491, h: 377 },
     service:      { x: 506,  y: 0,   w: 704, h: 451 },
-    milestones:   { x: 1226, y: 0,   w: 405, h: 285 },
-    todos:        { x: 1226, y: 300, w: 406, h: 222 },
-    dependencies: { x: 0,    y: 393, w: 489, h: 368 },
+    // Sprint Goals (milestones) moved into the old Dependencies slot (bottom-left);
+    // the merged To Do's / Dependencies tile takes the old Sprint Goals + To-Do's column.
+    milestones:   { x: 0,    y: 393, w: 489, h: 368 },
+    todosdep:     { x: 1226, y: 0,   w: 405, h: 522 },
     kpis:         { x: 1226, y: 537, w: 407, h: 225 },
     pr:           { x: 507,  y: 467, w: 703, h: 293 },
   };
@@ -684,8 +709,8 @@ window.ExecSummary = (function () {
   const DEFAULT_PROJECT_FREE = {
     burn:         { x: 0,    y: 0,   w: 809, h: 306 },
     service:      { x: 0,    y: 322, w: 808, h: 434 },
-    dependencies: { x: 823,  y: 0,   w: 424, h: 362 },
-    todos:        { x: 823,  y: 378, w: 424, h: 380 },
+    // merged To Do's / Dependencies fills the whole right-of-service column
+    todosdep:     { x: 823,  y: 0,   w: 424, h: 758 },
     milestones:   { x: 1263, y: 0,   w: 363, h: 760 },
   };
   /* ---- Does this retainer carry PR? ----
