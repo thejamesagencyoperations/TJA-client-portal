@@ -99,6 +99,24 @@ window.SUPA = (function () {
   }
   function markScopeSeen(clientId, scope, updatedAt) { if (updatedAt) lastKnown[clientId + "::" + scope] = updatedAt; }
 
+  // Instant push: subscribe to this client's app_state changes over the Realtime websocket
+  // (requires the app_state table in the supabase_realtime publication). RLS applies — you
+  // only receive rows you could SELECT. Filter is one column (client_id); the callback gets
+  // the payload and can check payload.new.scope. Returns the channel so the caller can
+  // removeChannel() on teardown. onChange just says "something changed" — the caller re-pulls
+  // via pollScope, so we never depend on the payload carrying the full (possibly large) row.
+  function subscribeScope(clientId, onChange) {
+    if (!client) return null;
+    try {
+      const ch = client.channel("rt-" + clientId)
+        .on("postgres_changes",
+          { event: "*", schema: "public", table: "app_state", filter: `client_id=eq.${clientId}` },
+          (payload) => { try { onChange(payload); } catch (e) {} })
+        .subscribe();
+      return ch;
+    } catch (e) { console.warn("SUPA subscribe", e); return null; }
+  }
+
   // Read EVERY client's row for a scope in one query (admin-only in practice — the RLS
   // returns just your own rows for a client). Used by the admin Message Center.
   async function pullAllScope(scope) {
@@ -210,5 +228,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
+  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
 })();

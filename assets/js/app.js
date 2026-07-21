@@ -955,23 +955,27 @@ function applyEngagement() {
   /* ---------- live auto-refresh ----------
      Open tabs go stale: someone else edits this client (or a sync/snapshot runs), and your
      tab keeps showing the version it loaded — the exact thing behind "her machine still shows
-     0%". This polls the server every ~12s and, when the dashboard state has changed under us,
-     adopts the new version and repaints — so tabs converge without a manual refresh. It NEVER
-     interrupts an in-progress edit (defers while a field is focused), and it only fires when
-     the tab is visible (plus an immediate catch-up the moment you refocus a backgrounded tab).
-     The guarded write still protects the rare simultaneous-save; this just makes staleness the
-     exception. (Dashboard scope only — Present Docs/Files own their own state + sync on action.) */
+     0%". PRIMARY path is a Realtime websocket (SUPA.subscribeScope): the instant the row
+     changes, we pull + adopt the new version and repaint, so tabs converge in ~1-2s without a
+     manual refresh. A slow 30s poll is the FALLBACK that still converges if the socket drops or
+     reconnects. It NEVER interrupts an in-progress edit (defers while a field is focused), and
+     it only adopts when the tab is visible (plus an immediate catch-up the moment you refocus a
+     backgrounded tab). The guarded write still protects the rare simultaneous-save; this just
+     makes staleness the exception. (Dashboard scope only — Present Docs/Files own their own
+     state + sync on action.) */
   (function startAutoRefresh() {
     if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pollScope)) return;
     const cid = clientId();
-    let busy = false;
+    let busy = false, pending = false;
     const editingNow = () => {
       const a = document.activeElement;
       return !!(a && (a.isContentEditable || a.tagName === "INPUT" || a.tagName === "TEXTAREA"));
     };
     async function tick() {
-      if (busy || document.hidden || editingNow()) return;
-      busy = true;
+      // if a change arrives mid-edit, remember it and re-run once the edit ends (on blur)
+      if (busy) return;
+      if (document.hidden || editingNow()) { pending = true; return; }
+      busy = true; pending = false;
       try {
         const d = await window.SUPA.pollScope(cid, "dashboard");
         if (d.changed && d.data && d.data.engagements) {
@@ -986,9 +990,18 @@ function applyEngagement() {
       } catch (e) { /* transient — next tick */ }
       finally { busy = false; }
     }
-    setInterval(tick, 12000);
+    // INSTANT: a Realtime websocket event on this client fires an immediate pull.
+    if (window.SUPA.subscribeScope) {
+      window.SUPA.subscribeScope(cid, (payload) => {
+        if (!payload || !payload.new || payload.new.scope === "dashboard") tick();
+      });
+    }
+    // FALLBACK: a slow poll (30s) still converges if the websocket drops/reconnects, plus an
+    // immediate catch-up when a field blurs or a backgrounded tab is refocused.
+    setInterval(tick, 30000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
     window.addEventListener("focus", tick);
+    document.addEventListener("focusout", () => { if (pending) setTimeout(tick, 150); });
   })();
 })();
 
