@@ -47,7 +47,7 @@
     wrap.id = "chromeMenu";
     wrap.innerHTML =
       `<button class="icon-btn chrome-menu-btn" aria-label="Menu" aria-haspopup="true" aria-expanded="false" title="Menu">` +
-        `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>` +
+        `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>` +
       `</button>` +
       `<div class="chrome-menu-pop" role="menu">` +
         links +
