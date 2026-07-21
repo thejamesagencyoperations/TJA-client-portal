@@ -245,37 +245,42 @@ window.ExecSummary = (function () {
     </div>`;
   }
 
-  // stable key for a WMJ task (survives re-sync); admin visibility overrides are stored by it
-  const taskKey = (t) => (t.phase || "") + "|" + (t.name || "");
-  // effective "internal" = admin override if set, else the rule-based flag from the transform
-  function taskInternal(e, t) {
-    const ov = (e.taskInternalOverride || {})[taskKey(t)];
-    return (ov === true || ov === false) ? ov : !!t.internal;
-  }
-  // Projects show a WMJ-fed "Tasks" module (grouped by phase) instead of Service Lines.
-  function tasksModule(e) {
-    const admin = canAdmin();
-    const all = Array.isArray(e.wmjTasks) ? e.wmjTasks : [];
-    const tasks = admin ? all : all.filter(t => !taskInternal(e, t));
-    const order = (e.pizza && e.pizza.phases) ? e.pizza.phases.map(p => p.label) : [];
-    const groups = {};
-    tasks.forEach(t => { (groups[t.phase] = groups[t.phase] || []).push(t); });
-    const names = Object.keys(groups).sort((a, b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); });
-    const stCls = { Completed: "complete", Production: "in-progress", "On Hold": "on-hold" };
-    const body = names.map(pn => `
-      <div class="task-group">
-        <div class="task-group-head">${esc(pn)}</div>
-        ${groups[pn].map(t => { const internal = taskInternal(e, t); return `
-          <div class="task-row${internal ? " is-internal" : ""}">
-            <span class="task-dot ${stCls[t.status] || "pending"}" title="${esc(t.status)}"></span>
-            <span class="task-name">${esc(t.name)}${internal ? ` <span class="task-int">internal</span>` : ""}</span>
-            ${t.service ? `<span class="task-svc">${esc(t.service)}</span>` : ""}
-            ${admin ? `<button class="task-vis" data-taskvis="${esc(taskKey(t))}" title="${internal ? "Internal — click to show the client" : "Client-visible — click to make internal"}">${internal ? "🔒 Internal" : "👁 Client"}</button>` : ""}
-          </div>`; }).join("")}
-      </div>`).join("");
+  // Projects: a compact "Project Plan" tile read from the CONNECTED plan sheet — phase
+  // progress + condition, with a link to the full page. The old WMJ-fed "Tasks" module
+  // (and its per-task internal/client visibility toggles) was retired 2026-07-20 along
+  // with the plan page's WMJ view — the plan sheet is the single source of truth.
+  function planSummaryModule(e) {
+    const head = `<div class="module-head"><span class="module-title">${IC.svc}Project Plan</span><span class="module-link" data-go="plan">View full project plan →</span></div>`;
+    const p = e.projectPlanSheet;
+    if (!(p && p.groups && p.groups.length)) {
+      const note = canAdmin()
+        ? "No project plan connected yet — connect the plan sheet from the Project Plan page."
+        : "Your project plan is being prepared — it will appear here soon.";
+      return `<div class="module module--tasks">${head}<div class="pr-date">${esc(note)}</div></div>`;
+    }
+    const m = p.meta || {};
+    let done = 0, total = 0;
+    p.groups.forEach(g => g.tasks.forEach(t => { total++; if (t.status === "complete") done++; }));
+    const pct = (m.condition && m.condition.pct != null) ? m.condition.pct : (total ? Math.round(done / total * 100) : 0);
+    const lvl = (m.condition && m.condition.level) || "green";
+    const rows = p.groups.map(g => {
+      const gd = g.tasks.filter(t => t.status === "complete").length;
+      const state = g.tasks.length && gd === g.tasks.length ? "complete"
+        : (g.tasks.some(t => t.status === "in-progress" || t.status === "complete") ? "in-progress" : "pending");
+      return `<div class="task-row">
+          <span class="task-dot ${state}"></span>
+          <span class="task-name">${g.num ? `<span class="plan-tnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}</span>
+          <span class="grp-count">${gd}/${g.tasks.length}</span>
+        </div>`;
+    }).join("");
     return `<div class="module module--tasks">
-      <div class="module-head"><span class="module-title">${IC.svc}Tasks</span><span class="module-link" data-go="plan">View project plan →</span></div>
-      <div class="task-list-wrap">${body || `<div class="pr-date">No tasks yet.</div>`}</div>
+      ${head}
+      <div class="plan-sum-top">
+        <span class="plan-cond ${lvl}">${esc(lvl.toUpperCase())}</span>
+        <div class="bar plan-bar"><span style="width:${pct}%"></span></div><span class="plan-pct">${pct}%</span>
+        ${m.endDate ? `<span class="pr-date">ends ${esc(m.endDate)}</span>` : ""}
+      </div>
+      <div class="task-list-wrap">${rows}</div>
     </div>`;
   }
 
@@ -462,7 +467,7 @@ window.ExecSummary = (function () {
   }
 
   function serviceModule(e) {
-    if (e.type === "project" && Array.isArray(e.wmjTasks)) return tasksModule(e);
+    if (e.type === "project") return planSummaryModule(e);
     // Retainers always use the disciplines view — driven by the admin-set contracted hours,
     // NOT gated on WMJ actuals (actuals just fill the bars; missing actuals → 0%, never a blank tile).
     if (e.type === "retainer") return retainerServiceModule(e);
@@ -1111,16 +1116,6 @@ window.ExecSummary = (function () {
       // manual pizza: remove a step
       const delstep = e.target.closest("[data-delstep]");
       if (delstep && canAdmin()) { eng.pizza.phases.splice(+delstep.dataset.delstep, 1); window.DASH.saveState(); rerender(); return; }
-      // per-task internal/client visibility toggle (admin) — persisted override, survives re-sync
-      const tv = e.target.closest("[data-taskvis]");
-      if (tv && canAdmin()) {
-        const key = tv.dataset.taskvis, ov = eng.taskInternalOverride || (eng.taskInternalOverride = {});
-        const t = (eng.wmjTasks || []).find(x => ((x.phase || "") + "|" + (x.name || "")) === key);
-        const currentlyInternal = typeof ov[key] === "boolean" ? ov[key] : !!(t && t.internal);
-        ov[key] = !currentlyInternal;
-        window.DASH.saveState(); rerender(); return;
-      }
-
       const svcset = e.target.closest("[data-svcset]");
       if (svcset && canAdmin()) { const [idx, val] = svcset.dataset.svcset.split(":"); eng.serviceLines[+idx].status = val; window.DASH.saveState(); rerender(); return; }
 
@@ -1159,7 +1154,5 @@ window.ExecSummary = (function () {
     });
   }
 
-  // taskInternal is exported so the Project Plan page can honour the SAME client-visibility rule
-  // rather than keeping a second copy of it.
-  return { render, init, taskInternal };
+  return { render, init };
 })();

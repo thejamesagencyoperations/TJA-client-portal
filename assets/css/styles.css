@@ -837,6 +837,9 @@ body[data-role="client"] .staff-only { display: none !important; }
 .plan-cond.red   { background: rgba(239,83,80,.18);  color: var(--bad, #ef5350); }
 .plan-sheet-summary .plan-row { margin: 4px 0; }
 .plan-sheet-summary .plan-lbl { width: 94px; white-space: nowrap; }
+/* Exec Summary "Project Plan" tile — condition + progress strip above the phase rows */
+.plan-sum-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.plan-sum-top .pr-date { white-space: nowrap; }
 @media (max-width: 760px) { .plan-dates { display: none; } }
 @media (max-width: 520px) { .plan-who { display: none; } }
 
