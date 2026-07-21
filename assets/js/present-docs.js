@@ -177,7 +177,7 @@ window.PresentDocs = (function () {
               <div class="pd-brief-msg" id="pdBriefMsg"></div>
             </div>
 
-            <div class="pd-review-label">Status</div>
+            <div class="pd-review-label" id="pdStatusLabel">Status</div>
             <div class="pd-status-opts" id="pdStatus">
               <div class="pd-status-opt approved"  data-val="approved"><span class="tick">✓</span> Approve</div>
               <div class="pd-status-opt changes"   data-val="changes"><span class="tick">✓</span> Approve with changes</div>
@@ -817,9 +817,14 @@ window.PresentDocs = (function () {
     curId = id; setTool("draw");
     const m = $("pdModal");
     m.classList.add("open");
-    // Creatives review nothing — the status/notes/submit rail is the CLIENT's (and the
-    // admin's) tool. Their modal is look-and-annotate-your-own-draft only.
+    // Creatives review nothing — their modal is look-and-annotate-your-own-draft only.
     m.classList.toggle("pd-ro", typeof isCreative === "function" && isCreative() && !isDraft(d));
+    // Submitting a review (status + signature + Submit) is CLIENT-ONLY (Cameron 2026-07-20:
+    // clients are the only reviewers in the portal). Staff still SEE the client's status,
+    // comments, pins and notes — they just can't file a review as if they were the client.
+    // Preview-as-client (effectiveRole()==="client") correctly keeps the controls for parity.
+    const viewerRole = (typeof effectiveRole === "function") ? effectiveRole() : "client";
+    m.classList.toggle("pd-noreview", viewerRole !== "client");
     $("pdSaved").classList.remove("show");
     loadVersionIntoModal();
     maybeShowDisclaimer();
@@ -864,6 +869,8 @@ window.PresentDocs = (function () {
   }
 
   function submitReview() {
+    // Reviews are client-only — the button is hidden for staff, but guard the action too.
+    if (typeof effectiveRole === "function" && effectiveRole() !== "client") return;
     const d = deliv(curId); if (!d) return;
     const av = active(d); av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
     persistCanvas();

@@ -537,6 +537,15 @@ body[data-role="client"] .staff-only { display: none !important; }
 .pd-modal.pd-ro #pdClientNotes,
 .pd-modal.pd-ro #pdAgencyNotes,
 .pd-modal.pd-ro #pdClearComments { pointer-events: none; opacity: .55; }
+/* Non-clients never file a review — hide the status picker, feedback-due + Submit
+   entirely (staff still see the client's status via the meta line + card badge, plus
+   all comments/pins/notes). Agency Notes stay editable for staff. */
+.pd-modal.pd-noreview #pdStatusLabel,
+.pd-modal.pd-noreview .pd-status-opts,
+.pd-modal.pd-noreview .pd-revdue-row,
+.pd-modal.pd-noreview #pdSubmit { display: none; }
+/* client feedback is the client's — staff read it, don't author it */
+.pd-modal.pd-noreview #pdClientNotes { pointer-events: none; opacity: .7; }
 .pd-card-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-del {
   position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
