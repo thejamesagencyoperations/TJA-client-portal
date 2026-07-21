@@ -713,11 +713,15 @@ body[data-role="client"] .staff-only { display: none !important; }
 .pd-status-opt.sel.revisions .tick  { background: var(--bad); border-color: var(--bad); }
 
 .pd-review textarea {
-  width: 100%; min-height: 58px; resize: vertical; padding: 10px;
+  width: 100%; min-height: 96px; resize: vertical; padding: 10px;
   background: var(--input); border: 1px solid var(--line); border-radius: var(--radius-sm);
   color: var(--text); font-family: inherit; font-size: .85rem;
 }
 .pd-review textarea:focus { outline: none; border-color: var(--orange); }
+/* Agency Notes grows to fill the rail's spare height (bigger notes, per Cameron) —
+   the export/meta footer is pinned to the bottom so the notes get the room. */
+#pdAgencyNotes { flex: 1 1 auto; min-height: 120px; }
+.pd-review-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
 .pd-revdue-row { display: flex; align-items: center; gap: 10px; }
 .pd-revdue-row .pd-review-label { flex: none; }
 .pd-revdue { flex: 1; padding: 8px 10px; background: var(--input); border: 1px solid var(--line);

@@ -177,6 +177,8 @@ window.PresentDocs = (function () {
               <div class="pd-brief-msg" id="pdBriefMsg"></div>
             </div>
 
+            <div class="pd-specs-line" id="pdSpecsLine" style="display:none"></div>
+
             <div class="pd-review-label" id="pdStatusLabel">Status</div>
             <div class="pd-status-opts" id="pdStatus">
               <div class="pd-status-opt approved"  data-val="approved"><span class="tick">✓</span> Approve</div>
@@ -202,13 +204,15 @@ window.PresentDocs = (function () {
 
             <button class="btn btn-primary" id="pdSubmit">Submit Review</button>
             <div class="pd-saved" id="pdSaved">✓ Review saved</div>
-            <div class="pd-sign-status" id="pdSignStatus"></div>
-            <button class="pd-tool-btn pd-export-btn staff-only" id="pdExport" title="Internal proof PDF for your records — the client reviews in-portal">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>
-              Export PDF
-            </button>
-            <div class="pd-meta-line" id="pdMeta"></div>
-            <div class="pd-specs-line" id="pdSpecsLine" style="display:none"></div>
+
+            <div class="pd-review-foot">
+              <div class="pd-sign-status" id="pdSignStatus"></div>
+              <button class="pd-tool-btn pd-export-btn staff-only" id="pdExport" title="Internal proof PDF for your records — the client reviews in-portal">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M5 20h14"/></svg>
+                Export PDF
+              </button>
+              <div class="pd-meta-line" id="pdMeta"></div>
+            </div>
           </div>
         </div>
 
