@@ -720,8 +720,8 @@ function applyRole() {
     const pillBase = (typeof roleLabel === "function") ? roleLabel(getSession() && getSession().role) : "Admin";
     // Undo drives saveState() → dashboard-scope writes that RLS rejects for creatives,
     // so only the agency account + AM/PMs get the button.
+    // No standalone role pill — the toggle below already shows the current mode (Cameron 2026-07-20).
     rc.innerHTML = `${!prev && admin ? `<button class="btn btn-ghost undo-btn" id="undoBtn" title="Undo last action (⌘Z)" disabled>↶ Undo</button>` : ""}
-      <span class="role-pill">${prev ? pillBase + " · previewing" : pillBase}</span>
       <div class="role-switch">
         <button class="role-seg ${!prev ? "active" : ""}" id="modeAdmin">${pillBase}</button>
         <button class="role-seg ${prev ? "active" : ""}" id="modeClient">Client view</button>
