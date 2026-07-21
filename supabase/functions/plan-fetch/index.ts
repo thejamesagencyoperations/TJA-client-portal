@@ -10,6 +10,10 @@
 
    Caller: staff only (admin / manager / creative). Clients never
    fetch plans. Body (JSON): { clientId, fileUrl | fileId }.
+   NOTE: clientId is advisory/logging only — it does NOT scope access.
+   Any staff caller can read any file the service account was shared
+   on (staff see all clients by design; there is no per-client plan
+   registry to validate against). Do not mistake it for a gate.
    Returns: { ok, plan } where plan = { meta, groups } (see
    _shared/plan.ts), or a soft error. The admin UI stores the
    result into eng.projectPlanSheet via the normal guarded write.
@@ -23,8 +27,8 @@
 import * as XLSX from "npm:xlsx@0.18.5";
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
-import { driveAccessToken, driveDownloadBytes, driveExportCsv, driveGetMeta, parseDriveFileId } from "../_shared/google.ts";
-import { csvToRows, parseProjectPlanRows } from "../_shared/plan.ts";
+import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId } from "../_shared/google.ts";
+import { parseProjectPlanRows } from "../_shared/plan.ts";
 
 // Pick the plan tab: prefer a sheet named like "…plan…", else the last sheet
 // (the CEL workbook is [Team, Project Plan]), else the first.
@@ -50,21 +54,19 @@ Deno.serve(async (req) => {
   try {
     const token = await driveAccessToken("https://www.googleapis.com/auth/drive.readonly");
     const meta = await driveGetMeta(token, fileId);
-    let rows: unknown[][];
-    let sheetName = "", sheetNames: string[] = [];
 
-    if (/spreadsheet$/i.test(meta.mimeType) && !/officedocument/i.test(meta.mimeType)) {
-      // native Google Sheet → export the default tab as CSV
-      rows = csvToRows(await driveExportCsv(token, fileId));
-    } else {
-      // uploaded .xlsx (or any binary spreadsheet) → parse with SheetJS
-      const bytes = await driveDownloadBytes(token, fileId);
-      const wb = XLSX.read(bytes, { type: "array", cellDates: true });
-      sheetNames = wb.SheetNames || [];
-      if (!sheetNames.length) return json(req, 422, { error: "workbook has no sheets" });
-      sheetName = (body.sheet && sheetNames.includes(body.sheet)) ? body.sheet : pickSheetName(sheetNames);
-      rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "" }) as unknown[][];
-    }
+    // ONE parse path for everything: a NATIVE Google Sheet is exported as a full .xlsx
+    // workbook (CSV export only yields the FIRST tab — wrong for [Team, Project Plan]
+    // shaped workbooks); uploaded files (.xlsx, .ods, …) download raw. SheetJS reads
+    // both, and pickSheetName finds the plan tab either way.
+    const bytes = (meta.mimeType === "application/vnd.google-apps.spreadsheet")
+      ? await driveExportBytes(token, fileId, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+      : await driveDownloadBytes(token, fileId);
+    const wb = XLSX.read(bytes, { type: "array", cellDates: true });
+    const sheetNames: string[] = wb.SheetNames || [];
+    if (!sheetNames.length) return json(req, 422, { error: "workbook has no sheets" });
+    const sheetName = (body.sheet && sheetNames.includes(body.sheet)) ? body.sheet : pickSheetName(sheetNames);
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "" }) as unknown[][];
 
     const plan = parseProjectPlanRows(rows);
     if (!plan) return json(req, 422, { error: "couldn't read a project plan from that file — expected the #, Task, Who, Dependency, Start, End, % Done, Notes columns" });

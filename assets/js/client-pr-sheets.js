@@ -125,7 +125,12 @@ window.CLIENT_PR_SHEETS = (function () {
         dep = (r[3] || "").trim(), start = (r[4] || "").trim(), end = (r[5] || "").trim(),
         pctRaw = (r[6] || "").trim(), notes = (r[7] || "").trim();
       if (!num && !task) continue;                       // blank / spacer
-      const isGroup = !who && !start && !end && !pctRaw;  // section header row
+      // A PHASE header is an integer-numbered row (1, 2, "4.0") with no owner/dates/%.
+      // The numbering check matters: an early-project task like "3.2 | Draft copy" with
+      // WHO/dates still TBD must stay a TASK, not fragment the plan into bogus sections.
+      const emptyMeta = !who && !start && !end && !pctRaw;
+      const numVal = parseFloat(num);
+      const isGroup = emptyMeta && (!num || isNaN(numVal) || Number.isInteger(numVal));
       if (isGroup) { cur = { num, name: task, tasks: [] }; groups.push(cur); continue; }
       if (!cur) { cur = { num: "", name: "Tasks", tasks: [] }; groups.push(cur); }
       const pct = planPct(pctRaw);

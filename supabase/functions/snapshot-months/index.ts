@@ -34,7 +34,11 @@ Deno.serve(async (req) => {
     return json(req, 401, { error: "bad or missing snapshot secret" });
 
   const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const now = new Date();
+  // The month is TJA's business month — America/Phoenix wall time (UTC-7 year-round, no
+  // DST), NOT UTC. The cron fires 06:00 UTC = 23:00 Phoenix the PREVIOUS day; keying by
+  // UTC would flip to the new month an hour early and fight the browsers' local-time
+  // writers, appending duplicate month entries at every boundary (found in QA 2026-07-20).
+  const now = new Date(Date.now() - 7 * 3600e3);
   const yr = now.getUTCFullYear(), mi = now.getUTCMonth();
   const short = MON[mi], periodLabel = `${FULL[mi]} ${yr}`;
 
@@ -80,11 +84,21 @@ Deno.serve(async (req) => {
       name: d.name, contracted: +d.contracted || 0, billable: round2(actByCanon[canon(d.name)] || 0),
     }));
 
-    // upsert the current calendar month (freeze the past — never touch older entries)
+    // upsert the current calendar month (freeze the past — never touch older entries).
+    // Match by (month, year) ANYWHERE in the array — not just the last entry — so that
+    // even if another writer appended a different month first (boundary race), we update
+    // our month in place instead of pushing a duplicate. Legacy no-year entries are only
+    // adopted when they're the last entry (an old same-name month, e.g. last July, must
+    // never be mistaken for this one). KEEP IN SYNC with wmj-sync.js snapshotMonth and
+    // exec-summary.js syncCurrentMonth.
     e.mom = Array.isArray(e.mom) ? e.mom : [];
-    const last = e.mom[e.mom.length - 1];
     const entry = { month: short, year: yr, usedHours: round2(used), contractedHours: round2(contracted), lines };
-    if (last && last.month === short && (last.year == null || last.year === yr)) e.mom[e.mom.length - 1] = { ...last, ...entry };
+    let idx = e.mom.findIndex((m: { month?: string; year?: number }) => m && m.month === short && m.year === yr);
+    if (idx < 0) {
+      const last = e.mom[e.mom.length - 1];
+      if (last && last.month === short && last.year == null) idx = e.mom.length - 1;
+    }
+    if (idx >= 0) e.mom[idx] = { ...e.mom[idx], ...entry };
     else e.mom.push(entry);
     if (e.mom.length > 24) e.mom = e.mom.slice(-24);
 

@@ -87,7 +87,12 @@ export function parseProjectPlanRows(rows: unknown[][]): ParsedPlan | null {
     const num = cell(r, 0), task = cell(r, 1), who = cell(r, 2), dep = cell(r, 3),
       start = cell(r, 4), end = cell(r, 5), pctRaw = cell(r, 6), notes = cell(r, 7);
     if (!num && !task) continue;
-    const isGroup = !who && !start && !end && !pctRaw;
+    // A PHASE header is an integer-numbered row (1, 2, "4.0") with no owner/dates/%.
+    // The numbering check keeps a TBD task ("3.2 | Draft copy", no owner/dates yet)
+    // classified as a task. KEEP IN SYNC with client-pr-sheets.js parseProjectPlan.
+    const emptyMeta = !who && !start && !end && !pctRaw;
+    const numVal = parseFloat(num);
+    const isGroup = emptyMeta && (!num || isNaN(numVal) || Number.isInteger(numVal));
     if (isGroup) { cur = { num, name: task, tasks: [] }; groups.push(cur); continue; }
     if (!cur) { cur = { num: "", name: "Tasks", tasks: [] }; groups.push(cur); }
     const pct = pctOf(pctRaw);

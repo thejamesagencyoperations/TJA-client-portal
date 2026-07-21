@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Backup &amp; Sync · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=263" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=263">
+<link rel="icon" href="assets/img/favicon.ico?v=264" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=264">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=263">
+<link rel="stylesheet" href="assets/css/styles.css?v=264">
 <style>
   .bk-wrap { max-width: 780px; margin: 40px auto; padding: 0 20px; }
   .bk-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
@@ -72,15 +72,15 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=263"></script>
-<script src="assets/js/ui.js?v=263"></script>
-<script src="assets/js/version-check.js?v=263"></script>
-<script src="assets/js/supabase-sync.js?v=263"></script>
-<script src="assets/js/auth.js?v=263"></script>
+<script src="assets/js/supabase-config.js?v=264"></script>
+<script src="assets/js/ui.js?v=264"></script>
+<script src="assets/js/version-check.js?v=264"></script>
+<script src="assets/js/supabase-sync.js?v=264"></script>
+<script src="assets/js/auth.js?v=264"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=263"></script>
-<script src="assets/js/client-template.js?v=263"></script>
-<script src="assets/js/client-store.js?v=263"></script>
+<script src="assets/js/clients.js?v=264"></script>
+<script src="assets/js/client-template.js?v=264"></script>
+<script src="assets/js/client-store.js?v=264"></script>
 <script>
 (async function () {
   // Admin-only; creatives → picker (they own no workspace, dashboard would re-bounce).
@@ -174,7 +174,10 @@
     } catch (e) { log("✗ roster — " + e.message + (e.message.indexOf("check") > -1 ? "  ← run supabase/schema-v3-registry.sql" : "")); fail++; }
 
     for (const c of roster) {
-      for (const scope of ["dashboard", "files", "deliverables"]) {
+      // every per-client scope with a tja_<scope>_<id> localStorage mirror — keep this
+      // list in step with SYNC usage (a scope missing here is silently DROPPED on restore;
+      // deliverables_draft + notifications were missing until 2026-07-20).
+      for (const scope of ["dashboard", "files", "deliverables", "deliverables_draft", "notifications"]) {
         const raw = localStorage.getItem("tja_" + scope + "_" + c.id);
         if (!raw) { skipped++; continue; }
         try {

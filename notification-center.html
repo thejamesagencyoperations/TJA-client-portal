@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Notification Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=263" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=263">
+<link rel="icon" href="assets/img/favicon.ico?v=264" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=264">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=263">
+<link rel="stylesheet" href="assets/css/styles.css?v=264">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -83,10 +83,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=263"></script>
-<script src="assets/js/version-check.js?v=263"></script>
-<script src="assets/js/supabase-sync.js?v=263"></script>
-<script src="assets/js/auth.js?v=263"></script>
+<script src="assets/js/supabase-config.js?v=264"></script>
+<script src="assets/js/version-check.js?v=264"></script>
+<script src="assets/js/supabase-sync.js?v=264"></script>
+<script src="assets/js/auth.js?v=264"></script>
 <script>
   requireAuth();
   // Admin-only. Creatives bounce to the PICKER — they have no client workspace,
@@ -95,10 +95,10 @@
   if (typeof isAdminOrManager === "function" && !isAdminOrManager())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=263"></script>
-<script src="assets/js/client-template.js?v=263"></script>
-<script src="assets/js/client-store.js?v=263"></script>
-<script src="assets/js/notifications.js?v=263"></script>
+<script src="assets/js/clients.js?v=264"></script>
+<script src="assets/js/client-template.js?v=264"></script>
+<script src="assets/js/client-store.js?v=264"></script>
+<script src="assets/js/notifications.js?v=264"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -194,7 +194,7 @@
         <div class="nc-events">`;
       g.events.forEach(e => {
         const b = STATUS_BADGE[e.status] || "pending";
-        html += `<button class="nc-event ${e.read ? "" : "unread"}" data-open="${esc(cid)}">
+        html += `<button class="nc-event ${e.read ? "" : "unread"}" data-open="${esc(cid)}"${e.docId ? ` data-doc="${esc(e.docId)}"` : ""}>
           <span class="badge ${b}">${esc(N.format.statusBadge(e.status))}</span>
           <span class="nc-event-body"><span class="nc-event-line">${N.format.docLine(e)}</span>
           <span class="nc-event-meta">${esc(e.by || "Client")} · ${esc(N.format.when(e.ts))}</span></span>
@@ -208,7 +208,7 @@
   $("ncAmFilter").addEventListener("change", (e) => { amFilter = e.target.value; renderReviews(); });
   $("ncReviews").addEventListener("click", (e) => {
     const o = e.target.closest("[data-open]");
-    if (o) { N.markClientRead(o.dataset.open); N.openClientDocs(o.dataset.open); }
+    if (o) { N.markClientRead(o.dataset.open); N.openClientDocs(o.dataset.open, o.dataset.doc); }
   });
   $("ncMarkAll").addEventListener("click", async () => {
     const feed = await N.adminFeed();

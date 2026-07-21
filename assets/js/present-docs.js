@@ -468,10 +468,13 @@ window.PresentDocs = (function () {
       const name = nameFor(p);
       if (toDraft) {
         v.state = "pending_approval";
-        draftItems.unshift({ id: uid(), name: name, active: 0, versions: [v], specs: specs });
+        // record the draft CARD's id (not v.vid) — it's what openModal/openDoc resolve,
+        // so a notification click can land straight on this waiting-room card.
+        const draftCard = { id: uid(), name: name, active: 0, versions: [v], specs: specs };
+        draftItems.unshift(draftCard);
         if (window.TJA_NOTIFY) {
           // admin-bell discovery of pending work (the CLIENT hears nothing until release)
-          try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
+          try { window.TJA_NOTIFY.record({ type: "upload", docId: draftCard.id, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
         }
       } else {
         // Straight to the client — so this IS the send, and must tell them exactly as
@@ -518,8 +521,10 @@ window.PresentDocs = (function () {
       // and recomputes the V-label then (an admin may add V2 in the meantime).
       const v = newVersion(p.dataUrl, "V" + (d.versions.length + 1) + " (proposed)");
       v.state = "pending_approval";
-      draftItems.unshift({ id: uid(), name: d.name, active: 0, versions: [v], parentId: d.id });
-      if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: v.vid, docName: d.name, versionLabel: v.label, by: sess.name || "Creative" }); } catch (e) {} }
+      const proposedCard = { id: uid(), name: d.name, active: 0, versions: [v], parentId: d.id };
+      draftItems.unshift(proposedCard);
+      // docId = the proposed CARD's id (resolvable by openDoc), not the version id
+      if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: proposedCard.id, docName: d.name, versionLabel: v.label, by: sess.name || "Creative" }); } catch (e) {} }
       saveDrafts(); renderGallery();
       return;
     }
@@ -1419,12 +1424,17 @@ window.PresentDocs = (function () {
   }
 
   // Deep-link entry: open a specific deliverable by id (from the email's
-  // ?open=docs&doc=<id>). No-ops if the id isn't a deliverable this user can see
-  // (e.g. a client following a stale link, or a draft they can't access). Retries
-  // briefly in case the docs page hasn't finished painting yet.
+  // ?open=docs&doc=<id>, or a notification click). Retries briefly while the docs
+  // page is still painting OR the deliverables scope is still pulling from Supabase
+  // (a fresh-login arrival can beat the data). Gives up silently after ~6s — a stale
+  // link (released draft, another client's id) just leaves the user on the gallery.
   function openDoc(id, tries) {
-    if (!id || !deliv(id)) return;
-    if (!$("pdModal")) { if ((tries || 0) < 20) setTimeout(() => openDoc(id, (tries || 0) + 1), 60); return; }
+    if (!id) return;
+    const t = tries || 0;
+    if (!deliv(id) || !$("pdModal")) {
+      if (t < 40) setTimeout(() => openDoc(id, t + 1), 150);
+      return;
+    }
     openModal(id);
   }
 

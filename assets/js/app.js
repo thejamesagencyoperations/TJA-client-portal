@@ -633,15 +633,17 @@ function initPlan() {
   });
   page.addEventListener("click", async ev => {
     const conn = ev.target.closest("[data-planconnect]"); if (!conn) return;
-    const eng = getEng();
     const raw = await window.TJA_UI.prompt(
-      "Paste the project-plan link.\n\n• A PRIVATE Drive file (.xlsx or Google Sheet) is read securely by the portal's backend — share it with the service account first.\n• A public Google Sheet (“Anyone with the link – Viewer”) is read directly.\n\nWe read columns A–H: #, Task, Who, Dependency, Start, End, % Done, Notes. The timeline grid (columns I onward) is ignored.",
-      { title: "Connect project-plan sheet", value: eng.projectPlanSheetUrl || "", okText: "Connect" });
+      "Paste the project-plan link.\n\n• A PRIVATE Drive file (.xlsx or Google Sheet) is read securely by the portal's backend — share it with the service account first.\n• A public Google Sheet (“Anyone with the link – Viewer”) is read directly.\n\nWe read columns A–H: #, Task, Who, Dependency, Start, End, % Done, Notes. The timeline grid (columns I onward) is ignored.\n\n⚠ The plan renders CLIENT-FACING — everything in those columns (including Notes) is visible to the client.",
+      { title: "Connect project-plan sheet", value: (getEng().projectPlanSheetUrl) || "", okText: "Connect" });
     if (raw == null) return;
     const reg = window.CLIENT_PR_SHEETS;
-    if (!raw.trim()) { delete eng.projectPlanSheet; delete eng.projectPlanSheetUrl; saveState(); repaint("plan"); return; }
+    // Re-resolve the engagement AFTER every await — the auto-refresh can adopt a new
+    // STATE while the prompt/fetch is in flight, and writing to the old (detached)
+    // object would silently discard the connect.
+    if (!raw.trim()) { const eng = getEng(); delete eng.projectPlanSheet; delete eng.projectPlanSheetUrl; saveState(); repaint("plan"); return; }
     conn.disabled = true; conn.textContent = "Connecting…";
-    const store = (parsed) => { eng.projectPlanSheet = parsed; eng.projectPlanSheetUrl = raw.trim(); saveState(); repaint("plan"); };
+    const store = (parsed) => { const eng = getEng(); eng.projectPlanSheet = parsed; eng.projectPlanSheetUrl = raw.trim(); saveState(); repaint("plan"); };
 
     // 1) A public native Google Sheet → read the CSV directly in the browser (no backend needed).
     const cfg = reg && reg.parseSheetUrl(raw);
@@ -1089,10 +1091,23 @@ function applyEngagement() {
       const a = document.activeElement;
       return !!(a && (a.isContentEditable || a.tagName === "INPUT" || a.tagName === "TEXTAREA"));
     };
+    // repaintAll() rebuilds every page's innerHTML — including the Present Docs modal,
+    // the upload brief, a TJA_UI dialog, or the burn popup if one is open. Adopting mid-
+    // interaction would destroy unsaved annotations/uploads, so any open overlay defers
+    // the adopt (the 30s poll / refocus catches up after it closes).
+    const overlayOpen = () => {
+      if (document.querySelector("#pdModal.open, #tjaDialog, #burnPop")) return true;
+      const up = document.getElementById("pdUpOverlay");
+      return !!(up && up.style.display !== "none");
+    };
     async function tick() {
       // if a change arrives mid-edit, remember it and re-run once the edit ends (on blur)
       if (busy) return;
-      if (document.hidden || editingNow()) { pending = true; return; }
+      if (document.hidden || editingNow() || overlayOpen()) { pending = true; return; }
+      // NEVER adopt while our own write is queued/in-flight: adopting advances lastKnown,
+      // which would let the queued guarded write CAS-succeed and silently clobber the
+      // remote change. Deferring lets the CAS fail → conflict banner (the designed path).
+      if (window.SUPA.hasPendingWrite && window.SUPA.hasPendingWrite(cid, "dashboard")) { pending = true; return; }
       busy = true; pending = false;
       try {
         const d = await window.SUPA.pollScope(cid, "dashboard");

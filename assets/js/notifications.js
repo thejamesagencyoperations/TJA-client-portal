@@ -121,11 +121,14 @@ window.TJA_NOTIFY = (function () {
   }
 
   /* ---------- bell + panel UI (admin) ---------- */
-  function openClientDocs(clientId) {
+  function openClientDocs(clientId, docId) {
     try {
       const s = JSON.parse(sessionStorage.getItem("tja_portal_session") || "{}");
       s.client = clientId; sessionStorage.setItem("tja_portal_session", JSON.stringify(s));
       sessionStorage.setItem("tja_open_page", "docs");
+      // same key the email deep-link uses — app.js opens this deliverable after landing
+      if (docId) sessionStorage.setItem("tja_open_doc", docId);
+      else sessionStorage.removeItem("tja_open_doc");
     } catch (e) {}
     window.location.href = "dashboard.html";
   }
@@ -173,7 +176,7 @@ window.TJA_NOTIFY = (function () {
         const unread = g.events.filter(e => !e.read).length;
         html += `<div class="notif-group"><div class="notif-group-head" data-open="${esc(cid)}"><span class="notif-cname">${esc(g.name)}</span>${unread ? `<span class="notif-badge">${unread}</span>` : ""}</div>`;
         g.events.slice(0, 4).forEach(e => {
-          html += `<button class="notif-item ${e.read ? "" : "unread"}" data-open="${esc(cid)}"><span class="notif-line">${eventLine(e)}</span><span class="notif-meta">${esc(e.by || "Client")} · ${when(e.ts)}</span></button>`;
+          html += `<button class="notif-item ${e.read ? "" : "unread"}" data-open="${esc(cid)}"${e.docId ? ` data-doc="${esc(e.docId)}"` : ""}><span class="notif-line">${eventLine(e)}</span><span class="notif-meta">${esc(e.by || "Client")} · ${when(e.ts)}</span></button>`;
         });
         html += `</div>`;
       });
@@ -194,7 +197,7 @@ window.TJA_NOTIFY = (function () {
       const allread = e.target.closest("#notifAllRead");
       if (allread) { e.stopPropagation(); const ids = [...new Set(cache.filter(x => !x.read).map(x => x.clientId))]; for (const cid of ids) await markClientRead(cid); await refresh(); return; }
       const el = e.target.closest("[data-open]");
-      if (el && el.dataset.open) { markClientRead(el.dataset.open); openClientDocs(el.dataset.open); }
+      if (el && el.dataset.open) { markClientRead(el.dataset.open); openClientDocs(el.dataset.open, el.dataset.doc); }
     });
     refresh();
     setInterval(refresh, 45000);

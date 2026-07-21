@@ -148,9 +148,17 @@ window.ExecSummary = (function () {
     const lines = (eng.serviceDisciplines || []).map((d) => ({
       name: d.name, contracted: +d.contracted || 0, billable: round2(actMap[canon(d.name)] || 0),
     }));
-    const last = eng.mom[eng.mom.length - 1];
-    if (last && last.month === short && (last.year == null || last.year === yr)) {
-      last.year = yr; last.usedHours = usedNow; last.contractedHours = totalNow; last.lines = lines;
+    // Match by (month, year) ANYWHERE (not just last) so a boundary race with another
+    // writer updates in place instead of duplicating; no-year legacy adoption only for
+    // the last entry. KEEP IN SYNC with wmj-sync.js snapshotMonth + snapshot-months fn.
+    let idx = eng.mom.findIndex((m) => m && m.month === short && m.year === yr);
+    if (idx < 0) {
+      const last = eng.mom[eng.mom.length - 1];
+      if (last && last.month === short && last.year == null) idx = eng.mom.length - 1;
+    }
+    if (idx >= 0) {
+      const m = eng.mom[idx];
+      m.year = yr; m.usedHours = usedNow; m.contractedHours = totalNow; m.lines = lines;
     } else {
       eng.mom.push({ month: short, year: yr, usedHours: usedNow, contractedHours: totalNow, lines });
     }

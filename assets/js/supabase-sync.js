@@ -136,11 +136,20 @@ window.SUPA = (function () {
   // scope ("dashboard") in quick succession; keying by scope alone let each call
   // clear the previous client's timer, so only the last client was ever written.
   const timers = {}, latest = {};
+  // pending[key] is true from the moment a write is queued until its HTTP round-trip
+  // completes. The auto-refresh MUST NOT adopt remote state while our own write is
+  // pending: adoption advances lastKnown, which would let the queued guarded write
+  // CAS-succeed on the freshly-seen stamp and silently clobber the other person's
+  // change — the exact thing the guard exists to catch. Deferring adoption instead
+  // lets the CAS fail against the old stamp and fire the conflict banner.
+  const pending = {};
+  function hasPendingWrite(clientId, scope) { return !!pending[clientId + "::" + scope]; }
   function pushScope(clientId, scope, value) {
     if (!client) return;
     const key = clientId + "::" + scope;
     latest[key] = value;
     clearTimeout(timers[key]);
+    pending[key] = true;
     timers[key] = setTimeout(async () => {
       try {
         const { error } = await client.from("app_state").upsert(
@@ -149,6 +158,7 @@ window.SUPA = (function () {
         );
         if (error) console.warn("SUPA push", scope, error.message);
       } catch (e) { console.warn("SUPA push", scope, e); }
+      finally { pending[key] = false; }
     }, 600);
   }
 
@@ -164,6 +174,7 @@ window.SUPA = (function () {
     const key = clientId + "::" + scope;
     latest[key] = value;
     clearTimeout(timers[key]);
+    pending[key] = true;
     timers[key] = setTimeout(async () => {
       try {
         const nowIso = new Date().toISOString();
@@ -197,6 +208,7 @@ window.SUPA = (function () {
         lastKnown[key] = cur.data.updated_at;
         if (typeof onConflict === "function") { try { onConflict(cur.data.data, cur.data.updated_at); } catch (e) {} }
       } catch (e) { console.warn("SUPA pushGuarded", scope, e); }
+      finally { pending[key] = false; }
     }, 600);
   }
 
@@ -209,6 +221,7 @@ window.SUPA = (function () {
     if (!client) return { ok: false, error: "supabase-not-configured" };
     const key = clientId + "::" + scope;
     clearTimeout(timers[key]); delete timers[key]; delete latest[key];
+    pending[key] = true;
     try {
       const { error } = await client.from("app_state").upsert(
         { client_id: clientId, scope, data: value, updated_at: new Date().toISOString() },
@@ -217,6 +230,7 @@ window.SUPA = (function () {
       if (error) { console.warn("SUPA pushNow", scope, error.message); return { ok: false, error: error.message }; }
       return { ok: true };
     } catch (e) { console.warn("SUPA pushNow", scope, e); return { ok: false, error: String(e) }; }
+    finally { pending[key] = false; }
   }
 
   // delete every scope row for a client (used when an admin removes a workspace)
@@ -228,5 +242,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
+  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
 })();

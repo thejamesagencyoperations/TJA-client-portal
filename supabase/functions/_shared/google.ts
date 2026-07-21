@@ -87,13 +87,14 @@ export async function driveDownloadBytes(token: string, fileId: string): Promise
   return new Uint8Array(await r.arrayBuffer());
 }
 
-// Export a NATIVE Google Sheet as CSV (the first/default sheet). Used when a plan
-// file happens to be a private native Sheet rather than an uploaded .xlsx.
-export async function driveExportCsv(token: string, fileId: string): Promise<string> {
+// Export a NATIVE Google file to the given format, as bytes. For a native Sheet we
+// export the WHOLE workbook as .xlsx (CSV export only ever yields the first tab —
+// useless for multi-tab plan workbooks) and let the caller pick the right sheet.
+export async function driveExportBytes(token: string, fileId: string, mimeType: string): Promise<Uint8Array> {
   const r = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=text/csv&supportsAllDrives=true`,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=${encodeURIComponent(mimeType)}&supportsAllDrives=true`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   if (!r.ok) throw new Error(`drive export ${r.status}: ${await r.text()}`);
-  return await r.text();
+  return new Uint8Array(await r.arrayBuffer());
 }

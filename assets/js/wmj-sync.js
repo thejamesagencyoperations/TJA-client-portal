@@ -263,14 +263,24 @@ window.WMJ_SYNC = (function () {
     const yr = now.getFullYear(), mi = now.getMonth();
     const short = SNAP_MONTHS[mi];
     e.burn.periodLabel = `${SNAP_FULL[mi]} ${yr}`;   // keep the tile's month label current
-    const used = +e.burn.usedHours || 0;             // real WMJ actuals (not a presentation override)
-    const total = +e.burn.contractedHours || 0;
+    // round to 2dp so this writer and the server snapshot store identical values
+    const used = Math.round((+e.burn.usedHours || 0) * 100) / 100;
+    const total = Math.round((+e.burn.contractedHours || 0) * 100) / 100;
     const lines = snapshotLines(e);
-    const last = e.mom[e.mom.length - 1];
-    // match the current month's entry: same short month AND (same year, or a legacy
-    // entry with no year — assume it's this year's and adopt it).
-    if (last && last.month === short && (last.year == null || last.year === yr)) {
-      last.year = yr; last.usedHours = used; last.contractedHours = total; last.lines = lines;
+    // Match the current month's entry by (month, year) ANYWHERE in the array — not just
+    // the last entry — so a boundary race with the server snapshot (which may append the
+    // new month while this tab is still in the old one, or vice versa) updates in place
+    // instead of pushing a duplicate. A legacy no-year entry is only adopted when it's
+    // the LAST entry (an old same-name month must never be mistaken for this one).
+    // KEEP IN SYNC with snapshot-months/index.ts and exec-summary.js syncCurrentMonth.
+    let idx = e.mom.findIndex(m => m && m.month === short && m.year === yr);
+    if (idx < 0) {
+      const last = e.mom[e.mom.length - 1];
+      if (last && last.month === short && last.year == null) idx = e.mom.length - 1;
+    }
+    if (idx >= 0) {
+      const m = e.mom[idx];
+      m.year = yr; m.usedHours = used; m.contractedHours = total; m.lines = lines;
     } else {
       e.mom.push({ month: short, year: yr, usedHours: used, contractedHours: total, lines });
     }
