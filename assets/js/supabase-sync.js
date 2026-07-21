@@ -78,6 +78,27 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA pullFull", scope, e); return null; }
   }
 
+  // Auto-refresh poll: is the server's copy of this scope newer than the version WE last
+  // saw (lastKnown, seeded by pullScopeFull + advanced by every guarded write)? Returns
+  // { changed, data, updated_at } WITHOUT touching lastKnown — the caller decides whether to
+  // adopt (and then calls markScopeSeen). This is how open tabs stop going stale: poll every
+  // few seconds, and when someone else writes, pull + repaint. changed is false until the
+  // first pullScopeFull has run (no baseline = nothing to compare against).
+  async function pollScope(clientId, scope) {
+    if (!client) return { changed: false };
+    const key = clientId + "::" + scope;
+    try {
+      const q = client.from("app_state").select("data,updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle();
+      const r = await withTimeout(q, 3500, scope);
+      if (r && r.__timeout) return { changed: false };
+      const { data, error } = r;
+      if (error || !data) return { changed: false };
+      const changed = !!lastKnown[key] && data.updated_at !== lastKnown[key];
+      return { changed, data: data.data, updated_at: data.updated_at };
+    } catch (e) { return { changed: false }; }
+  }
+  function markScopeSeen(clientId, scope, updatedAt) { if (updatedAt) lastKnown[clientId + "::" + scope] = updatedAt; }
+
   // Read EVERY client's row for a scope in one query (admin-only in practice — the RLS
   // returns just your own rows for a client). Used by the admin Message Center.
   async function pullAllScope(scope) {
@@ -189,5 +210,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
+  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
 })();

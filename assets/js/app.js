@@ -951,4 +951,57 @@ function applyEngagement() {
   let openHint = null;
   try { openHint = sessionStorage.getItem("tja_open_page"); sessionStorage.removeItem("tja_open_page"); } catch (e) {}
   activate(openHint && document.querySelector(`.page[data-page="${openHint}"]`) ? openHint : bootPage);
+
+  /* ---------- live auto-refresh ----------
+     Open tabs go stale: someone else edits this client (or a sync/snapshot runs), and your
+     tab keeps showing the version it loaded — the exact thing behind "her machine still shows
+     0%". This polls the server every ~12s and, when the dashboard state has changed under us,
+     adopts the new version and repaints — so tabs converge without a manual refresh. It NEVER
+     interrupts an in-progress edit (defers while a field is focused), and it only fires when
+     the tab is visible (plus an immediate catch-up the moment you refocus a backgrounded tab).
+     The guarded write still protects the rare simultaneous-save; this just makes staleness the
+     exception. (Dashboard scope only — Present Docs/Files own their own state + sync on action.) */
+  (function startAutoRefresh() {
+    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pollScope)) return;
+    const cid = clientId();
+    let busy = false;
+    const editingNow = () => {
+      const a = document.activeElement;
+      return !!(a && (a.isContentEditable || a.tagName === "INPUT" || a.tagName === "TEXTAREA"));
+    };
+    async function tick() {
+      if (busy || document.hidden || editingNow()) return;
+      busy = true;
+      try {
+        const d = await window.SUPA.pollScope(cid, "dashboard");
+        if (d.changed && d.data && d.data.engagements) {
+          STATE = migrate(d.data);
+          lastSnapshot = clone(STATE);
+          try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) {}
+          window.SUPA.markScopeSeen(cid, "dashboard", d.updated_at);
+          applyEngagement();
+          repaintAll();
+          flashRefreshed();
+        }
+      } catch (e) { /* transient — next tick */ }
+      finally { busy = false; }
+    }
+    setInterval(tick, 12000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+    window.addEventListener("focus", tick);
+  })();
 })();
+
+// subtle, non-blocking "just refreshed" pill (auto-fades) so a live repaint isn't mysterious
+let refreshPill = null, refreshPillTimer = null;
+function flashRefreshed() {
+  if (!refreshPill) {
+    refreshPill = document.createElement("div");
+    refreshPill.className = "refresh-pill";
+    refreshPill.textContent = "↻ Updated with the latest changes";
+    document.body.appendChild(refreshPill);
+  }
+  refreshPill.classList.add("show");
+  clearTimeout(refreshPillTimer);
+  refreshPillTimer = setTimeout(() => refreshPill.classList.remove("show"), 2600);
+}
