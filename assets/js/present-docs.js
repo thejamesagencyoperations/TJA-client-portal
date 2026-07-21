@@ -791,6 +791,9 @@ window.PresentDocs = (function () {
     $("pdClientNotes").value = (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
     $("pdAgencyNotes").value = v.agencyNotes || "";
     $("pdRevDue").value = v.revisionsDue || "";
+    // The feedback deadline is set by the AGENCY (at upload). A client sees it but must
+    // not be able to change their own due date — lock the field for the client view.
+    $("pdRevDue").disabled = (typeof effectiveRole === "function" && effectiveRole() === "client");
     const brief = $("pdBrief");
     if (brief) {
       brief.style.display = (v.subject || v.message) ? "" : "none";
@@ -919,7 +922,7 @@ window.PresentDocs = (function () {
       if (window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
         try {
           window.TJA_MAIL.sendReviewResponse({
-            docName: d.name, versionLabel: v.label,
+            docId: d.id, docName: d.name, versionLabel: v.label,
             status: v.status || null, comments: (v.pins || []).length,
           });
         } catch (e) { console.warn("review-response email failed", e); }
@@ -1413,7 +1416,10 @@ window.PresentDocs = (function () {
 
     $("pdClientNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.clientNotes = e.target.value; saveCur(); } });
     $("pdAgencyNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.agencyNotes = e.target.value; saveCur(); } });
-    $("pdRevDue").addEventListener("change", e => { const v = active(deliv(curId)); if (v) { v.revisionsDue = e.target.value; saveCur(); } });
+    $("pdRevDue").addEventListener("change", e => {
+      if (typeof effectiveRole === "function" && effectiveRole() === "client") return;   // clients can't set their own deadline
+      const v = active(deliv(curId)); if (v) { v.revisionsDue = e.target.value; saveCur(); }
+    });
 
     $("pdSubmit").addEventListener("click", submitReview);
     $("pdExport").addEventListener("click", () => exportPDF(deliv(curId)));

@@ -738,6 +738,7 @@ body[data-role="client"] .staff-only { display: none !important; }
 .pd-revdue { flex: 1; padding: 8px 10px; background: var(--input); border: 1px solid var(--line);
   border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: .82rem; }
 .pd-revdue:focus { outline: none; border-color: var(--orange); }
+.pd-revdue:disabled { opacity: .65; cursor: default; }
 .pd-saved { font-size: .76rem; color: var(--good); opacity: 0; transition: opacity .2s ease; }
 .pd-saved.show { opacity: 1; }
 .pd-meta-line { font-size: .72rem; color: var(--text-faint); }

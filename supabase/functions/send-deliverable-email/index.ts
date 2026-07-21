@@ -99,12 +99,17 @@ Deno.serve(async (req) => {
   const version = String(body.versionLabel ?? "");
   const due = fmtDue(String(body.dueDate ?? ""));
   const nameLine = `${docName}${version ? " " + version : ""}`;
+  // Deep-link straight to this deliverable (?open=docs&doc=<id>). Shared by the email CTA
+  // AND the Slack message — staff following the Slack link land on the same deliverable.
+  const docId = String(body.docId ?? "").trim();
+  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
 
   // Slack fires INDEPENDENTLY of email — a client with no email address on file must
   // NOT suppress the team's Slack ping (separate channels). Await it so we can report
-  // whether it landed even when there's no email recipient and we bail below.
+  // whether it landed even when there's no email recipient and we bail below. Slack
+  // link syntax is <url|label>.
   const slackRes = await postToSlack(entry.integrations?.slackChannel,
-    `📤 Sent *${nameLine}* to *${entry.name}* for review${due ? ` · feedback due ${due}` : ""}`)
+    `📤 Sent *${nameLine}* to *${entry.name}* for review${due ? ` · feedback due ${due}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`)
     .catch(() => ({ ok: false }));
   const slacked = !!(slackRes && slackRes.ok);
 
@@ -133,11 +138,7 @@ Deno.serve(async (req) => {
 
   const subject = String(body.subject ?? "").trim() || `You have a deliverable to proof: ${docName} ${version}`.trim();
   const message = String(body.message ?? "").trim();
-  // Deep-link straight to Present Docs — and to the SPECIFIC deliverable when we know its
-  // id (?open=docs&doc=<id>). index.html stashes both, and app.js opens the page + the
-  // deliverable modal after login. No PDF is emailed; the client proofs it in the portal.
-  const docId = String(body.docId ?? "").trim();
-  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
+  // (docId + REVIEW_URL computed above — shared by the Slack post and this email.)
 
   const text = [
     `"${nameLine}" is ready for review in your client portal.`,

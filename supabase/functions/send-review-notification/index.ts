@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (caller.role !== "client" || !caller.clientId || caller.clientId.startsWith("_"))
     return json(req, 403, { error: "clients only" });
 
-  let body: { docName?: string; versionLabel?: string; status?: string; comments?: number };
+  let body: { docId?: string; docName?: string; versionLabel?: string; status?: string; comments?: number };
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }
 
   const clientId = caller.clientId;                       // from the profile, never the body
@@ -69,9 +69,11 @@ Deno.serve(async (req) => {
 
   // Slack fires INDEPENDENTLY of email — a client with no distribution address must not
   // suppress the team's Slack ping. Await it so the 409 below can report it landed.
+  const docId = String(body.docId ?? "").trim();
+  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
   const emoji = body.status === "approved" ? "✅" : body.status === "changes" ? "📝" : "🔄";
   const slackRes = await postToSlack(entry.integrations?.slackChannel,
-    `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}`)
+    `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`)
     .catch(() => ({ ok: false }));
   const slacked = !!(slackRes && slackRes.ok);
 
@@ -93,7 +95,7 @@ Deno.serve(async (req) => {
     `${clientName} has reviewed "${nameLine}".`,
     `\nTheir response: ${statusLabel}.`,
     `\n${commentLine}`,
-    `\nOpen it in the portal: ${PORTAL_BASE_URL}`,
+    `\nOpen it in the portal: ${REVIEW_URL}`,
     `\n— The James Agency portal`,
   ].join("\n");
   const html = portalEmail({
@@ -104,7 +106,7 @@ Deno.serve(async (req) => {
       `<p style="margin:0 0 14px">${commentLine}</p>`,
     metaRows: [["Client", clientName], ["Response", statusLabel]],
     ctaText: "Open it in the portal",
-    ctaUrl: PORTAL_BASE_URL,
+    ctaUrl: REVIEW_URL,
   });
 
   try {
