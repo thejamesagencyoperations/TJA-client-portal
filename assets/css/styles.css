@@ -408,6 +408,18 @@ body[data-role="client"] .staff-only { display: none !important; }
 .cl-integrations { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .cl-integrations summary { cursor: pointer; font-size: .78rem; font-weight: 700; color: var(--text-dim); }
 .cl-integrations summary:hover { color: var(--text); }
+/* shared topbar "⋯" utility menu (chrome-menu.js) */
+.chrome-menu { position: relative; display: inline-flex; }
+.chrome-menu-pop { position: absolute; top: calc(100% + 8px); right: 0; min-width: 180px; z-index: 6000;
+  background: var(--panel-2, var(--panel)); border: 1px solid var(--line); border-radius: 10px;
+  padding: 6px; box-shadow: 0 12px 34px rgba(0,0,0,.4); display: none; flex-direction: column; gap: 2px; }
+.chrome-menu.open .chrome-menu-pop { display: flex; }
+.chrome-menu-item { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer;
+  font: inherit; font-size: .84rem; color: var(--text); padding: 8px 11px; border-radius: 7px; text-decoration: none; }
+.chrome-menu-item:hover { background: var(--input); color: var(--text); }
+.chrome-menu-signout { color: var(--bad, #ef5350); }
+.chrome-menu-sep { height: 1px; background: var(--line); margin: 5px 4px; }
+
 .cl-integrations .cl-field { margin-top: 10px; }
 /* per-person deliverable-notification toggles */
 .cl-notify-list { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
