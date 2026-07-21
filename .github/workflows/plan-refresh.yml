@@ -1,0 +1,25 @@
+name: Project plan auto-refresh
+
+# Re-pulls every connected project plan from Drive so the portal reflects sheet
+# edits without anyone clicking "refresh". Google Sheets can't push, so we poll
+# ~every 15 min. The plan-refresh function only writes a client when its plan
+# actually changed, so most runs are cheap no-ops.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes (GitHub may delay under load)
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger plan-refresh
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        run: |
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/plan-refresh" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+            -H "Authorization: Bearer ${ANON_KEY}" \
+            -w "\nHTTP %{http_code}\n" --fail-with-body
