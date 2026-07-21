@@ -138,8 +138,11 @@ window.ExecSummary = (function () {
     eng.mom = eng.mom || [];
     // for disciplines-driven retainers, the live burn = Σ used across disciplines
     const usedNow = (eng.serviceDisciplines && eng.serviceDisciplines.length) ? round2(retainerUsed(eng)) : eng.burn.usedHours;
-    const totalNow = retainerTotalContracted(eng);
-    eng.burn.usedHours = usedNow; eng.burn.contractedHours = totalNow;
+    // this month's scope extension (if tagged for the live month) rides into the banked total
+    const scopeExtNow = (eng.burn.scopeExtMonth && eng.burn.scopeExtMonth === eng.burn.periodLabel) ? (+(eng.burn.scopeExtHours || 0)) : 0;
+    const baseTotal = retainerTotalContracted(eng);
+    const totalNow = baseTotal + scopeExtNow;
+    eng.burn.usedHours = usedNow; eng.burn.contractedHours = baseTotal;   // store the BASE; scope ext stays separate
     // Key by the CALENDAR month+year — same scheme as wmj-sync's snapshotMonth, so an admin
     // touching the burn updates THIS month's entry rather than creating a mismatched one, and
     // a past (frozen) month is never overwritten.
@@ -209,7 +212,13 @@ window.ExecSummary = (function () {
     // WMJ timesheet. Admins can DRAG the dial to override the shown total % for a presentation;
     // the real hours stay in the subtext, and "Reset to actuals" (Service Lines) clears it.
     const b = (viewMonthIdx == null) ? e.burn : e.mom[viewMonthIdx];
-    const total = (viewMonthIdx == null) ? retainerTotalContracted(e) : b.contractedHours;
+    // Scope extension: extra hours added to THIS month's contracted total (a mid-month scope
+    // bump on the retainer) so the burn % reflects reality and doesn't false-alarm over 100%.
+    // Tagged with the month it was set for (scopeExtMonth) so it auto-expires when the
+    // calendar rolls — July's extension never leaks into August. Live month only.
+    const scopeExt = (viewMonthIdx == null && e.burn && e.burn.scopeExtMonth && e.burn.scopeExtMonth === e.burn.periodLabel)
+      ? (+(e.burn.scopeExtHours || 0)) : 0;
+    const total = (viewMonthIdx == null) ? (retainerTotalContracted(e) + scopeExt) : b.contractedHours;
     const used = (viewMonthIdx == null) ? round2(retainerUsed(e)) : b.usedHours;   // burn = SUM of the disciplines' used hrs
     const realPct = total > 0 ? Math.round(used / total * 100) : 0;
     const hasOv = viewMonthIdx == null && !!(e.svcUtilOverride && Object.keys(e.svcUtilOverride).length);
@@ -226,7 +235,7 @@ window.ExecSummary = (function () {
       : canAdmin() ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
       : `${pct}%`;
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.burn}Retainer Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span></div>
+      <div class="module-head"><span class="module-title">${IC.burn}Monthly Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span>${(canAdmin() && viewMonthIdx == null) ? `<button class="burn-scope-btn" data-scopeext title="Add scope-extension hours to this month's contracted total">${scopeExt > 0 ? "✎ Scope +" + round1(scopeExt) + "h" : "＋ Scope extension"}</button>` : ""}</div>
       <div class="burn-wrap">
         ${gauge(unset ? 0 : pct, interactive)}
         <div class="burn-readout">
@@ -235,7 +244,7 @@ window.ExecSummary = (function () {
             ? `<div class="sub">${round1(used)} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>
                ${(canAdmin() && e.retainerValueHasPending) ? `<div class="burn-hint">a pending (unsigned) SOW exists — it isn't counted until signed</div>` : ""}`
             : canAdmin()
-            ? `<div class="sub">${round1(used)} of ${round1(total)} hrs used${hasOv ? ` · actual ${round1(actualUsed)}` : ""}</div>`
+            ? `<div class="sub">${round1(used)} of ${round1(total)} hrs used${scopeExt > 0 ? ` · incl. +${round1(scopeExt)}h scope ext` : ""}${hasOv ? ` · actual ${round1(actualUsed)}` : ""}</div>`
             : `<div class="sub">${pct}% of contracted hours used</div>`}
         </div>
       </div>
@@ -259,27 +268,29 @@ window.ExecSummary = (function () {
       return `<div class="module module--tasks">${head}<div class="pr-date">${esc(note)}</div></div>`;
     }
     const m = p.meta || {};
-    let done = 0, total = 0;
-    p.groups.forEach(g => g.tasks.forEach(t => { total++; if (t.status === "complete") done++; }));
-    const pct = (m.condition && m.condition.pct != null) ? m.condition.pct : (total ? Math.round(done / total * 100) : 0);
-    const lvl = (m.condition && m.condition.level) || "green";
+    // "Mon D, YYYY" → sortable number + compact M/D/YY (for the per-phase finish date).
+    const MON3 = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+    const dparts = (s) => /^(\w{3}) (\d{1,2}), (\d{4})/.exec(s || "");
+    const dval = (s) => { const x = dparts(s); return x ? (+x[3]) * 10000 + MON3[x[1]] * 100 + (+x[2]) : 0; };
+    const dshort = (s) => { const x = dparts(s); return x ? MON3[x[1]] + "/" + (+x[2]) + "/" + String(x[3]).slice(2) : ""; };
     const rows = p.groups.map(g => {
       const gd = g.tasks.filter(t => t.status === "complete").length;
       const state = g.tasks.length && gd === g.tasks.length ? "complete"
         : (g.tasks.some(t => t.status === "in-progress" || t.status === "complete") ? "in-progress" : "pending");
+      // the phase's finish = the LATEST end date among its tasks (ignores empty/earlier rows)
+      let best = 0, bestStr = "";
+      g.tasks.forEach(t => { const v = dval(t.end); if (v > best) { best = v; bestStr = t.end; } });
       return `<div class="task-row">
           <span class="task-dot ${state}"></span>
           <span class="task-name">${g.num ? `<span class="plan-tnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}</span>
-          <span class="grp-count">${gd}/${g.tasks.length}</span>
+          <span class="grp-count">${bestStr ? esc(dshort(bestStr)) : ""}</span>
         </div>`;
     }).join("");
+    // Per Cameron: no % bar / status pill on the tile (that lives on the full Project Plan
+    // page). Keep the overall end date as a light caption.
     return `<div class="module module--tasks">
       ${head}
-      <div class="plan-sum-top">
-        <span class="plan-cond ${lvl}">${esc(lvl.toUpperCase())}</span>
-        <div class="bar plan-bar"><span style="width:${pct}%"></span></div><span class="plan-pct">${pct}%</span>
-        ${m.endDate ? `<span class="pr-date">ends ${esc(m.endDate)}</span>` : ""}
-      </div>
+      ${m.endDate ? `<div class="plan-sum-top"><span class="pr-date">Ends ${esc(m.endDate)}</span></div>` : ""}
       <div class="task-list-wrap">${rows}</div>
     </div>`;
   }
@@ -1140,6 +1151,20 @@ window.ExecSummary = (function () {
         // clicking a past month shows its frozen snapshot (burn + service lines).
         viewMonthIdx = (eng2.mom && idx === eng2.mom.length - 1) ? null : idx;
         rerender(); return;
+      }
+
+      const sx = e.target.closest("[data-scopeext]");
+      if (sx && canAdmin()) {
+        const engS = window.DASH.getEng(); engS.burn = engS.burn || {};
+        const active = (engS.burn.scopeExtMonth === engS.burn.periodLabel) ? (+(engS.burn.scopeExtHours || 0)) : 0;
+        const raw = await window.TJA_UI.prompt(
+          "Scope-extension hours to add to THIS month's contracted total (a mid-month retainer scope bump). Enter the total extension for the month; 0 to clear.",
+          { title: "Scope extension · " + (engS.burn.periodLabel || "this month"), value: active ? String(active) : "", okText: "Apply" });
+        if (raw == null) return;
+        const v = Math.max(0, parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0);
+        engS.burn.scopeExtHours = v;
+        engS.burn.scopeExtMonth = v > 0 ? engS.burn.periodLabel : "";   // tag the month; clear tag when zeroed
+        viewMonthIdx = null; syncCurrentMonth(engS); window.DASH.saveState(); rerender(); return;
       }
 
       const nm = e.target.closest("[data-newmonth]");
