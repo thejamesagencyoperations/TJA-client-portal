@@ -80,8 +80,14 @@ window.CLIENT_PR_SHEETS = (function () {
   const PLAN_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   function planFmtDate(raw) {
     const s = String(raw || "").trim(); if (!s) return "";
-    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(s);
-    if (!m) return s;                                   // leave ISO / text as-is
+    // Some sheets format date cells with a leading day-of-week ("Wed 6/03/26"). Strip it —
+    // but ONLY when what's left is an M/D/Y date, so we never eat the month of an already-
+    // formatted "Jun 3, 2026". This keeps every parse path (gviz CSV, SheetJS) canonical,
+    // so the plan-refresh change-detector doesn't see phantom diffs. Idempotent.
+    const stripped = s.replace(/^[A-Za-z]{3,9}\.?,?\s+/, "");
+    const src = /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(stripped) ? stripped : s;
+    const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(src);
+    if (!m) return s;                                   // leave ISO / already-formatted / text as-is
     const y = m[3].length === 2 ? +("20" + m[3]) : +m[3];
     const mo = +m[1]; if (mo < 1 || mo > 12) return s;
     return PLAN_MONTHS[mo - 1] + " " + (+m[2]) + ", " + y;

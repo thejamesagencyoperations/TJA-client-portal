@@ -16,7 +16,11 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 function fmtDate(raw: string): string {
   const s = String(raw || "").trim(); if (!s) return "";
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(s);
+  // Strip a leading day-of-week ("Wed 6/03/26") but only if what remains is an M/D/Y date,
+  // so every parse path stays canonical (KEEP IN SYNC with client-pr-sheets.js planFmtDate).
+  const stripped = s.replace(/^[A-Za-z]{3,9}\.?,?\s+/, "");
+  const src = /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(stripped) ? stripped : s;
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(src);
   if (!m) return s;
   const y = m[3].length === 2 ? +("20" + m[3]) : +m[3];
   const mo = +m[1]; if (mo < 1 || mo > 12) return s;
