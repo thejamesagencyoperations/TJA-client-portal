@@ -113,9 +113,11 @@ Deno.serve(async (req) => {
   const subject = String(body.subject ?? "").trim() || `You have a deliverable to proof: ${docName} ${version}`.trim();
   const message = String(body.message ?? "").trim();
   const due = fmtDue(String(body.dueDate ?? ""));
-  // Deep-link straight to Present Docs. index.html reads ?open=docs, stashes it, and app.js
-  // opens that page after login — no PDF is emailed; the client proofs it in the portal.
-  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs`;
+  // Deep-link straight to Present Docs — and to the SPECIFIC deliverable when we know its
+  // id (?open=docs&doc=<id>). index.html stashes both, and app.js opens the page + the
+  // deliverable modal after login. No PDF is emailed; the client proofs it in the portal.
+  const docId = String(body.docId ?? "").trim();
+  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
 
   const nameLine = `${docName}${version ? " " + version : ""}`;
   const text = [

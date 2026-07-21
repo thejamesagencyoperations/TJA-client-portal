@@ -478,8 +478,11 @@ window.PresentDocs = (function () {
         // releasing a draft does. It previously did neither: an AM/PM uploading directly
         // (the common path — not everything goes via a creative) silently notified nobody.
         v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
-        items.unshift({ id: uid(), name: name, active: 0, versions: [v], specs: specs });
-        announceSend({ id: v.vid, name: name, version: v });
+        // capture the DELIVERABLE id (not v.vid) — it's what openModal / the email
+        // deep-link (?open=docs&doc=<id>) resolve against.
+        const item = { id: uid(), name: name, active: 0, versions: [v], specs: specs };
+        items.unshift(item);
+        announceSend({ id: item.id, name: name, version: v });
       }
     });
     closeUploadDialog();
@@ -499,7 +502,7 @@ window.PresentDocs = (function () {
     }
     if (window.TJA_MAIL && window.TJA_MAIL.sendDeliverable) {
       try {
-        window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docName: name,
+        window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docId: id, docName: name,
           versionLabel: version.label, subject: version.subject, message: version.message,
           dueDate: version.revisionsDue });
       } catch (e) { console.warn("deliverable email failed", e); }
@@ -1415,5 +1418,15 @@ window.PresentDocs = (function () {
     }
   }
 
-  return { render, init };
+  // Deep-link entry: open a specific deliverable by id (from the email's
+  // ?open=docs&doc=<id>). No-ops if the id isn't a deliverable this user can see
+  // (e.g. a client following a stale link, or a draft they can't access). Retries
+  // briefly in case the docs page hasn't finished painting yet.
+  function openDoc(id, tries) {
+    if (!id || !deliv(id)) return;
+    if (!$("pdModal")) { if ((tries || 0) < 20) setTimeout(() => openDoc(id, (tries || 0) + 1), 60); return; }
+    openModal(id);
+  }
+
+  return { render, init, openDoc };
 })();

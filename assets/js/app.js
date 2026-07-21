@@ -1056,10 +1056,19 @@ function applyEngagement() {
     if (ps.length === 1) selectProject(ps[0].id);          // single project → straight to its homepage
     else if (!selectedProject()) bootPage = "projectplan"; // none chosen → projects folder
   }
-  // deep-link: a notification-center click asks to land on a specific page (e.g. Present Docs)
-  let openHint = null;
-  try { openHint = sessionStorage.getItem("tja_open_page"); sessionStorage.removeItem("tja_open_page"); } catch (e) {}
-  activate(openHint && document.querySelector(`.page[data-page="${openHint}"]`) ? openHint : bootPage);
+  // deep-link: a notification-center click or the deliverable email asks to land on a
+  // specific page (e.g. Present Docs), optionally on a specific deliverable (?open=docs&doc=<id>).
+  let openHint = null, openDocId = null;
+  try {
+    openHint = sessionStorage.getItem("tja_open_page"); sessionStorage.removeItem("tja_open_page");
+    openDocId = sessionStorage.getItem("tja_open_doc"); sessionStorage.removeItem("tja_open_doc");
+  } catch (e) {}
+  const landOn = openHint && document.querySelector(`.page[data-page="${openHint}"]`) ? openHint : bootPage;
+  activate(landOn);
+  // If the email deep-linked to a specific deliverable, open it once Present Docs is painted.
+  if (openDocId && landOn === "docs" && window.PresentDocs && window.PresentDocs.openDoc) {
+    window.PresentDocs.openDoc(openDocId);
+  }
 
   /* ---------- live auto-refresh ----------
      Open tabs go stale: someone else edits this client (or a sync/snapshot runs), and your
