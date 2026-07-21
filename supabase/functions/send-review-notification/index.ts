@@ -75,12 +75,14 @@ Deno.serve(async (req) => {
     .catch(() => ({ ok: false }));
   const slacked = !!(slackRes && slackRes.ok);
 
-  // distribution address (auto-created per client) + any extra integrations recipients
+  // distribution address (auto-created per client) + any extra integrations recipients,
+  // minus anyone a manager toggled OFF (integrations.notifyOff — default is everyone on).
+  const notifyOff = new Set((entry.integrations?.notifyOff ?? []).map((e: string) => String(e).trim().toLowerCase()));
   const recipients = [
     ...(entry.login?.email ? [entry.login.email] : []),
     ...(entry.integrations?.emailRecipients ?? []),
   ].filter(Boolean).map((e) => String(e).trim().toLowerCase());
-  const uniq = [...new Set(recipients)];
+  const uniq = [...new Set(recipients)].filter((e) => !notifyOff.has(e));
   if (!uniq.length) return json(req, 409, { slacked, error: "no distribution address for this client" });
 
   const commentLine = nComments > 0

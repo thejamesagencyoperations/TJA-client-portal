@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=269" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=269">
+<link rel="icon" href="assets/img/favicon.ico?v=270" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=270">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=269">
+<link rel="stylesheet" href="assets/css/styles.css?v=270">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -119,6 +119,10 @@
               <input type="text" id="clEmails" placeholder="jane@acme.com, mike@acme.com"></label>
             <label class="cl-field"><span>Email domains <em class="cl-hint">— comma-separated; used to auto-match email threads to this client</em></span>
               <input type="text" id="clDomains" placeholder="acme.com"></label>
+            <div class="cl-field cl-notify-field" id="clNotifyField" style="display:none">
+              <span>Deliverable notifications <em class="cl-hint">— who gets emailed &amp; Slacked when a deliverable is sent or a review comes in. Toggle off dashboard-only users who aren't approvers.</em></span>
+              <div class="cl-notify-list" id="clNotifyList"></div>
+            </div>
           </details>
         </div>
       </div>
@@ -155,11 +159,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=269"></script>
-<script src="assets/js/version-check.js?v=269"></script>
-<script src="assets/js/supabase-sync.js?v=269"></script>
-<script src="assets/js/ui.js?v=269"></script>
-<script src="assets/js/auth.js?v=269"></script>
+<script src="assets/js/supabase-config.js?v=270"></script>
+<script src="assets/js/version-check.js?v=270"></script>
+<script src="assets/js/supabase-sync.js?v=270"></script>
+<script src="assets/js/ui.js?v=270"></script>
+<script src="assets/js/auth.js?v=270"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -188,17 +192,17 @@
     });
   }
 </script>
-<script src="assets/js/clients.js?v=269"></script>
-<script src="assets/js/client-template.js?v=269"></script>
-<script src="assets/js/client-store.js?v=269"></script>
-<script src="assets/js/wmj-transform.js?v=269"></script>
-<script src="assets/js/retainer-transform.js?v=269"></script>
-<script src="assets/js/client-logos.js?v=269"></script>
-<script src="assets/js/client-pr-sheets.js?v=269"></script>
-<script src="assets/js/mgr-sheet.js?v=269"></script>
-<script src="assets/js/retainer-value.js?v=269"></script>
-<script src="assets/js/wmj-sync.js?v=269"></script>
-<script src="assets/js/notifications.js?v=269"></script>
+<script src="assets/js/clients.js?v=270"></script>
+<script src="assets/js/client-template.js?v=270"></script>
+<script src="assets/js/client-store.js?v=270"></script>
+<script src="assets/js/wmj-transform.js?v=270"></script>
+<script src="assets/js/retainer-transform.js?v=270"></script>
+<script src="assets/js/client-logos.js?v=270"></script>
+<script src="assets/js/client-pr-sheets.js?v=270"></script>
+<script src="assets/js/mgr-sheet.js?v=270"></script>
+<script src="assets/js/retainer-value.js?v=270"></script>
+<script src="assets/js/wmj-sync.js?v=270"></script>
+<script src="assets/js/notifications.js?v=270"></script>
 <script>
   if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -442,8 +446,40 @@
     integrations: document.getElementById("clIntegrations"),
     drive: document.getElementById("clDrive"), slack: document.getElementById("clSlack"),
     emails: document.getElementById("clEmails"), domains: document.getElementById("clDomains"),
+    notifyField: document.getElementById("clNotifyField"), notifyList: document.getElementById("clNotifyList"),
   };
   let editingId = null, logoData = "";
+  // Per-person deliverable-notification opt-out. notifyOff = client-login emails toggled
+  // OFF (everyone ON by default). clientLogins is fetched per client when editing.
+  let notifyOff = new Set(), clientLogins = [];
+  function renderNotifyList() {
+    if (!clientLogins.length) { f.notifyField.style.display = "none"; return; }
+    f.notifyField.style.display = "";
+    f.notifyList.innerHTML = clientLogins.map(l => {
+      const on = !notifyOff.has(l.email);
+      const who = l.name ? `${esc(l.name)} <span class="cl-notify-email">${esc(l.email)}</span>` : esc(l.email);
+      return `<div class="cl-notify-row"><span class="cl-notify-who">${who}</span>` +
+        `<button type="button" class="cl-notify-toggle ${on ? "on" : "off"}" data-notify="${esc(l.email)}" role="switch" aria-checked="${on}">${on ? "On" : "Off"}</button></div>`;
+    }).join("");
+  }
+  async function loadClientLogins(clientId) {
+    clientLogins = [];
+    try {
+      const cfg = window.SUPABASE_CONFIG || {};
+      if (!cfg.url || !(window.SUPA && window.SUPA.enabled)) return;
+      const { data } = await window.SUPA.client.auth.getSession();
+      const tok = data && data.session ? data.session.access_token : null;
+      if (!tok) return;
+      const r = await fetch(cfg.url.replace(/\/$/, "") + "/functions/v1/manage-users", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + tok, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "client-logins", clientId }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && Array.isArray(j.logins)) clientLogins = j.logins;
+    } catch (e) { /* leave the section hidden on failure */ }
+    renderNotifyList();
+  }
 
   /* ---- Managers (multi-tag, no limit) ----
      The picker suggests real admin/manager accounts (fetched once from manage-users'
@@ -565,7 +601,12 @@
     f.slack.value = ig.slackChannel || "";
     f.emails.value = Array.isArray(ig.emailRecipients) ? ig.emailRecipients.join(", ") : "";
     f.domains.value = Array.isArray(ig.domains) ? ig.domains.join(", ") : "";
-    f.integrations.open = !!(ig.driveFolderId || ig.slackChannel || (ig.emailRecipients || []).length || (ig.domains || []).length);
+    // notifications: seed opt-out set; fetch this client's logins (edit mode only — a
+    // brand-new client has none yet), then render the per-person toggles.
+    notifyOff = new Set((Array.isArray(ig.notifyOff) ? ig.notifyOff : []).map(e => String(e).trim().toLowerCase()));
+    clientLogins = []; f.notifyList.innerHTML = ""; f.notifyField.style.display = "none";
+    if (id) loadClientLogins(id);
+    f.integrations.open = !!(ig.driveFolderId || ig.slackChannel || (ig.emailRecipients || []).length || (ig.domains || []).length || (ig.notifyOff || []).length);
     discRows = (window.tjaDefaultDisciplines ? window.tjaDefaultDisciplines() : []);   // start from the standard set (add mode)
     renderSvcRows(); toggleSvcSetup();
     ov.style.display = "flex"; setTimeout(() => f.name.focus(), 30);
@@ -580,6 +621,13 @@
     const r = new FileReader(); r.onload = () => { logoData = r.result; setLogoPreview(); }; r.readAsDataURL(file);
   });
   f.logoClear.addEventListener("click", () => { logoData = ""; f.logo.value = ""; setLogoPreview(); });
+  // per-person notification toggle (On ↔ Off)
+  f.notifyList.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-notify]"); if (!b) return;
+    const email = b.dataset.notify;
+    if (notifyOff.has(email)) notifyOff.delete(email); else notifyOff.add(email);
+    renderNotifyList();
+  });
   document.getElementById("clCancel").addEventListener("click", closeModal);
   document.getElementById("clCancel2").addEventListener("click", closeModal);
   // Backdrop-click + Esc via the shared helper. A bare click listener here closed the
@@ -601,11 +649,17 @@
       : "";
     if (driveRaw && !driveFolderId) { f.err.textContent = "That doesn't look like a Drive folder URL or ID."; return; }
     const csv = (s) => s.split(",").map(x => x.trim()).filter(Boolean);
+    // Prune opt-outs to real logins ONLY when we actually loaded them — if the fetch
+    // failed / was still pending (clientLogins empty), preserve notifyOff as-is rather
+    // than silently wiping a manager's choices.
+    const validEmails = new Set(clientLogins.map(l => l.email));
+    const notifyOffOut = clientLogins.length ? [...notifyOff].filter(e => validEmails.has(e)) : [...notifyOff];
     const integrations = {
       driveFolderId,
       slackChannel: f.slack.value.trim(),
       emailRecipients: csv(f.emails.value),
       domains: csv(f.domains.value).map(d => d.toLowerCase().replace(/^@/, "")),
+      notifyOff: notifyOffOut,
     };
     if (editingId) {
       window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, managers: mgrTags.slice(), integrations });

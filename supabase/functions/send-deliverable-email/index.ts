@@ -117,7 +117,11 @@ Deno.serve(async (req) => {
     .select("email").eq("client_id", clientId).eq("role", "client");
   const fromLogins = (profs ?? []).map((p: any) => p.email).filter(Boolean);
   const extra = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
-  const recipients = [...new Set([...fromLogins, ...extra].map((e) => String(e).trim().toLowerCase()))];
+  // Per-person opt-out (integrations.notifyOff) — logins a manager toggled OFF so
+  // dashboard-only users aren't flooded. Everyone is ON by default (absent = notified).
+  const notifyOff = new Set((entry.integrations?.notifyOff ?? []).map((e: string) => String(e).trim().toLowerCase()));
+  const recipients = [...new Set([...fromLogins, ...extra].map((e) => String(e).trim().toLowerCase()))]
+    .filter((e) => !notifyOff.has(e));
 
   if (!recipients.length) {
     // Slack may already have gone out — say so, so the UI doesn't imply nothing happened.

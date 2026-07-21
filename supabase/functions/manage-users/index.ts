@@ -159,6 +159,27 @@ Deno.serve(async (req) => {
       return json(req, 200, { names: [...new Set(names)].sort() });
     }
 
+    /* ---------- client-logins ----------
+       Staff-accessible (admin + manager): the client-role logins for ONE workspace,
+       so the client's Notifications editor can list each person with a notify on/off
+       toggle. Returns email + name only (no invite state / no other clients). Managers
+       own their clients' day-to-day, so this is deliberately open to them — unlike the
+       account-mutating actions below, which stay admin-only. */
+    if (action === "client-logins") {
+      if (!["admin", "manager"].includes(caller.role))
+        return json(req, 403, { error: "staff only" });
+      const clientId = String(body.clientId || "").trim();
+      if (!clientId || clientId.startsWith("_")) return json(req, 400, { error: "clientId required" });
+      const { data: profs } = await svc.from("profiles").select("id,email").eq("client_id", clientId).eq("role", "client");
+      const users = await allAuthUsers(svc);
+      const nameById: Record<string, string> = {};
+      users.forEach((u) => { nameById[u.id] = String(u.user_metadata?.name || "").trim(); });
+      const logins = (profs || [])
+        .map((p: any) => ({ email: String(p.email || "").trim().toLowerCase(), name: nameById[p.id] || "" }))
+        .filter((l: any) => l.email);
+      return json(req, 200, { logins });
+    }
+
     // Everything below manages real accounts — the agency admin only. An AM/PM is
     // role='manager' and stops here.
     if (caller.role !== "admin")

@@ -409,6 +409,17 @@ body[data-role="client"] .staff-only { display: none !important; }
 .cl-integrations summary { cursor: pointer; font-size: .78rem; font-weight: 700; color: var(--text-dim); }
 .cl-integrations summary:hover { color: var(--text); }
 .cl-integrations .cl-field { margin-top: 10px; }
+/* per-person deliverable-notification toggles */
+.cl-notify-list { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.cl-notify-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.cl-notify-who { font-size: .82rem; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-notify-email { color: var(--text-faint); font-size: .74rem; margin-left: 6px; }
+.cl-notify-toggle { flex: none; font: inherit; font-size: .7rem; font-weight: 700; letter-spacing: .04em;
+  padding: 3px 12px; border-radius: 999px; cursor: pointer; border: 1px solid transparent; }
+.cl-notify-toggle.on { background: rgba(54,194,117,.16); color: var(--good); }
+.cl-notify-toggle.off { background: rgba(154,154,159,.16); color: var(--text-dim); }
+.cl-notify-toggle:hover { border-color: var(--line); }
 .preview-banner button {
   background: transparent; border: 1px solid var(--orange); color: var(--orange);
   border-radius: 6px; padding: 4px 11px; font-size: .66rem; cursor: pointer;

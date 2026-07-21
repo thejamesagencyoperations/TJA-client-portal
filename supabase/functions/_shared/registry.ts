@@ -9,6 +9,7 @@ export type Integrations = {
   slackChannel?: string;
   emailRecipients?: string[];
   domains?: string[];
+  notifyOff?: string[];   // client-login emails toggled OFF (default: everyone notified)
 };
 export type RegistryEntry = {
   id: string; name: string;
