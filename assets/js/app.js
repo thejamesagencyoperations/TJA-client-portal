@@ -709,14 +709,19 @@ function applyRole() {
   // "All clients" / "My clients" is a staff nav — hide it in client view (incl. staff
   // previewing as client). Managers were missing here (added when schema-v7 introduced
   // the role) — an AM/PM had no way back to the picker once inside a client.
-  const staffRole = effRole === "admin" || effRole === "manager" || effRole === "creative";
+  // Paid-media ("media") is staff too — they open client after client from the picker,
+  // so they need the "All clients" way back or they're stranded inside the first one.
+  const staffRole = effRole === "admin" || effRole === "manager" || effRole === "creative" || effRole === "media";
   const cb = el("#clientsBack");
   if (cb) {
     cb.style.display = staffRole ? "" : "none";
     cb.textContent = effRole === "manager" ? "My clients" : "All clients";
   }
   const rc = el("#roleControls");
-  if (typeof isStaff === "function" && isStaff()) {
+  // Paid-media gets no role controls: no undo (they can't edit) and the Client-view
+  // preview is meaningless for them (isMedia() reads the real role, so it wouldn't even
+  // change their media-page view). Leave the slot empty rather than show a dead toggle.
+  if (typeof isStaff === "function" && isStaff() && !(typeof isMedia === "function" && isMedia())) {
     const prev = isPreviewing();
     const admin = isAdminOrManager();
     const pillBase = (typeof roleLabel === "function") ? roleLabel(getSession() && getSession().role) : "Admin";

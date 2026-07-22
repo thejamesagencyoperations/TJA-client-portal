@@ -29,7 +29,7 @@
     bar.querySelectorAll('[onclick*="logout"], #adminCenterLink, a.btn[href="clients.html"]').forEach((el) => el.remove());
 
     const r = role();
-    const staff = r === "admin" || r === "manager" || r === "creative";
+    const staff = r === "admin" || r === "manager" || r === "creative" || r === "media";
     const here = (location.pathname.split("/").pop() || "index.html").toLowerCase();
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
