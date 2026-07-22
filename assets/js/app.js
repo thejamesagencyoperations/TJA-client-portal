@@ -508,6 +508,7 @@ const RENDERERS = {
   // The actual plan is "plan" below.
   projectplan: renderProjectFolder, status: renderStatus, plan: renderPlan,
   docs: () => (window.PresentDocs ? window.PresentDocs.render() : ""),
+  media: () => (window.MediaIntake ? window.MediaIntake.render() : ""),
   reporting: renderReporting,
   files: renderFiles, backlog: renderBacklog,
 };
@@ -664,6 +665,7 @@ function paint(page) {
     if (page === "projectplan") initProjectPlan();
     if (page === "plan") initPlan();
     if (page === "docs" && window.PresentDocs) window.PresentDocs.init();
+    if (page === "media" && window.MediaIntake) window.MediaIntake.init();
     if (page === "files") initFiles();
     if (page === "status") initStatus();
     if (page === "backlog") initBacklog();
