@@ -55,9 +55,9 @@ Deno.serve(async (req) => {
   try { token = await driveAccessToken("https://www.googleapis.com/auth/drive.readonly"); }
   catch (e) { return json(req, 502, { error: "sa token: " + String((e as Error).message || e) }); }
 
-  const { data: rows } = await svc.from("app_state").select("client_id,data").eq("scope", "dashboard");
+  const { data: rows } = await svc.from("app_state").select("client_id,data,updated_at").eq("scope", "dashboard");
   const cache: Record<string, unknown> = {};   // fileId → parsed plan (dedupe shared files)
-  let checked = 0, changed = 0, failed = 0;
+  let checked = 0, changed = 0, failed = 0, skipped = 0;
 
   for (const row of (rows || [])) {
     if (String(row.client_id).startsWith("_")) continue;
@@ -79,10 +79,18 @@ Deno.serve(async (req) => {
       } catch (_e) { failed++; }
     }
     if (dirty) {
-      // bump updated_at so open dashboards pick it up via the live auto-refresh
-      await svc.from("app_state").update({ data, updated_at: new Date().toISOString() })
-        .eq("client_id", row.client_id).eq("scope", "dashboard");
+      // GUARDED write: only land if the row still carries the stamp we read. A human may have
+      // edited this dashboard (e.g. toggled a plan item's client-visibility) between our read
+      // and now — writing our copy blind would resurrect what they just hid. If the stamp moved,
+      // skip this client; the plan still differs from stored, so the next run re-pulls it. We
+      // touch ONLY projectPlanSheet, so planInternal (the hidden-item flags) is carried through
+      // untouched either way. bump updated_at so open dashboards pick it up via auto-refresh.
+      const { data: upd } = await svc.from("app_state")
+        .update({ data, updated_at: new Date().toISOString() })
+        .eq("client_id", row.client_id).eq("scope", "dashboard").eq("updated_at", row.updated_at)
+        .select("client_id");
+      if (!upd || !upd.length) { skipped++; changed--; }   // lost the race — leave the human edit intact
     }
   }
-  return json(req, 200, { ok: true, checked, changed, failed });
+  return json(req, 200, { ok: true, checked, changed, failed, skipped });
 });
