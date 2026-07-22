@@ -819,6 +819,17 @@ function applyEngagement() {
   // the folder/tile-picker view, not just once a specific project is open.
   const planOk = !isRetainer() && getProjects().length > 0;
   el("#navPlan").style.display = planOk ? "" : "none";
+  // Media Creative Asset Request tab: only clients who actually use paid media. Data-
+  // driven like PR Coverage — the tab appears the moment a Paid Media discipline with
+  // contracted hours exists. Checked against the RETAINER engagement directly (not the
+  // active view) so it doesn't flicker when toggling Monthly Services ↔ Projects. Same
+  // rule for every role: no paid-media hours → no requests → no tab (client, paid-media
+  // team, and admin alike).
+  const ret = STATE.engagements && STATE.engagements.retainer;
+  const usesPaidMedia = !!(ret && (ret.serviceDisciplines || [])
+    .some(d => /paid\s*media/i.test(d.name || "") && (+d.contracted || 0) > 0));
+  el("#navMedia").style.display = usesPaidMedia ? "" : "none";
+  if (!usesPaidMedia && currentPage() === "media") activate("exec");
   if (!planOk && currentPage() === "plan") activate("exec");
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");
