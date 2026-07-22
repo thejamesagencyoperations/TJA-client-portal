@@ -21,6 +21,16 @@ import { parseProjectPlanRows } from "../_shared/plan.ts";
 function pickSheetName(names: string[]): string {
   return names.find((n) => /plan/i.test(n)) || names[names.length - 1] || names[0];
 }
+// Order-INSENSITIVE serialization for the change check. Postgres jsonb does NOT preserve
+// object key order, so the stored plan comes back with keys in a different order than a
+// fresh parse — plain JSON.stringify would then report a "change" on every run. Sorting
+// keys makes the comparison reflect real content changes only.
+function stable(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return "[" + v.map(stable).join(",") + "]";
+  const o = v as Record<string, unknown>;
+  return "{" + Object.keys(o).sort().map((k) => JSON.stringify(k) + ":" + stable(o[k])).join(",") + "}";
+}
 async function fetchPlan(token: string, fileId: string) {
   const meta = await driveGetMeta(token, fileId);
   const bytes = (meta.mimeType === "application/vnd.google-apps.spreadsheet")
@@ -63,7 +73,7 @@ Deno.serve(async (req) => {
         if (!(fileId in cache)) cache[fileId] = await fetchPlan(token, fileId);
         const plan = cache[fileId] as { groups?: unknown[] } | null;
         if (plan && Array.isArray(plan.groups) && plan.groups.length
-          && JSON.stringify(plan) !== JSON.stringify(p.projectPlanSheet)) {
+          && stable(plan) !== stable(p.projectPlanSheet)) {
           p.projectPlanSheet = plan; dirty = true; changed++;
         }
       } catch (_e) { failed++; }
