@@ -24,9 +24,9 @@ const ORANGE = "#f78f22";
 // final frame of the animated newsletter GIF (Outlook shows only frame 1 of a GIF, so a
 // static PNG is the safe choice for a transactional email).
 const ASSET_BASE = "https://thejamesagencyoperations.github.io/TJA-client-portal/assets/img/email";
-// Animated GIF (the newsletter's draw-on reveal) rebuilt so FRAME 1 is the COMPLETE logo:
-// Gmail/Apple Mail animate it; Outlook (renders frame 1 only) still shows the finished mark.
-const LOGO = `${ASSET_BASE}/tja-logo-email.gif`;
+// STATIC logo (Cameron's boss, 2026-07-22): the animated draw-on GIF was replaced with the
+// flat PNG of the finished mark. Renders identically everywhere, no animation.
+const LOGO = `${ASSET_BASE}/tja-logo-email.png`;
 const ARROW = `${ASSET_BASE}/arrow-orange.png`;
 
 const esc = (s: string) =>
@@ -83,21 +83,13 @@ export function portalEmail(o: PortalEmailOpts): string {
             ${meta ? `<div style="margin-top:16px">${meta}</div>` : ""}
             ${cta}
           </td></tr>
-          <!-- footer: black, contact + socials -->
+          <!-- footer: black, contact only (socials removed per Cameron's boss 2026-07-22) -->
           <tr><td bgcolor="#000000" style="padding:22px 30px">
             <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0"><tbody><tr>
               <td valign="top" style="text-align:left;color:#fff;line-height:1.6em;font-family:Arial,Helvetica,sans-serif;font-size:12px">
                 <a href="tel:4802486710" style="color:#fff;text-decoration:none">480.248.6710</a> | <a href="mailto:info@thejamesagency.com" style="color:#fff;text-decoration:none">info@thejamesagency.com</a><br>
                 <a href="https://goo.gl/maps/YThRjZ9hB6r" target="_blank" style="text-decoration:none;color:#fff">6240 E Thomas Rd, Suite 200<br>Scottsdale, AZ 85251</a><br><br>
                 <span style="font-size:11px;line-height:1.2em;color:#aaa">© 2026 The James Agency. All rights reserved.</span>
-              </td>
-              <td valign="top" align="right" style="text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#fff;line-height:1.5em">
-                <strong>
-                  <a href="https://www.instagram.com/thejamesagency/" target="_blank" style="color:#fff;text-decoration:none;letter-spacing:-1px">Instagram</a><br>
-                  <a href="https://www.facebook.com/TheJamesAgency/" target="_blank" style="color:#fff;text-decoration:none;letter-spacing:-1px">Facebook</a><br>
-                  <a href="https://www.linkedin.com/company/508711/" target="_blank" style="color:#fff;text-decoration:none;letter-spacing:-1px">LinkedIn</a><br>
-                  <a href="https://www.tiktok.com/@thejamesagency" target="_blank" style="color:#fff;text-decoration:none;letter-spacing:-1px">TikTok</a>
-                </strong>
               </td>
             </tr></tbody></table>
           </td></tr>
