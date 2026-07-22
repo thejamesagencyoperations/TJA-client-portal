@@ -589,26 +589,30 @@ function renderPlan() {
    Phase-grouped like the Status page; each task shows owner (WHO), date range, % and a
    status badge. The connected sheet is client-facing — project plans are shared work. */
 function planTaskKey(t) { return t.num ? "n:" + t.num : "t:" + t.task; }
+function planGroupKey(g) { return "g:" + (g.num || g.name || ""); }
 function renderPlanSheet(e, admin) {
   const p = e.projectPlanSheet, m = p.meta || {};
   const whoClass = (w) => { const s = (w || "").toLowerCase(); return /tja/.test(s) ? "tja" : (/both/.test(s) ? "both" : (w ? "client" : "")); };
-  // Internal (team-only) tasks: stored on the engagement, keyed by task # (survives sheet
-  // re-pulls). Hidden from the CLIENT view (real client OR preview-as-client); staff see them,
-  // and editors get an eye toggle. Client view also drops a phase that becomes fully internal.
+  // Internal (team-only) items: stored on the engagement, keyed by task # / phase (survives
+  // sheet re-pulls). Two levels: a whole PHASE can be internal (planGroupKey — the same key the
+  // exec Project Plan tile toggles, so the two pages stay in sync) or a single TASK. Hidden from
+  // the CLIENT view (real client OR preview-as-client); staff see them, editors get eye toggles.
   const internal = e.planInternal || {};
   const clientView = (typeof effectiveRole === "function") && effectiveRole() === "client";
-  const visible = (t) => !(clientView && internal[planTaskKey(t)]);
+  const taskHidden = (g, t) => clientView && (internal[planGroupKey(g)] || internal[planTaskKey(t)]);
   let done = 0, total = 0;
-  p.groups.forEach(g => g.tasks.forEach(t => { if (!visible(t)) return; total++; if (t.status === "complete") done++; }));
+  p.groups.forEach(g => g.tasks.forEach(t => { if (taskHidden(g, t)) return; total++; if (t.status === "complete") done++; }));
   const pct = (m.condition && m.condition.pct != null) ? m.condition.pct : (total ? Math.round(done / total * 100) : 0);
   const lvl = (m.condition && m.condition.level) || "green";
   const body = p.groups.map(g => {
-    const gt = g.tasks.filter(visible);
-    if (!gt.length) return "";   // whole phase hidden from this viewer
+    const gInt = !!internal[planGroupKey(g)];
+    if (clientView && gInt) return "";   // whole phase is internal → gone for the client
+    const gt = g.tasks.filter(t => !taskHidden(g, t));
+    if (clientView && !gt.length) return "";   // every task hidden → drop the empty phase
     const gdone = gt.filter(t => t.status === "complete").length;
-    return `<div class="plan-phase">
+    return `<div class="plan-phase${gInt ? " is-internal" : ""}">
       <div class="plan-phase-head">
-        <span class="plan-phase-name">${g.num ? `<span class="plan-gnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}</span>
+        <span class="plan-phase-name">${admin ? `<button class="plan-eye${gInt ? " is-internal" : ""}" data-planeye="${esc(planGroupKey(g))}" title="${gInt ? "Whole phase is internal — hidden from the client. Click to make client-visible." : "Make this whole phase internal (team only)."}">${gInt ? "🙈" : "👁"}</button> ` : ""}${g.num ? `<span class="plan-gnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${gInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
         <span class="grp-count">${gdone}/${gt.length} complete</span>
       </div>
       ${gt.map(t => { const isInt = !!internal[planTaskKey(t)]; return `

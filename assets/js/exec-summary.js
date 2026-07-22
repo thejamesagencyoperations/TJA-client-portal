@@ -192,16 +192,21 @@ window.ExecSummary = (function () {
     const t = Date.parse(v); if (isNaN(t)) return "";
     const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
-  function fmtNice(iso) {
-    const p = String(iso || "").split("-"); if (p.length !== 3) return String(iso || "");
-    const mo = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][(+p[1] - 1)] || "";
-    return `${mo} ${+p[2]}, ${p[0]}`;
+  // Short numeric M/D (no year — the rows are cramped; Cameron 2026-07-22).
+  function shortDate(iso) {
+    const p = String(iso || "").split("-"); if (p.length !== 3) return "";
+    return `${+p[1]}/${+p[2]}`;
   }
+  // An orange pill showing M/D that opens a native date picker on click (admin); a plain
+  // read-only pill for the client. The picker lives in a hidden sibling <input type=date>.
   function dateBtn(list, i, v) {
     const iso = toISODate(v);
-    if (!canAdmin()) return iso ? `<span class="date-pill is-set">${esc(fmtNice(iso))}</span>` : "";
-    return `<input type="date" class="date-pill${iso ? " is-set" : ""}" data-datefield="${list}.${i}" value="${iso}" title="Set completion date">`;
+    if (!canAdmin()) return iso ? `<span class="date-pill is-set">${esc(shortDate(iso))}</span>` : "";
+    return `<span class="date-cell"><button type="button" class="date-pill${iso ? " is-set" : ""}" data-datepick="${list}.${i}" title="Set completion date">${iso ? esc(shortDate(iso)) : "＋"}</button><input type="date" class="date-hidden" data-datefield="${list}.${i}" value="${iso}"></span>`;
   }
+  // Internal-visibility key for a PHASE row (exec Project Plan tile). Shared with the full
+  // Project Plan page (app.js planGroupKey) so hiding a phase on one page hides it on the other.
+  function planGroupKey(g) { return "g:" + (g.num || g.name || ""); }
 
   /* ---- modules ---- */
   function burnModule(e) {
@@ -296,16 +301,23 @@ window.ExecSummary = (function () {
     const dparts = (s) => /^(\w{3}) (\d{1,2}), (\d{4})/.exec(s || "");
     const dval = (s) => { const x = dparts(s); return x ? (+x[3]) * 10000 + MON3[x[1]] * 100 + (+x[2]) : 0; };
     const dshort = (s) => { const x = dparts(s); return x ? MON3[x[1]] + "/" + (+x[2]) + "/" + String(x[3]).slice(2) : ""; };
+    // Internal (team-only) phases: same eng.planInternal map + key as the full Project Plan
+    // page, so a phase hidden here is hidden there too, and vice-versa (Cameron 2026-07-22).
+    const internal = e.planInternal || {};
+    const clientView = (typeof effectiveRole === "function") && effectiveRole() === "client";
     const rows = p.groups.map(g => {
+      const key = planGroupKey(g), isInt = !!internal[key];
+      if (clientView && isInt) return "";                     // hidden from the client
       const gd = g.tasks.filter(t => t.status === "complete").length;
       const state = g.tasks.length && gd === g.tasks.length ? "complete"
         : (g.tasks.some(t => t.status === "in-progress" || t.status === "complete") ? "in-progress" : "pending");
       // the phase's finish = the LATEST end date among its tasks (ignores empty/earlier rows)
       let best = 0, bestStr = "";
       g.tasks.forEach(t => { const v = dval(t.end); if (v > best) { best = v; bestStr = t.end; } });
-      return `<div class="task-row">
+      return `<div class="task-row${isInt ? " is-internal" : ""}">
+          ${canAdmin() ? `<button class="plan-eye${isInt ? " is-internal" : ""}" data-planeye="${esc(key)}" title="${isInt ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${isInt ? "🙈" : "👁"}</button>` : ""}
           <span class="task-dot ${state}"></span>
-          <span class="task-name">${g.num ? `<span class="plan-tnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}</span>
+          <span class="task-name">${g.num ? `<span class="plan-tnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${isInt && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
           <span class="grp-count">${bestStr ? esc(dshort(bestStr)) : ""}</span>
         </div>`;
     }).join("");
@@ -555,13 +567,15 @@ window.ExecSummary = (function () {
     const items = (e.milestones || []).map((m, i) => `
       <div class="ms-item ${m.done ? "done" : ""}" data-row="milestones" data-idx="${i}">
         ${dragHandle("milestones", i)}
-        <button class="ms-check ${m.done ? "done" : ""}" ${canAdmin() ? `data-mstoggle="${i}"` : "disabled"} title="${m.done ? "Mark not done" : "Mark done"}"></button>
+        <div class="ms-check-col">
+          <button class="ms-check ${m.done ? "done" : ""}" ${canAdmin() ? `data-mstoggle="${i}"` : "disabled"} title="${m.done ? "Mark not done" : "Mark done"}"></button>
+          ${canAdmin() ? `<button class="ms-del-circle" data-listdel="milestones" data-idx="${i}" title="Remove milestone">✕</button>` : ""}
+        </div>
         <div class="ms-body">
           <div class="tl-label">${ed(m.label, "milestones." + i + ".label", { add: "milestones" })}</div>
           ${isRet ? `<div class="ms-meta">${sprintTag(m, i)}</div>` : ""}
         </div>
         ${dateBtn("milestones", i, m.date)}
-        ${canAdmin() ? `<button class="ms-del" data-listdel="milestones" data-idx="${i}" title="Remove milestone">✕</button>` : ""}
       </div>`).join("");
     // No "View plan" link here — the dedicated Project Plan tile already carries it
     // (Cameron 2026-07-22), and a second link in the Milestones header was redundant.
@@ -786,8 +800,7 @@ window.ExecSummary = (function () {
      at the top (see render()). e.northStar is still stored on retainers, just not surfaced. */
   function goalBanner(e) {
     return `<div class="ns-banner">
-      <span class="ns-banner-bolt">${IC.bolt}</span>
-      <span class="ns-banner-label">Goal</span>
+      <span class="ns-banner-tag"><span class="ns-banner-bolt">${IC.bolt}</span><span class="ns-banner-label">Goal</span></span>
       <span class="ns-banner-text">${ed(e.northStar, "northStar")}</span>
     </div>`;
   }
@@ -1136,22 +1149,30 @@ window.ExecSummary = (function () {
       try { e.dataTransfer.setData("text/plain", h.dataset.drag); } catch (_) {}
       const row = h.closest("[data-row]"); if (row) row.classList.add("dragging");
     });
+    const clearDrop = () => { const d = section(); if (d) d.querySelectorAll(".drop-above,.drop-below,.dragging").forEach(el => el.classList.remove("drop-above", "drop-below", "dragging")); };
     s.addEventListener("dragover", e => {
       if (!dragSrc) return;
       const row = e.target.closest(`[data-row="${dragSrc.list}"]`); if (!row) return;
       e.preventDefault(); e.dataTransfer.dropEffect = "move";
+      const to = +row.dataset.idx;
+      // orange line where the item will land: above the target when moving up, below when down
+      const cls = (to < dragSrc.idx) ? "drop-above" : (to > dragSrc.idx ? "drop-below" : "");
+      section().querySelectorAll(".drop-above,.drop-below").forEach(el => { if (el !== row) el.classList.remove("drop-above", "drop-below"); });
+      row.classList.remove("drop-above", "drop-below");
+      if (cls) row.classList.add(cls);
     });
     s.addEventListener("drop", e => {
       if (!dragSrc) return;
-      const row = e.target.closest(`[data-row="${dragSrc.list}"]`); if (!row) return;
+      const row = e.target.closest(`[data-row="${dragSrc.list}"]`);
+      const from = dragSrc.idx, to = row ? +row.dataset.idx : NaN, list = dragSrc.list; dragSrc = null; clearDrop();
+      if (!row) return;
       e.preventDefault();
-      const from = dragSrc.idx, to = +row.dataset.idx, list = dragSrc.list; dragSrc = null;
       if (from === to || isNaN(to)) { rerender(); return; }
       const arr = window.DASH.getEng()[list]; if (!arr || !arr[from]) { rerender(); return; }
       const [moved] = arr.splice(from, 1); arr.splice(to, 0, moved);
       window.DASH.saveState(); rerender();
     });
-    s.addEventListener("dragend", () => { dragSrc = null; const d = section(); if (d) d.querySelectorAll(".dragging").forEach(el => el.classList.remove("dragging")); });
+    s.addEventListener("dragend", () => { dragSrc = null; clearDrop(); });
 
     // drag the speedometer needle to set burn
     let gaugeDragging = false, pendingEv = null, raf = null;
@@ -1239,6 +1260,22 @@ window.ExecSummary = (function () {
       const eng = window.DASH.getEng();
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
+
+      // eye toggle on a Project Plan PHASE row → flip internal (team-only) ↔ client-visible.
+      // Same eng.planInternal map as the full plan page, so the two stay in sync.
+      const eye = e.target.closest("[data-planeye]");
+      if (eye && canAdmin()) {
+        const map = eng.planInternal || (eng.planInternal = {}), k = eye.dataset.planeye;
+        if (map[k]) delete map[k]; else map[k] = true;
+        window.DASH.saveState(); rerender(); return;
+      }
+      // orange date pill → open the hidden native date picker sitting next to it
+      const dp = e.target.closest("[data-datepick]");
+      if (dp && canAdmin()) {
+        const inp = dp.parentElement.querySelector("[data-datefield]");
+        if (inp) { if (typeof inp.showPicker === "function") { try { inp.showPicker(); } catch (_) { inp.focus(); } } else { inp.focus(); inp.click(); } }
+        return;
+      }
 
       // condition note → roomy popup editor (admin)
       const cn = e.target.closest("[data-condnote]");
