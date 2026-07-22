@@ -208,6 +208,19 @@ window.ExecSummary = (function () {
   // Project Plan page (app.js planGroupKey) so hiding a phase on one page hides it on the other.
   function planGroupKey(g) { return "g:" + (g.num || g.name || ""); }
 
+  // The REAL project-plan completion %: the sheet's explicit condition % if set, else the
+  // share of tasks marked complete. Returns null when no plan is connected (fall back to the
+  // step tracker). Counts ALL tasks (not view-filtered) so admin and client see the same number.
+  function planCompletionPct(e) {
+    const p = e.projectPlanSheet;
+    if (!(p && p.groups && p.groups.length)) return null;
+    const m = p.meta || {};
+    if (m.condition && m.condition.pct != null) return m.condition.pct;
+    let done = 0, total = 0;
+    p.groups.forEach(g => (g.tasks || []).forEach(t => { total++; if (t.status === "complete") done++; }));
+    return total ? Math.round(done / total * 100) : 0;
+  }
+
   /* ---- modules ---- */
   function burnModule(e) {
     if (e.type === "project") {
@@ -226,7 +239,11 @@ window.ExecSummary = (function () {
           ? `<button class="pizza-del" data-delstep="${i}" title="Remove this step">✕</button>` : "";
         return `<div class="pizza-step ${state}"><div class="pizza-dot ${admin ? "admin-edit" : ""}" data-phase="${i}" ${admin ? `title="Toggle complete"` : ""}>${p.done ? "✓" : i + 1}</div><div class="pizza-label">${label}${del}</div></div>`;
       }).join("");
-      const pct = allPhases.length ? Math.round(allPhases.filter(p => p.done).length / allPhases.length * 100) : (e.progressPct || 0);
+      // Prefer the ACTUAL project-plan % (Cameron 2026-07-22); fall back to the step tracker
+      // only when no plan sheet is connected.
+      const planPct = planCompletionPct(e);
+      const pct = (planPct != null) ? planPct
+        : (allPhases.length ? Math.round(allPhases.filter(p => p.done).length / allPhases.length * 100) : (e.progressPct || 0));
       return `<div class="module">
         <div class="module-head"><span class="module-title">${IC.burn}Project Progress · ${pct}%</span></div>
         <div class="pizza">${steps}</div>
