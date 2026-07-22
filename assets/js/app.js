@@ -612,14 +612,14 @@ function renderPlanSheet(e, admin) {
     const gdone = gt.filter(t => t.status === "complete").length;
     return `<div class="plan-phase${gInt ? " is-internal" : ""}">
       <div class="plan-phase-head">
-        <span class="plan-phase-name">${admin ? `<button class="plan-eye${gInt ? " is-internal" : ""}" data-planeye="${esc(planGroupKey(g))}" title="${gInt ? "Whole phase is internal — hidden from the client. Click to make client-visible." : "Make this whole phase internal (team only)."}">${gInt ? "🙈" : "👁"}</button> ` : ""}${g.num ? `<span class="plan-gnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${gInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
+        <span class="plan-phase-name">${admin ? `<button class="plan-eye${gInt ? " is-internal" : ""}" data-planeye="${esc(planGroupKey(g))}" title="${gInt ? "Whole phase is internal — hidden from the client. Click to make client-visible." : "Make this whole phase internal (team only)."}">${gInt ? "🙈" : "👁"}</button> ` : ""}${(g.num && !clientView) ? `<span class="plan-gnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${gInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
         <span class="grp-count">${gdone}/${gt.length} complete</span>
       </div>
       ${gt.map(t => { const isInt = !!internal[planTaskKey(t)]; return `
         <div class="plan-task${isInt ? " is-internal" : ""}"${t.dep ? ` title="Depends on ${esc(t.dep)}"` : ""}>
           ${admin ? `<button class="plan-eye${isInt ? " is-internal" : ""}" data-planeye="${esc(planTaskKey(t))}" title="${isInt ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${isInt ? "🙈" : "👁"}</button>` : ""}
           <span class="task-dot ${t.status}"></span>
-          <span class="plan-task-name">${t.num ? `<span class="plan-tnum">${esc(t.num)}</span> ` : ""}${esc(t.task)}${isInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}${(t.notes && !/complet|progress/i.test(t.notes)) ? ` <span class="task-note">${esc(t.notes)}</span>` : ""}</span>
+          <span class="plan-task-name">${(t.num && !clientView) ? `<span class="plan-tnum">${esc(t.num)}</span> ` : ""}${esc(t.task)}${isInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}${(t.notes && !/complet|progress/i.test(t.notes)) ? ` <span class="task-note">${esc(t.notes)}</span>` : ""}</span>
           ${t.who ? `<span class="plan-who ${whoClass(t.who)}">${esc(t.who)}</span>` : ""}
           ${(t.start || t.end) ? `<span class="plan-dates">${esc(t.start || "")}${(t.end && t.end !== t.start) ? " – " + esc(t.end) : ""}</span>` : ""}
           <span class="plan-task-status">${badge(t.status)}</span>
@@ -739,11 +739,23 @@ function paint(page) {
     if (page === "backlog") initBacklog();
   }
 }
-function repaint(page) {
-  const sec = document.querySelector(`.page[data-page="${page}"]`);
-  if (sec) { sec.dataset.painted = ""; sec.innerHTML = ""; if (sec.classList.contains("active")) paint(page); }
+// Rebuilding a page clears innerHTML, which collapses the .main scroll container and yanks
+// you to the top — very jarring when it happens on a blur/save mid-page. Capture the scroll
+// offset before the rebuild and restore it after, synchronously, so the page never jumps.
+function preserveScroll(fn) {
+  const m = document.querySelector(".main"); const y = m ? m.scrollTop : 0;
+  fn();
+  if (m && m.scrollTop !== y) m.scrollTop = y;
 }
-function repaintAll() { document.querySelectorAll(".page").forEach(p => { p.dataset.painted = ""; p.innerHTML = ""; }); paint(currentPage()); }
+function repaint(page) {
+  preserveScroll(() => {
+    const sec = document.querySelector(`.page[data-page="${page}"]`);
+    if (sec) { sec.dataset.painted = ""; sec.innerHTML = ""; if (sec.classList.contains("active")) paint(page); }
+  });
+}
+function repaintAll() {
+  preserveScroll(() => { document.querySelectorAll(".page").forEach(p => { p.dataset.painted = ""; p.innerHTML = ""; }); paint(currentPage()); });
+}
 function currentPage() { const a = document.querySelector(".page.active"); return a ? a.dataset.page : "exec"; }
 
 function activate(page) {

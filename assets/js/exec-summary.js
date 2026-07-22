@@ -318,7 +318,7 @@ window.ExecSummary = (function () {
       return `<div class="task-row${isInt ? " is-internal" : ""}">
           ${canAdmin() ? `<button class="plan-eye${isInt ? " is-internal" : ""}" data-planeye="${esc(key)}" title="${isInt ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${isInt ? "🙈" : "👁"}</button>` : ""}
           <span class="task-dot ${state}"></span>
-          <span class="task-name">${g.num ? `<span class="plan-tnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${isInt && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
+          <span class="task-name">${(g.num && !clientView) ? `<span class="plan-tnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${isInt && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
           ${bestStr ? `<span class="date-pill is-set">${esc(dshortMD(bestStr))}</span>` : ""}
         </div>`;
     }).join("");
@@ -639,14 +639,17 @@ window.ExecSummary = (function () {
   // standalone todos/dependencies tiles are fully replaced.
   function todosDepModule(e) {
     const cc = e.todoClientColor || logoAccent() || "#6aa6ff";
-    const tag = (t, i) => {
-      const style = t.owner === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
-      return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>`;
+    // Client / TJA owner pill — shared by to-do's AND dependencies (Cameron 2026-07-22),
+    // both keyed to the same client colour. `attr` is the data-hook that says which list.
+    const ownerTag = (item, i, attr) => {
+      const o = item.owner || "TJA";
+      const style = o === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
+      return `<span class="owner-tag ${owners(o)} ${canAdmin() ? "admin-edit" : ""}" ${attr}="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(o)}</span>`;
     };
     const todoRows = (e.todos || []).map((t, i) => `
-      <div class="tile-item" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${tag(t, i)}<div class="ti-body"><span class="ed-host">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span><div class="item-dateline">${dateBtn("todos", i, t.date)}</div></div>${listDel("todos", i)}</div>`).join("");
+      <div class="tile-item" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${ownerTag(t, i, "data-owner")}<div class="ti-body"><span class="ed-host">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span><div class="item-dateline">${dateBtn("todos", i, t.date)}</div></div>${listDel("todos", i)}</div>`).join("");
     const depRows = (e.dependencies || []).map((d, i) => `
-      <div class="tile-item" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}<span class="dep-mark">▴</span><div class="ti-body"><span class="ed-host">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}</span><div class="item-dateline">${dateBtn("dependencies", i, d.date)}</div></div>${listDel("dependencies", i)}</div>`).join("");
+      <div class="tile-item" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${ownerTag(d, i, "data-depowner")}<div class="ti-body"><span class="ed-host">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}</span><div class="item-dateline">${dateBtn("dependencies", i, d.date)}</div></div>${listDel("dependencies", i)}</div>`).join("");
     const colorPick = canAdmin()
       ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>` : "";
     return `<div class="module">
@@ -834,8 +837,11 @@ window.ExecSummary = (function () {
   }
   function rerender() {
     const s = section(); if (!s) return;
+    // preserve the page scroll — rebuilding innerHTML would otherwise jump us to the top
+    const m = document.querySelector(".main"); const y = m ? m.scrollTop : 0;
     s.innerHTML = render(window.DASH.getEng());
     fitCanvas();
+    if (m && m.scrollTop !== y) m.scrollTop = y;
   }
 
   /* ---- burn → disciplines distribution popup ----
@@ -1051,7 +1057,7 @@ window.ExecSummary = (function () {
     // the only default that cares about engagement type — retainers call these Sprint Goals
     milestones: (e) => ({ label: (e && e.type !== "project") ? "New sprint goal" : "New milestone", date: "", done: false, sprint: 1 }),
     todos: () => ({ text: "New to-do", owner: "Client" }),
-    dependencies: () => ({ text: "New dependency" }),
+    dependencies: () => ({ text: "New dependency", owner: "TJA" }),
     kpis: () => ({ label: "New KPI", target: "", current: "" }),
     prCoverage: () => ({ outlet: "Outlet", headline: "Headline", date: "", impressions: "" }),
   };
@@ -1358,6 +1364,8 @@ window.ExecSummary = (function () {
 
       const own = e.target.closest("[data-owner]");
       if (own && canAdmin()) { const t = eng.todos[+own.dataset.owner]; t.owner = t.owner === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
+      const depOwn = e.target.closest("[data-depowner]");
+      if (depOwn && canAdmin()) { const d = eng.dependencies[+depOwn.dataset.depowner]; d.owner = (d.owner || "TJA") === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
       const spr = e.target.closest("[data-sprint]");
       if (spr && canAdmin()) { const m = eng.milestones[+spr.dataset.sprint]; m.sprint = (+m.sprint === 2) ? 1 : 2; window.DASH.saveState(); rerender(); return; }
       const prT = e.target.closest("[data-prtile]");
