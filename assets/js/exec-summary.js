@@ -1034,8 +1034,16 @@ window.ExecSummary = (function () {
     // VERTICAL FILL: stretch tile heights + row positions (only — no font/width change, no
     // reordering) so the grid's bottom row lands exactly on the bottom of the viewport.
     // Boxes get longer/shorter; content scrolls inside tiles when shorter.
-    const topDoc = canvas.getBoundingClientRect().top + window.scrollY;   // scroll-independent
-    const availH = window.innerHeight - topDoc - 14;                      // breathing room at the bottom
+    // Measure the canvas top + available height against the REAL scroll container (.main),
+    // NOT window (which never scrolls — window.scrollY is always 0). Using window made the
+    // vertical fill mis-measure whenever you arrived at Exec Summary with .main already
+    // scrolled from another page, stretching the tiles until you scrolled back up.
+    const mainEl = document.querySelector(".main");
+    const mTop = mainEl ? mainEl.getBoundingClientRect().top : 0;
+    const mScroll = mainEl ? mainEl.scrollTop : 0;
+    const mHeight = mainEl ? mainEl.clientHeight : window.innerHeight;
+    const topDoc = canvas.getBoundingClientRect().top - mTop + mScroll;   // canvas offset within .main content (scroll-independent)
+    const availH = mHeight - topDoc - 14;                                 // breathing room at the bottom
     const fy = (baseB > 0 && availH > 200) ? Math.max(0.6, Math.min(2, (availH / sc - 8) / baseB)) : 1;
     canvas.querySelectorAll(".exec-tile[data-key]").forEach(t => {
       const p = lay.free[t.dataset.key]; if (!p) return;

@@ -17,12 +17,12 @@
   --warn:          #f5b342;
   --bad:           #ef5350;
 
-  /* --- Surfaces (DARK = default) --- */
-  --ink:           #0e0e10;
-  --panel:         #161618;
-  --panel-2:       #1d1d20;
-  --line:          #2a2a2e;
-  --input:         #0d0d0f;
+  /* --- Surfaces (DARK = default) — lifted a touch lighter (Cameron 2026-07-22) --- */
+  --ink:           #17171a;
+  --panel:         #1e1e22;
+  --panel-2:       #26262b;
+  --line:          #33333a;
+  --input:         #141417;
   --hover:         rgba(255,255,255,.04);
   --text:          #f2f2f3;
   --text-dim:      #9a9a9f;
@@ -1409,7 +1409,7 @@ body[data-role="client"] .staff-only { display: none !important; }
   border-radius: var(--radius); box-shadow: var(--card-shadow); padding: 11px 18px; margin-bottom: 14px; }
 .ns-banner-tag { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: none; }
 .ns-banner-bolt { display: inline-flex; }
-.ns-banner-bolt svg { width: 17px; height: 17px; color: var(--orange); }
+.ns-banner-bolt svg { width: 22px; height: 22px; color: var(--orange); }
 /* px, not rem — the goal is EXCLUDED from the global text bump (Cameron), so pin its size. */
 .ns-banner-label { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); font-weight: 800; }
 .ns-banner-text { font-size: 15px; line-height: 1.45; color: var(--text); font-weight: 500; flex: 1 1 auto; min-width: 0; }
@@ -1449,6 +1449,9 @@ button.date-pill:not(.is-set) { background: rgba(255,120,0,.16); color: var(--or
 .item-dateline { display: flex; align-self: flex-start; }
 .item-dateline:empty { display: none; }
 .ms-body .item-dateline { margin-top: 4px; }
+/* dark mode: white text/date inside the filled orange pills (matches the app's other
+   dark-mode text switches). Light mode keeps the near-black for contrast on orange. */
+:root:not([data-theme="light"]) .date-pill.is-set { color: #fff; }
 /* clients page: header row with WMJ sync control */
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .wmj-bar { display: flex; align-items: center; gap: 8px; flex: none; }
