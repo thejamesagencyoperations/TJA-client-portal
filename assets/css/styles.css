@@ -368,6 +368,18 @@ body[data-role="client"] .staff-only { display: none !important; }
 }
 .conflict-banner button { font: inherit; background: transparent; border: 1px solid currentColor;
   color: inherit; border-radius: 7px; padding: 3px 10px; cursor: pointer; }
+/* rich variant: the 3-way-merge notice — a stacked list with a "Keep mine" per clashed field */
+.conflict-banner--rich { justify-content: center; padding: 10px 14px; }
+.conflict-banner--rich .cb-wrap { display: flex; flex-direction: column; gap: 7px; width: 100%; max-width: 940px; text-align: left; }
+.conflict-banner--rich .cb-lead { font-weight: 700; line-height: 1.4; }
+.conflict-banner--rich .cb-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: rgba(239,83,80,.08); border-radius: 8px; padding: 6px 10px; }
+.conflict-banner--rich .cb-field { font-weight: 800; min-width: 120px; }
+.conflict-banner--rich .cb-vals { display: flex; gap: 16px; flex: 1; flex-wrap: wrap; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.conflict-banner--rich .cb-vals b { font-weight: 800; }
+.conflict-banner--rich .cb-mine { color: #e8a13a; }
+.conflict-banner--rich .cb-keep { flex: none; }
+.conflict-banner--rich .cb-dismiss { align-self: flex-end; }
 
 /* Files pushed to Drive link out to the stored copy */
 .file-drive-link { color: var(--accent-text); text-decoration: none; font-weight: 600; }

@@ -54,29 +54,74 @@ function persistState() {
     else window.SUPA.pushScope(clientId(), "dashboard", STATE);
   }
 }
-// Another admin's write beat ours: show THEIR version (the truth on the server) and
-// tell the user their last edit didn't stick. No merge — re-apply the edit by hand.
-function onDashboardConflict(remoteData) {
-  if (!remoteData || !remoteData.engagements) return;
-  STATE = migrate(remoteData);
+// Another admin wrote at the same time. The sync layer has already 3-way MERGED — it hands us
+// the merged state (adopt it) plus the list of fields we BOTH changed. Edits to different fields
+// are already saved for everyone; for a genuine same-field clash we keep their version on the
+// record but surface the user's own entry with a one-click "Keep mine" so nothing typed is lost.
+function onDashboardConflict(merged, conflicts) {
+  if (!merged || !merged.engagements) return;
+  STATE = migrate(merged);
   lastSnapshot = clone(STATE);
   try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) {}
   applyEngagement();
   repaintAll();
-  showConflictBanner();
+  if (conflicts === null) showConflictBanner(null);          // couldn't merge (rare) — old lossy message
+  else if (conflicts.length) showConflictBanner(conflicts);  // same-field clash — offer "Keep mine"
+  else flashRefreshed("↻ Merged a teammate's changes — your edits were kept");   // clean merge, nothing lost
 }
-function showConflictBanner() {
+// Humanise a STATE path ("engagements.retainer.northStar" → "Goal") for the conflict notice.
+function fieldLabel(path) {
+  const LABELS = { northStar: "Goal", milestones: "Milestone", todos: "To-do", dependencies: "Dependency",
+    serviceDisciplines: "Service line", serviceLines: "Service line", kpis: "KPI", prCoverage: "PR coverage",
+    backlog: "Backlog item", status: "Status", label: "name", condition: "Condition", dueDate: "Due date",
+    steps: "Step", projects: "Project", retainer: "Monthly Services" };
+  const words = String(path).split(".").filter(p => !/^\d+$/.test(p)).map(p => LABELS[p] || p);
+  return words.slice(-2).join(" › ") || "A field";
+}
+function shortVal(v) {
+  if (v === undefined || v === null || v === "") return "(empty)";
+  if (typeof v === "object") return "(updated list)";
+  const s = String(v);
+  return s.length > 90 ? s.slice(0, 87) + "…" : s;
+}
+function showConflictBanner(conflicts) {
   let b = el("#conflictBanner");
   if (!b) {
     b = document.createElement("div");
     b.id = "conflictBanner";
     b.className = "conflict-banner";
-    b.innerHTML = `<span>⚠ This client was just updated by someone else — the page now shows their version; your last edit was not saved.</span><button id="conflictDismiss">Dismiss</button>`;
     const anchor = el("#previewBanner");
     anchor.parentNode.insertBefore(b, anchor.nextSibling);
-    b.querySelector("#conflictDismiss").addEventListener("click", () => { b.style.display = "none"; });
+  }
+  if (!conflicts) {
+    b.classList.remove("conflict-banner--rich");
+    b.innerHTML = `<span>⚠ This client was just updated by someone else — the page now shows their version; your last edit couldn't be merged automatically.</span><button data-cbdismiss>Dismiss</button>`;
+  } else {
+    b.classList.add("conflict-banner--rich");
+    const rows = conflicts.map((c, i) => `
+      <div class="cb-row">
+        <span class="cb-field">${esc(fieldLabel(c.path))}</span>
+        <span class="cb-vals"><span class="cb-theirs">Teammate saved: <b>${esc(shortVal(c.theirs))}</b></span><span class="cb-mine">You typed: <b>${esc(shortVal(c.mine))}</b></span></span>
+        <button class="cb-keep" data-cbkeep="${i}">Keep mine</button>
+      </div>`).join("");
+    b.innerHTML = `<div class="cb-wrap">
+      <div class="cb-lead">⚠ A teammate saved the same ${conflicts.length === 1 ? "field" : "fields"} at the same moment — their version is showing, but your entry is kept here so nothing is lost:</div>
+      ${rows}
+      <button data-cbdismiss class="cb-dismiss">Dismiss</button>
+    </div>`;
+    b._conflicts = conflicts;
   }
   b.style.display = "";
+  b.querySelector("[data-cbdismiss]").onclick = () => { b.style.display = "none"; };
+  b.querySelectorAll("[data-cbkeep]").forEach(btn => {
+    btn.onclick = () => {
+      const c = b._conflicts[+btn.dataset.cbkeep];
+      setPath(STATE, c.path, clone(c.mine));   // re-apply the user's value → next save makes it the truth
+      saveState(); applyEngagement(); repaintAll();
+      btn.closest(".cb-row").remove();
+      if (!b.querySelectorAll(".cb-row").length) b.style.display = "none";
+    };
+  });
 }
 function saveState() {
   undoStack.push(lastSnapshot);
@@ -1093,7 +1138,7 @@ function applyEngagement() {
           STATE = migrate(d.data);
           lastSnapshot = clone(STATE);
           try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) {}
-          window.SUPA.markScopeSeen(cid, "dashboard", d.updated_at);
+          window.SUPA.markScopeSeen(cid, "dashboard", d.updated_at, d.data);   // keep the merge ancestor in step
           applyEngagement();
           repaintAll();
           flashRefreshed();
@@ -1118,13 +1163,13 @@ function applyEngagement() {
 
 // subtle, non-blocking "just refreshed" pill (auto-fades) so a live repaint isn't mysterious
 let refreshPill = null, refreshPillTimer = null;
-function flashRefreshed() {
+function flashRefreshed(msg) {
   if (!refreshPill) {
     refreshPill = document.createElement("div");
     refreshPill.className = "refresh-pill";
-    refreshPill.textContent = "↻ Updated with the latest changes";
     document.body.appendChild(refreshPill);
   }
+  refreshPill.textContent = msg || "↻ Updated with the latest changes";
   refreshPill.classList.add("show");
   clearTimeout(refreshPillTimer);
   refreshPillTimer = setTimeout(() => refreshPill.classList.remove("show"), 2600);

@@ -74,6 +74,7 @@ window.SUPA = (function () {
       if (error) { console.warn("SUPA pullFull", scope, error.message); return null; }
       if (!data) return null;
       lastKnown[clientId + "::" + scope] = data.updated_at;
+      baseData[clientId + "::" + scope] = cloneJSON(data.data);   // ancestor for the 3-way merge
       return { data: data.data, updated_at: data.updated_at };
     } catch (e) { console.warn("SUPA pullFull", scope, e); return null; }
   }
@@ -97,7 +98,14 @@ window.SUPA = (function () {
       return { changed, data: data.data, updated_at: data.updated_at };
     } catch (e) { return { changed: false }; }
   }
-  function markScopeSeen(clientId, scope, updatedAt) { if (updatedAt) lastKnown[clientId + "::" + scope] = updatedAt; }
+  // The optional `data` keeps the merge ancestor in step when the app ADOPTS a remote version
+  // (auto-refresh). Without it, base would lag behind lastKnown and the next merge would treat
+  // fields the user actually adopted from a teammate as their own edits (false conflicts).
+  function markScopeSeen(clientId, scope, updatedAt, data) {
+    const key = clientId + "::" + scope;
+    if (updatedAt) lastKnown[key] = updatedAt;
+    if (data !== undefined) baseData[key] = cloneJSON(data);
+  }
 
   // Instant push: subscribe to this client's app_state changes over the Realtime websocket
   // (requires the app_state table in the supabase_realtime publication). RLS applies — you
@@ -169,6 +177,44 @@ window.SUPA = (function () {
      caller can re-pull + warn instead of silently clobbering. NOT used for machine
      writes (WMJ sync, registry) — those re-derive every poll and CAS would warn-spam. */
   const lastKnown = {};   // clientId::scope -> updated_at we last saw
+  const baseData = {};    // clientId::scope -> the DATA at lastKnown: the common ancestor for a 3-way merge
+  const cloneJSON = (o) => (o === undefined ? undefined : JSON.parse(JSON.stringify(o)));
+  // Order-INSENSITIVE deep-equal. jsonb does not preserve object key order, so a value read back
+  // from the server has identical content but a different key order than the local copy — a plain
+  // JSON.stringify would report a false difference (the same trap that made plan-refresh rewrite
+  // every run). Sort keys before comparing.
+  function stableStr(v) {
+    if (Array.isArray(v)) return "[" + v.map(stableStr).join(",") + "]";
+    if (v && typeof v === "object") return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + stableStr(v[k])).join(",") + "}";
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  const sameVal = (a, b) => stableStr(a) === stableStr(b);
+  // 3-WAY MERGE. base = common ancestor, mine = my edits, theirs = the server's current version.
+  // A field only I changed keeps MY value; a field only they changed takes THEIRS; a field we
+  // BOTH changed takes theirs (last-write-wins) but is pushed onto `conflicts` so the UI can hand
+  // the user their own value back. Recurses into objects, and into arrays when every length
+  // matches (a structural array change — a row added/removed — is treated as one leaf conflict).
+  function merge3(base, mine, theirs, path, conflicts) {
+    if (sameVal(mine, theirs)) return mine;   // we agree (also covers both-undefined)
+    if (sameVal(mine, base)) return theirs;   // only they touched it
+    if (sameVal(theirs, base)) return mine;   // only I touched it
+    const po = (x) => x && typeof x === "object" && !Array.isArray(x);
+    if (po(mine) && po(theirs)) {
+      const b = po(base) ? base : {}, out = {};
+      new Set([...Object.keys(b), ...Object.keys(mine), ...Object.keys(theirs)]).forEach((k) => {
+        const r = merge3(b[k], mine[k], theirs[k], path ? path + "." + k : k, conflicts);
+        if (r !== undefined) out[k] = r;
+      });
+      return out;
+    }
+    if (Array.isArray(mine) && Array.isArray(theirs) && Array.isArray(base) && mine.length === base.length && theirs.length === base.length) {
+      const out = [];
+      for (let i = 0; i < mine.length; i++) out[i] = merge3(base[i], mine[i], theirs[i], path + "." + i, conflicts);
+      return out;
+    }
+    conflicts.push({ path, mine, theirs });   // both changed the same leaf → theirs wins, recorded
+    return theirs;
+  }
   function pushScopeGuarded(clientId, scope, value, onConflict) {
     if (!client) return;
     const key = clientId + "::" + scope;
@@ -184,7 +230,7 @@ window.SUPA = (function () {
             .upsert({ client_id: clientId, scope, data: latest[key], updated_at: nowIso }, { onConflict: "client_id,scope" })
             .select("updated_at");
           if (error) { console.warn("SUPA pushGuarded", scope, error.message); return; }
-          if (data && data[0]) lastKnown[key] = data[0].updated_at;
+          if (data && data[0]) { lastKnown[key] = data[0].updated_at; baseData[key] = cloneJSON(latest[key]); }
           return;
         }
         const { data, error } = await client.from("app_state")
@@ -192,7 +238,7 @@ window.SUPA = (function () {
           .eq("client_id", clientId).eq("scope", scope).eq("updated_at", lastKnown[key])
           .select("updated_at");
         if (error) { console.warn("SUPA pushGuarded", scope, error.message); return; }
-        if (data && data.length) { lastKnown[key] = data[0].updated_at; return; }   // CAS won
+        if (data && data.length) { lastKnown[key] = data[0].updated_at; baseData[key] = cloneJSON(latest[key]); return; }   // CAS won
         // 0 rows: either the row vanished or someone else wrote. Look.
         const cur = await client.from("app_state").select("data,updated_at")
           .eq("client_id", clientId).eq("scope", scope).maybeSingle();
@@ -200,13 +246,43 @@ window.SUPA = (function () {
           const ins = await client.from("app_state")
             .upsert({ client_id: clientId, scope, data: latest[key], updated_at: nowIso }, { onConflict: "client_id,scope" })
             .select("updated_at");
-          if (ins.data && ins.data[0]) lastKnown[key] = ins.data[0].updated_at;
+          if (ins.data && ins.data[0]) { lastKnown[key] = ins.data[0].updated_at; baseData[key] = cloneJSON(latest[key]); }
           return;
         }
-        // CONFLICT — the caller decides (re-pull + warn); remember the remote stamp so
-        // the next save can land on top of what the user now sees.
-        lastKnown[key] = cur.data.updated_at;
-        if (typeof onConflict === "function") { try { onConflict(cur.data.data, cur.data.updated_at); } catch (e) {} }
+        // CONFLICT — someone else wrote in between. 3-WAY MERGE so edits to DIFFERENT fields all
+        // survive: base = our last-synced ancestor, mine = latest[key], theirs = the server copy.
+        const base = baseData[key];
+        if (base === undefined) {
+          // no ancestor to merge against (shouldn't happen once a row's been seen) — safest
+          // fallback is the old behaviour: adopt theirs and report a plain (lossy) conflict.
+          lastKnown[key] = cur.data.updated_at; baseData[key] = cloneJSON(cur.data.data);
+          if (typeof onConflict === "function") { try { onConflict(cur.data.data, null); } catch (e) {} }
+          return;
+        }
+        let theirs = cur.data.data, theirsStamp = cur.data.updated_at, landed = false, conflicts = [];
+        for (let attempt = 0; attempt < 3 && !landed; attempt++) {
+          conflicts = [];
+          const merged = merge3(base, latest[key], theirs, "", conflicts);
+          const up = await client.from("app_state")
+            .update({ data: merged, updated_at: new Date().toISOString() })
+            .eq("client_id", clientId).eq("scope", scope).eq("updated_at", theirsStamp)
+            .select("updated_at");
+          if (up.error) { console.warn("SUPA merge", scope, up.error.message); break; }
+          if (up.data && up.data.length) {                      // merged landed
+            lastKnown[key] = up.data[0].updated_at; baseData[key] = cloneJSON(merged); latest[key] = cloneJSON(merged);
+            if (typeof onConflict === "function") { try { onConflict(merged, conflicts); } catch (e) {} }
+            landed = true;
+          } else {                                              // a THIRD writer raced in — re-pull + retry
+            const again = await client.from("app_state").select("data,updated_at")
+              .eq("client_id", clientId).eq("scope", scope).maybeSingle();
+            if (!again.data) break;
+            theirs = again.data.data; theirsStamp = again.data.updated_at;
+          }
+        }
+        if (!landed) {   // repeated races / error — adopt the newest remote so we never spin, report lossy
+          lastKnown[key] = theirsStamp; baseData[key] = cloneJSON(theirs);
+          if (typeof onConflict === "function") { try { onConflict(theirs, null); } catch (e) {} }
+        }
       } catch (e) { console.warn("SUPA pushGuarded", scope, e); }
       finally { pending[key] = false; }
     }, 600);
