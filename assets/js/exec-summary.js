@@ -540,11 +540,10 @@ window.ExecSummary = (function () {
         </div>
         ${canAdmin() ? `<button class="ms-del" data-listdel="milestones" data-idx="${i}" title="Remove milestone">✕</button>` : ""}
       </div>`).join("");
-    // Projects: header links to the full Project Plan. Retainers have no project-plan
-    // page (it force-redirects to exec), so the link only shows for projects.
-    const planLink = e.type === "project" ? `<span class="module-link" data-go="plan">View plan →</span>` : "";
+    // No "View plan" link here — the dedicated Project Plan tile already carries it
+    // (Cameron 2026-07-22), and a second link in the Milestones header was redundant.
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.flag}${isRet ? "Sprint Goals" : "Milestones"}</span><span class="mh-actions">${planLink}${listAdd("milestones", isRet ? "Add sprint goal" : "Add milestone")}</span></div>
+      <div class="module-head"><span class="module-title">${IC.flag}${isRet ? "Sprint Goals" : "Milestones"}</span><span class="mh-actions">${listAdd("milestones", isRet ? "Add sprint goal" : "Add milestone")}</span></div>
       <div class="ms-list">${items}</div>
     </div>`;
   }
