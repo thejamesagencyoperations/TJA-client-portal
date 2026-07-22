@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA Client Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=282" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=282">
+<link rel="icon" href="assets/img/favicon.ico?v=283" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=283">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=282">
+<link rel="stylesheet" href="assets/css/styles.css?v=283">
 </head>
 <body>
 <div class="app">
@@ -38,7 +38,7 @@
       </div>
       <div class="nav-item" data-page="media" id="navMedia">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 0 1-5.8-1.6"/></svg>
-        Media Requests
+        Media Creative Asset Request
       </div>
       <div class="nav-item" data-page="reporting">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg>
@@ -54,7 +54,7 @@
       </div>
     </nav>
     <div class="sidebar-foot">
-      <div class="version-pill">Sandbox · v2.82</div>
+      <div class="version-pill">Sandbox · v2.83</div>
     </div>
   </aside>
 
@@ -107,23 +107,23 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=282"></script>
-<script src="assets/js/version-check.js?v=282"></script>
-<script src="assets/js/supabase-sync.js?v=282"></script>
-<script src="assets/js/ui.js?v=282"></script>
-<script src="assets/js/auth.js?v=282"></script>
-<script src="assets/js/chrome-menu.js?v=282"></script>
+<script src="assets/js/supabase-config.js?v=283"></script>
+<script src="assets/js/version-check.js?v=283"></script>
+<script src="assets/js/supabase-sync.js?v=283"></script>
+<script src="assets/js/ui.js?v=283"></script>
+<script src="assets/js/auth.js?v=283"></script>
+<script src="assets/js/chrome-menu.js?v=283"></script>
 <script>requireAuth();</script>
-<script src="assets/js/clients.js?v=282"></script>
-<script src="assets/js/client-template.js?v=282"></script>
-<script src="assets/js/client-store.js?v=282"></script>
-<script src="assets/js/wmj-transform.js?v=282"></script>
-<script src="assets/js/retainer-transform.js?v=282"></script>
-<script src="assets/js/client-logos.js?v=282"></script>
-<script src="assets/js/client-pr-sheets.js?v=282"></script>
-<script src="assets/js/retainer-value.js?v=282"></script>
-<script src="assets/js/wmj-sync.js?v=282"></script>
-<script src="assets/data/celtic-elevator.js?v=282"></script>
+<script src="assets/js/clients.js?v=283"></script>
+<script src="assets/js/client-template.js?v=283"></script>
+<script src="assets/js/client-store.js?v=283"></script>
+<script src="assets/js/wmj-transform.js?v=283"></script>
+<script src="assets/js/retainer-transform.js?v=283"></script>
+<script src="assets/js/client-logos.js?v=283"></script>
+<script src="assets/js/client-pr-sheets.js?v=283"></script>
+<script src="assets/js/retainer-value.js?v=283"></script>
+<script src="assets/js/wmj-sync.js?v=283"></script>
+<script src="assets/data/celtic-elevator.js?v=283"></script>
 <script>
   /* bootstrap: resolve the selected client's data BEFORE app.js reads window.CLIENT_DATA.
      Built-in clients use their rich seed; added clients build from the registry template. */
@@ -153,15 +153,15 @@
     }
   })();
 </script>
-<script src="assets/js/slack-wins.js?v=282"></script>
-<script src="assets/js/notifications.js?v=282"></script>
-<script src="assets/js/presence.js?v=282"></script>
-<script src="assets/js/mail.js?v=282"></script>
-<script src="assets/js/drive.js?v=282"></script>
-<script src="assets/js/present-docs.js?v=282"></script>
-<script src="assets/js/media-intake.js?v=282"></script>
-<script src="assets/js/exec-summary.js?v=282"></script>
-<script src="assets/js/app.js?v=282"></script>
+<script src="assets/js/slack-wins.js?v=283"></script>
+<script src="assets/js/notifications.js?v=283"></script>
+<script src="assets/js/presence.js?v=283"></script>
+<script src="assets/js/mail.js?v=283"></script>
+<script src="assets/js/drive.js?v=283"></script>
+<script src="assets/js/present-docs.js?v=283"></script>
+<script src="assets/js/media-intake.js?v=283"></script>
+<script src="assets/js/exec-summary.js?v=283"></script>
+<script src="assets/js/app.js?v=283"></script>
 <script>
   // Admin-only notification bell (client Present-Docs activity, grouped by client)
   if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {

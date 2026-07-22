@@ -13,6 +13,7 @@ window.MediaIntake = (function () {
   let submissions = [];
 
   const PURPOSES = ["Add to existing campaign", "Replace current creatives", "New campaign", "Test against current creative (A/B)", "Other"];
+  let gidSeq = 0;   // unique radio-group name per asset block
   const STATUS = { new: "New", "in-progress": "In progress", done: "Done" };
   const STATUS_ORDER = ["new", "in-progress", "done"];
 
@@ -29,24 +30,28 @@ window.MediaIntake = (function () {
     } catch (e) { /* leave empty */ }
   }
 
-  /* ---- the repeatable per-asset field block ---- */
+  /* ---- the repeatable per-asset field block — a faithful digital version of the intake
+     doc (same fields, order and wording). Single column, Purpose as a selectable list. ---- */
   function assetBlock(n) {
+    const gid = "purpose_" + (++gidSeq);
+    const radios = PURPOSES.map((p) =>
+      `<label class="mi-radio"><input type="radio" name="${gid}" data-f="purpose" value="${esc(p)}"><span>${esc(p)}</span></label>`).join("");
     return `<div class="mi-asset" data-asset>
       <div class="mi-asset-head"><span>Asset ${n}</span><button type="button" class="mi-asset-x" data-assetdel title="Remove this asset">✕</button></div>
-      <div class="mi-grid">
-        <label class="mi-f mi-wide"><span>Asset name</span><input data-f="name" placeholder="File / asset name"></label>
-        <label class="mi-f mi-wide"><span>Attach — Drive link <em>(YouTube link required for a YT asset)</em></span><input data-f="driveLink" placeholder="https://drive.google.com/…"></label>
-        <label class="mi-f"><span>Landing page URL <em>blank = media team creates</em></span><input data-f="landingUrl" placeholder="https://…"></label>
-        <label class="mi-f"><span>CTA button text <em>blank / N-A ok</em></span><input data-f="cta"></label>
-        <label class="mi-f mi-wide"><span>Headline <em>blank = media team creates</em></span><input data-f="headline"></label>
-        <label class="mi-f mi-wide"><span>Body copy <em>blank = media team creates</em></span><textarea data-f="body" rows="2"></textarea></label>
-        <label class="mi-f"><span>Purpose</span><select data-f="purpose">${PURPOSES.map((p) => `<option>${esc(p)}</option>`).join("")}</select></label>
-        <label class="mi-f"><span>Campaign / initiative <em>if applicable</em></span><input data-f="purposeDetail" placeholder="Initiative name"></label>
-        <label class="mi-f"><span>Launch date <em>if applicable</em></span><input type="date" data-f="launchDate"></label>
-        <label class="mi-f"><span>End date <em>if applicable</em></span><input type="date" data-f="endDate"></label>
-        <label class="mi-f mi-wide"><span>Specific audience notes</span><textarea data-f="audience" rows="2"></textarea></label>
-        <label class="mi-f mi-wide"><span>Anything else we should know?</span><textarea data-f="notes" rows="2"></textarea></label>
+      <label class="mi-f"><span>Asset(s) — name of file</span><input data-f="name" placeholder="Name of the file / asset"></label>
+      <label class="mi-f"><span>Attach — Drive link to the file <em>YouTube assets must include a YouTube video link</em></span><input data-f="driveLink" placeholder="https://drive.google.com/…"></label>
+      <label class="mi-f"><span>Landing Page URL <em>leave blank if you'd like the media team to create this</em></span><input data-f="landingUrl" placeholder="https://…"></label>
+      <label class="mi-f"><span>Headline <em>leave blank if you'd like the media team to create this</em></span><input data-f="headline"></label>
+      <label class="mi-f"><span>Body Copy <em>leave blank if you'd like the media team to create this</em></span><textarea data-f="body" rows="3"></textarea></label>
+      <label class="mi-f"><span>Call-to-Action Button Text <em>leave blank for the media team to create, or N/A — not all assets need CTAs</em></span><input data-f="cta"></label>
+      <div class="mi-f"><span>Purpose of this asset</span><div class="mi-radios">${radios}</div></div>
+      <label class="mi-f"><span>Initiative / campaign <em>if adding to or creating a campaign, please list it</em></span><input data-f="purposeDetail" placeholder="Campaign / initiative name"></label>
+      <label class="mi-f"><span>Specific Audience Notes <em>if any</em></span><textarea data-f="audience" rows="2"></textarea></label>
+      <div class="mi-row2">
+        <label class="mi-f"><span>Launch Date <em>if applicable</em></span><input type="date" data-f="launchDate"></label>
+        <label class="mi-f"><span>End Date <em>if applicable</em></span><input type="date" data-f="endDate"></label>
       </div>
+      <label class="mi-f"><span>Anything else we should know?</span><textarea data-f="notes" rows="2"></textarea></label>
     </div>`;
   }
 
@@ -79,11 +84,11 @@ window.MediaIntake = (function () {
     const staff = isStaff();
     return `
     <div class="page-head">
-      <div class="page-title">Media Requests</div>
-      <div class="page-desc">${staff ? "Creative-asset requests submitted by this client for the paid-media team." : "Submit creative assets to our paid-media team. Add one block per asset."}</div>
+      <div class="page-title">Media Creative Asset Request</div>
+      <div class="page-desc">${staff ? "Creative-asset requests submitted by this client for the paid-media team." : "Submit creative assets to our paid-media team. If you're sending multiple assets, use “＋ Add asset” for each one (unless every asset has the same answers)."}</div>
     </div>
     <div class="card mi-form-card">
-      <div class="mi-form-title">New request</div>
+      <div class="mi-form-title">New creative submission</div>
       <div id="miAssets">${assetBlock(1)}</div>
       <button type="button" class="row-add" id="miAddAsset">＋ Add asset</button>
       <div class="mi-err" id="miErr" style="display:none"></div>
@@ -96,7 +101,10 @@ window.MediaIntake = (function () {
   function collectAssets(root) {
     return [...root.querySelectorAll("[data-asset]")].map((blk) => {
       const a = {};
-      blk.querySelectorAll("[data-f]").forEach((el) => { const v = el.value.trim(); if (v) a[el.dataset.f] = v; });
+      blk.querySelectorAll("[data-f]").forEach((el) => {
+        if (el.type === "radio") { if (el.checked) a[el.dataset.f] = el.value; return; }
+        const v = (el.value || "").trim(); if (v) a[el.dataset.f] = v;
+      });
       return a;
     }).filter((a) => Object.keys(a).length);
   }

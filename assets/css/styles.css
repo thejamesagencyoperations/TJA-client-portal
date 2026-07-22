@@ -914,6 +914,11 @@ body[data-role="client"] .staff-only { display: none !important; }
 .mi-asset-x { border: none; background: none; cursor: pointer; color: var(--text-faint); font-size: .85rem; padding: 0 2px; }
 .mi-asset-x:hover { color: var(--bad, #ef5350); }
 .mi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.mi-asset > .mi-f, .mi-asset > .mi-row2 { margin-top: 11px; }
+.mi-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.mi-radios { display: flex; flex-direction: column; gap: 7px; margin-top: 2px; }
+.mi-radio { display: flex; align-items: center; gap: 9px; font-size: .86rem; color: var(--text); cursor: pointer; }
+.mi-radio input { width: 15px; height: 15px; accent-color: var(--orange); flex: none; }
 .mi-f { display: flex; flex-direction: column; gap: 4px; }
 .mi-f.mi-wide { grid-column: 1 / -1; }
 .mi-f > span { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); font-weight: 700; }
