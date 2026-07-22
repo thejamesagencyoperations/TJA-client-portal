@@ -35,11 +35,15 @@ import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const ROLES = ["admin", "manager", "creative", "client"];
+// 'media' = paid-media team. Staff-tier (own no client workspace) but view-only on
+// client work — enforced in RLS (no write policy) + client-side. schema-v10 widens
+// the profiles role CHECK to accept it; creating one before that migration 500s.
+const ROLES = ["admin", "manager", "creative", "media", "client"];
 const ADMIN_WORKSPACE = "_admin";
 const CREATIVE_WORKSPACE = "_creative";
 // AM/PMs own no client workspace either — same sentinel idea as admin/creative.
 const MANAGER_WORKSPACE = "_manager";
+const MEDIA_WORKSPACE = "_media";
 
 // The only place the portal's own URL exists in this function (mirrors the email fn).
 // On a custom domain, change this + the CORS list + Supabase's Site URL.
@@ -72,6 +76,7 @@ function workspaceFor(role: string, clientId: string) {
   if (role === "admin") return ADMIN_WORKSPACE;
   if (role === "manager") return MANAGER_WORKSPACE;
   if (role === "creative") return CREATIVE_WORKSPACE;
+  if (role === "media") return MEDIA_WORKSPACE;
   return (clientId || "").trim();
 }
 

@@ -10,6 +10,9 @@ window.MediaIntake = (function () {
   const sess = () => ((typeof getSession === "function" && getSession()) || {});
   const clientId = () => sess().client;
   const isStaff = () => (typeof window.isStaff === "function") ? window.isStaff() : false;
+  // The paid-media team triages requests (status), they don't submit them — so they
+  // get the management list only, no "New creative submission" form.
+  const isMedia = () => (typeof window.isMedia === "function") ? window.isMedia() : false;
   let submissions = [];
 
   const PURPOSES = ["Add to existing campaign", "Replace current creatives", "New campaign", "Test against current creative (A/B)", "Other"];
@@ -82,19 +85,28 @@ window.MediaIntake = (function () {
   function render() {
     const listHtml = submissions.length ? submissions.map(submissionCard).join("") : `<div class="placeholder-note" style="margin-top:10px">No requests submitted yet.</div>`;
     const staff = isStaff();
-    return `
-    <div class="page-head">
-      <div class="page-title">Media Creative Asset Request</div>
-      <div class="page-desc">${staff ? "Creative-asset requests submitted by this client for the paid-media team." : "Submit creative assets to our paid-media team. If you're sending multiple assets, use “＋ Add asset” for each one (unless every asset has the same answers)."}</div>
-    </div>
+    const media = isMedia();
+    // Paid-media team: management view only (triage the incoming requests). Everyone
+    // else who can reach this page (clients, admin/manager/creative) gets the form too.
+    const form = media ? "" : `
     <div class="card mi-form-card">
       <div class="mi-form-title">New creative submission</div>
       <div id="miAssets">${assetBlock(1)}</div>
       <button type="button" class="row-add" id="miAddAsset">＋ Add asset</button>
       <div class="mi-err" id="miErr" style="display:none"></div>
       <div class="mi-actions"><button type="button" class="btn btn-primary" id="miSubmit">Submit request</button><span class="mi-saved" id="miSaved"></span></div>
+    </div>`;
+    const desc = media
+      ? "Incoming creative-asset requests from this client. Set each one’s status as you work it."
+      : staff ? "Creative-asset requests submitted by this client for the paid-media team."
+      : "Submit creative assets to our paid-media team. If you're sending multiple assets, use “＋ Add asset” for each one (unless every asset has the same answers).";
+    return `
+    <div class="page-head">
+      <div class="page-title">Media Creative Asset Request</div>
+      <div class="page-desc">${desc}</div>
     </div>
-    <div class="mi-list-head">${submissions.length ? "Submitted requests" : ""}</div>
+    ${form}
+    <div class="mi-list-head">${submissions.length ? (media ? "Requests" : "Submitted requests") : (media ? "No requests yet" : "")}</div>
     <div id="miList">${listHtml}</div>`;
   }
 

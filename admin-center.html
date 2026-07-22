@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=283" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=283">
+<link rel="icon" href="assets/img/favicon.ico?v=284" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=284">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=283">
+<link rel="stylesheet" href="assets/css/styles.css?v=284">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -48,6 +48,7 @@
         <button class="tm-chip" data-tmf="admin">Admins</button>
         <button class="tm-chip" data-tmf="manager">AM/PMs</button>
         <button class="tm-chip" data-tmf="creative">Creatives</button>
+        <button class="tm-chip" data-tmf="media">Paid Media</button>
         <button class="tm-chip" data-tmf="client">Clients</button>
         <button class="tm-chip" data-tmf="">Everyone</button>
       </div>
@@ -74,6 +75,7 @@
           <option value="manager">AM/PM — runs their clients: edits, uploads, sends to client</option>
           <option value="admin">Admin — the agency account: logins, backup, deleting</option>
           <option value="creative">Creative — uploads deliverables for approval only</option>
+          <option value="media">Paid Media — triages media requests, views everything else</option>
           <option value="client">Client — sees only their own workspace</option>
         </select></label>
       <label class="cl-field" id="tmNameField"><span>Full name <em class="cl-hint">— must match their manager tag exactly</em></span>
@@ -122,12 +124,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=283"></script>
-<script src="assets/js/version-check.js?v=283"></script>
-<script src="assets/js/supabase-sync.js?v=283"></script>
-<script src="assets/js/ui.js?v=283"></script>
-<script src="assets/js/auth.js?v=283"></script>
-<script src="assets/js/chrome-menu.js?v=283"></script>
+<script src="assets/js/supabase-config.js?v=284"></script>
+<script src="assets/js/version-check.js?v=284"></script>
+<script src="assets/js/supabase-sync.js?v=284"></script>
+<script src="assets/js/ui.js?v=284"></script>
+<script src="assets/js/auth.js?v=284"></script>
+<script src="assets/js/chrome-menu.js?v=284"></script>
 <script>
   requireAuth();
   // The agency account (role=admin) only. AM/PMs are role=manager and land back on
@@ -136,9 +138,9 @@
   if (typeof isAdmin === "function" && !isAdmin())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=283"></script>
-<script src="assets/js/client-template.js?v=283"></script>
-<script src="assets/js/client-store.js?v=283"></script>
+<script src="assets/js/clients.js?v=284"></script>
+<script src="assets/js/client-template.js?v=284"></script>
+<script src="assets/js/client-store.js?v=284"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -182,11 +184,11 @@
     } catch (e) { return { error: String(e) }; }
   }
 
-  const ORDER = ["admin", "manager", "creative", "client"];
-  const ROLE_LABEL = { admin: "Admin", manager: "AM/PM", creative: "Creative", client: "Client" };
+  const ORDER = ["admin", "manager", "creative", "media", "client"];
+  const ROLE_LABEL = { admin: "Admin", manager: "AM/PM", creative: "Creative", media: "Paid Media", client: "Client" };
   const clientName = (id) => {
     // staff sentinels — they own no workspace, they reach every client
-    if (id === "_admin" || id === "_manager" || id === "_creative") return "— (all clients)";
+    if (id === "_admin" || id === "_manager" || id === "_creative" || id === "_media") return "— (all clients)";
     try { const c = window.TJA_STORE.get(id); return c ? c.name : id; } catch (e) { return id; }
   };
   const when = (iso) => {
@@ -217,7 +219,7 @@
         <td style="font-weight:600">${esc(u.name || "—")}${u.isYou ? ` <span class="tm-you">you</span>` : ""}</td>
         <td style="color:var(--text-dim)">${esc(u.email)}</td>
         <td><select class="tm-role" data-roleset="${esc(u.id)}" ${u.isYou ? "disabled title='You can&apos;t change your own role'" : ""}>
-          ${["admin","manager","creative","client"].map(r => `<option value="${r}"${r === u.role ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}
+          ${["admin","manager","creative","media","client"].map(r => `<option value="${r}"${r === u.role ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}
         </select></td>
         <td style="color:var(--text-dim)">${esc(clientName(u.clientId))}</td>
         <td style="color:var(--text-dim)">${u.invitedPending
@@ -272,7 +274,7 @@
     sel.disabled = false;
     if (r.error) { window.TJA_UI.alert(r.error); sel.value = prev; return; }
     // mirror the function's workspaceFor() — it normalises this server-side anyway
-    const SENTINEL = { admin: "_admin", manager: "_manager", creative: "_creative" };
+    const SENTINEL = { admin: "_admin", manager: "_manager", creative: "_creative", media: "_media" };
     u.role = role; u.clientId = SENTINEL[role] || clientId;
     render();
   });
@@ -403,7 +405,7 @@
   function showCreated(email, password, role, name, clientId) {
     const who = role === "client" ? clientName(clientId) : (name || email);
     $("tmDoneLead").textContent =
-      `${who} can now sign in as ${role === "client" ? "a client" : "an " + role}. Send them these details.`;
+      `${who} can now sign in as ${role === "client" ? "a client" : "the " + (ROLE_LABEL[role] || role) + " login"}. Send them these details.`;
     $("tmDoneEmail").textContent = email;
     $("tmDonePass").textContent = password;
     $("tmDoneCopy").textContent = "Copy both";

@@ -58,7 +58,8 @@ Deno.serve(async (req) => {
   let body: { action?: string; clientId?: string; note?: string; assets?: Asset[]; submissionId?: string; status?: string };
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }
   const action = String(body.action || "");
-  const isStaff = ["admin", "manager", "creative"].includes(caller.role);
+  // 'media' (paid-media team) is staff for this endpoint: they triage requests (status).
+  const isStaff = ["admin", "manager", "creative", "media"].includes(caller.role);
   const db = svc();
 
   // ---- submit (client, or staff on a client's behalf) ----

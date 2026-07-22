@@ -104,7 +104,8 @@ function resolveIdentity(email, profile, meta) {
     // Display name: user_metadata.name when provisioned (managers get their real
     // name — it also drives the Clients-page default filter), else a role default.
     const fallback = profile.role === "admin" ? "TJA Team"
-      : profile.role === "creative" ? "TJA Creative" : "Client";
+      : profile.role === "creative" ? "TJA Creative"
+      : profile.role === "media" ? "TJA Paid Media" : "Client";
     return { email: em, client: profile.client_id,
              name: (meta && meta.name) || fallback, role: profile.role || "client" };
   }
@@ -209,11 +210,18 @@ function isAdmin() { return role() === "admin"; }
 // AM/PM — full admin over client WORK, no destructive powers.
 function isManager() { return role() === "manager"; }
 function isCreative() { return role() === "creative"; }
+// Paid-media team. Staff-tier (sees the picker + reads every client) but view-only
+// on all client work — their ONE edit power is triaging Media Creative Asset
+// Requests (status). They never upload docs, never send, never edit dashboards.
+function isMedia() { return role() === "media"; }
 // Runs the client work: the agency account + the AM/PMs. Gates the bell,
 // Notification Center, WMJ sync, tile actions, dashboard writes.
 function isAdminOrManager() { return isAdmin() || isManager(); }
-// Any internal TJA person — gates the client picker + doc upload.
-function isStaff() { return isAdminOrManager() || isCreative(); }
+// Any internal TJA person — gates the client picker + read-all. NOTE this now
+// includes paid-media: they must reach the picker and read every client. Powers
+// that must NOT extend to them (doc upload) test canUploadDocs(), which excludes
+// media explicitly — do not assume isStaff() means "can edit or upload".
+function isStaff() { return isAdminOrManager() || isCreative() || isMedia(); }
 
 // Staff toggle: preview the client experience without logging out. For a creative
 // this IS the client view — drafts and the upload button vanish, exactly what
@@ -234,10 +242,12 @@ function canEdit() { const r = effectiveRole(); return r === "admin" || r === "m
 // What a role is CALLED in the UI. One definition — the topbar pill exists on two
 // separate pages and they were already drifting (a manager read "Admin" on one and
 // "Creative" on the other, because both just tested `isAdmin() ? … : …`).
-const ROLE_LABELS = { admin: "Admin", manager: "AM/PM", creative: "Creative", client: "Client" };
+const ROLE_LABELS = { admin: "Admin", manager: "AM/PM", creative: "Creative", media: "Paid Media", client: "Client" };
 function roleLabel(r) { return ROLE_LABELS[r || effectiveRole()] || "Client"; }
 // Present Docs. Upload = any staff (admin/manager → straight to the client,
 // creative → into the waiting room). Releasing a draft = whoever can edit, i.e.
 // the AM/PM whose job it is — never the creative who uploaded it.
-function canUploadDocs() { return !isPreviewing() && isStaff(); }
+// Paid-media is staff but explicitly NOT an uploader — they only triage media
+// requests. Excluding isMedia() here keeps Present Docs fully view-only for them.
+function canUploadDocs() { return !isPreviewing() && isStaff() && !isMedia(); }
 function canSendDocs() { return canEdit(); }
