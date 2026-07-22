@@ -588,28 +588,38 @@ function renderPlan() {
    Reads columns A-H of a TJA project-plan sheet (see CLIENT_PR_SHEETS.parseProjectPlan).
    Phase-grouped like the Status page; each task shows owner (WHO), date range, % and a
    status badge. The connected sheet is client-facing — project plans are shared work. */
+function planTaskKey(t) { return t.num ? "n:" + t.num : "t:" + t.task; }
 function renderPlanSheet(e, admin) {
   const p = e.projectPlanSheet, m = p.meta || {};
   const whoClass = (w) => { const s = (w || "").toLowerCase(); return /tja/.test(s) ? "tja" : (/both/.test(s) ? "both" : (w ? "client" : "")); };
+  // Internal (team-only) tasks: stored on the engagement, keyed by task # (survives sheet
+  // re-pulls). Hidden from the CLIENT view (real client OR preview-as-client); staff see them,
+  // and editors get an eye toggle. Client view also drops a phase that becomes fully internal.
+  const internal = e.planInternal || {};
+  const clientView = (typeof effectiveRole === "function") && effectiveRole() === "client";
+  const visible = (t) => !(clientView && internal[planTaskKey(t)]);
   let done = 0, total = 0;
-  p.groups.forEach(g => g.tasks.forEach(t => { total++; if (t.status === "complete") done++; }));
+  p.groups.forEach(g => g.tasks.forEach(t => { if (!visible(t)) return; total++; if (t.status === "complete") done++; }));
   const pct = (m.condition && m.condition.pct != null) ? m.condition.pct : (total ? Math.round(done / total * 100) : 0);
   const lvl = (m.condition && m.condition.level) || "green";
   const body = p.groups.map(g => {
-    const gdone = g.tasks.filter(t => t.status === "complete").length;
+    const gt = g.tasks.filter(visible);
+    if (!gt.length) return "";   // whole phase hidden from this viewer
+    const gdone = gt.filter(t => t.status === "complete").length;
     return `<div class="plan-phase">
       <div class="plan-phase-head">
         <span class="plan-phase-name">${g.num ? `<span class="plan-gnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}</span>
-        <span class="grp-count">${gdone}/${g.tasks.length} complete</span>
+        <span class="grp-count">${gdone}/${gt.length} complete</span>
       </div>
-      ${g.tasks.map(t => `
-        <div class="plan-task"${t.dep ? ` title="Depends on ${esc(t.dep)}"` : ""}>
+      ${gt.map(t => { const isInt = !!internal[planTaskKey(t)]; return `
+        <div class="plan-task${isInt ? " is-internal" : ""}"${t.dep ? ` title="Depends on ${esc(t.dep)}"` : ""}>
+          ${admin ? `<button class="plan-eye${isInt ? " is-internal" : ""}" data-planeye="${esc(planTaskKey(t))}" title="${isInt ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${isInt ? "🙈" : "👁"}</button>` : ""}
           <span class="task-dot ${t.status}"></span>
-          <span class="plan-task-name">${t.num ? `<span class="plan-tnum">${esc(t.num)}</span> ` : ""}${esc(t.task)}${(t.notes && !/complet|progress/i.test(t.notes)) ? ` <span class="task-note">${esc(t.notes)}</span>` : ""}</span>
+          <span class="plan-task-name">${t.num ? `<span class="plan-tnum">${esc(t.num)}</span> ` : ""}${esc(t.task)}${isInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}${(t.notes && !/complet|progress/i.test(t.notes)) ? ` <span class="task-note">${esc(t.notes)}</span>` : ""}</span>
           ${t.who ? `<span class="plan-who ${whoClass(t.who)}">${esc(t.who)}</span>` : ""}
           ${(t.start || t.end) ? `<span class="plan-dates">${esc(t.start || "")}${(t.end && t.end !== t.start) ? " – " + esc(t.end) : ""}</span>` : ""}
           <span class="plan-task-status">${badge(t.status)}</span>
-        </div>`).join("")}
+        </div>`; }).join("")}
     </div>`;
   }).join("");
   return `
@@ -638,6 +648,15 @@ function initPlan() {
     setPath(getEng(), f.dataset.plan, f.textContent.trim()); saveState();
   });
   page.addEventListener("click", async ev => {
+    // eye toggle: flip a task internal (team-only) ↔ client-visible. Stored by task key so a
+    // sheet re-pull can't wipe it. Editors only (the button isn't rendered otherwise).
+    const eye = ev.target.closest("[data-planeye]");
+    if (eye && ppAdmin()) {
+      const eng = getEng(); const map = eng.planInternal || (eng.planInternal = {});
+      const k = eye.dataset.planeye;
+      if (map[k]) delete map[k]; else map[k] = true;
+      saveState(); repaint("plan"); return;
+    }
     const conn = ev.target.closest("[data-planconnect]"); if (!conn) return;
     const raw = await window.TJA_UI.prompt(
       "Paste the project-plan link.\n\n• A PRIVATE Drive file (.xlsx or Google Sheet) is read securely by the portal's backend — share it with the service account first.\n• A public Google Sheet (“Anyone with the link – Viewer”) is read directly.\n\nWe read columns A–H: #, Task, Who, Dependency, Start, End, % Done, Notes. The timeline grid (columns I onward) is ignored.\n\n⚠ The plan renders CLIENT-FACING — everything in those columns (including Notes) is visible to the client.",

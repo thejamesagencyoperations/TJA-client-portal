@@ -38,7 +38,7 @@ window.ExecSummary = (function () {
     const cls = "ed" + (opts.cls ? " " + opts.cls : "");
     if (canAdmin()) {
       return `<${opts.block ? "div" : "span"} class="${cls}" contenteditable="true" data-path="${path}"` +
-        `${opts.num ? ' data-num="1"' : ""}${opts.rerender ? ' data-rerender="1"' : ""}>${esc(val)}</${opts.block ? "div" : "span"}>`;
+        `${opts.num ? ' data-num="1"' : ""}${opts.rerender ? ' data-rerender="1"' : ""}${opts.add ? ` data-additem="${opts.add}"` : ""}>${esc(val)}</${opts.block ? "div" : "span"}>`;
     }
     return `<${opts.block ? "div" : "span"} class="${cls}">${esc(val)}</${opts.block ? "div" : "span"}>`;
   }
@@ -181,6 +181,27 @@ window.ExecSummary = (function () {
   const owners = (o) => (o === "TJA" ? "tja" : "client");
   function listDel(list, i) { return canAdmin() ? `<button class="row-del" data-listdel="${list}" data-idx="${i}" title="Remove">✕</button>` : ""; }
   function listAdd(list, label) { return canAdmin() ? `<button class="row-add" data-listadd="${list}">＋ ${esc(label)}</button>` : ""; }
+  // Drag-to-reorder grip (admins only) — drag starts only from here, so it never fights the
+  // inline contenteditable text. The row it lives in carries data-row="<list>" as the drop target.
+  function dragHandle(list, i) { return canAdmin() ? `<span class="drag-handle" draggable="true" data-drag="${list}" data-idx="${i}" title="Drag to reorder">⠿</span>` : ""; }
+  // Inline completion-date control. Stored as ISO (YYYY-MM-DD). Admin sees a native date picker
+  // styled as an orange pill; the client sees a read-only orange pill (or nothing if unset).
+  function toISODate(v) {
+    if (!v) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    const t = Date.parse(v); if (isNaN(t)) return "";
+    const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function fmtNice(iso) {
+    const p = String(iso || "").split("-"); if (p.length !== 3) return String(iso || "");
+    const mo = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][(+p[1] - 1)] || "";
+    return `${mo} ${+p[2]}, ${p[0]}`;
+  }
+  function dateBtn(list, i, v) {
+    const iso = toISODate(v);
+    if (!canAdmin()) return iso ? `<span class="date-pill is-set">${esc(fmtNice(iso))}</span>` : "";
+    return `<input type="date" class="date-pill${iso ? " is-set" : ""}" data-datefield="${list}.${i}" value="${iso}" title="Set completion date">`;
+  }
 
   /* ---- modules ---- */
   function burnModule(e) {
@@ -532,12 +553,14 @@ window.ExecSummary = (function () {
       return `<span class="owner-tag sprint${n} ${canAdmin() ? "admin-edit" : ""}" data-sprint="${i}" ${canAdmin() ? `title="Switch sprint (1 / 2)"` : ""}>Sprint ${n}</span>`;
     };
     const items = (e.milestones || []).map((m, i) => `
-      <div class="ms-item ${m.done ? "done" : ""}">
+      <div class="ms-item ${m.done ? "done" : ""}" data-row="milestones" data-idx="${i}">
+        ${dragHandle("milestones", i)}
         <button class="ms-check ${m.done ? "done" : ""}" ${canAdmin() ? `data-mstoggle="${i}"` : "disabled"} title="${m.done ? "Mark not done" : "Mark done"}"></button>
         <div class="ms-body">
-          <div class="tl-label">${ed(m.label, "milestones." + i + ".label")}</div>
-          <div class="ms-meta">${sprintTag(m, i)}<span class="tl-date">${ed(m.date, "milestones." + i + ".date")}</span></div>
+          <div class="tl-label">${ed(m.label, "milestones." + i + ".label", { add: "milestones" })}</div>
+          ${isRet ? `<div class="ms-meta">${sprintTag(m, i)}</div>` : ""}
         </div>
+        ${dateBtn("milestones", i, m.date)}
         ${canAdmin() ? `<button class="ms-del" data-listdel="milestones" data-idx="${i}" title="Remove milestone">✕</button>` : ""}
       </div>`).join("");
     // No "View plan" link here — the dedicated Project Plan tile already carries it
@@ -606,9 +629,9 @@ window.ExecSummary = (function () {
       return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>`;
     };
     const todoRows = (e.todos || []).map((t, i) => `
-      <div class="tile-item">${tag(t, i)}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text")}</span>${listDel("todos", i)}</div>`).join("");
+      <div class="tile-item" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${tag(t, i)}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
     const depRows = (e.dependencies || []).map((d, i) => `
-      <div class="tile-item"><span class="dep-mark">▴</span><span style="flex:1">${ed(d.text, "dependencies." + i + ".text")}</span>${listDel("dependencies", i)}</div>`).join("");
+      <div class="tile-item" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}<span class="dep-mark">▴</span><span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}</span>${listDel("dependencies", i)}</div>`).join("");
     const colorPick = canAdmin()
       ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>` : "";
     return `<div class="module">
@@ -1054,6 +1077,13 @@ window.ExecSummary = (function () {
       if (dd && canAdmin()) { window.DASH.getEng().dueDate = isoToDue(dd.value); window.DASH.saveState(); return; }
       const tc = e.target.closest("[data-todocolor]");
       if (tc) { window.DASH.getEng().todoClientColor = tc.value; window.DASH.saveState(); rerender(); return; }
+      // inline completion-date picker (milestones / to-do's) → store ISO on the item
+      const df = e.target.closest("[data-datefield]");
+      if (df && canAdmin()) {
+        const dot = df.dataset.datefield.lastIndexOf("."), list = df.dataset.datefield.slice(0, dot), idx = +df.dataset.datefield.slice(dot + 1);
+        const arr = window.DASH.getEng()[list]; if (arr && arr[idx]) { arr[idx].date = df.value; window.DASH.saveState(); rerender(); }
+        return;
+      }
     });
 
     // text edits persist on focusout
@@ -1076,6 +1106,52 @@ window.ExecSummary = (function () {
       window.DASH.saveState();
       if (f.dataset.rerender) rerender();
     });
+
+    // Enter / Tab in a to-do or dependency commits the line AND spawns a fresh one, so you can
+    // rattle off several without reaching for the mouse. Shift+Tab is left alone (normal focus).
+    s.addEventListener("keydown", e => {
+      const f = e.target.closest("[data-additem]");
+      if (!f) return;
+      if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
+        e.preventDefault();
+        const list = f.dataset.additem, eng = window.DASH.getEng();
+        if (f.dataset.path) window.DASH.setPath(eng, f.dataset.path, f.textContent.trim());   // commit current line now
+        (eng[list] || (eng[list] = [])).push(defaults[list](eng));
+        window.DASH.saveState(); rerender();
+        requestAnimationFrame(() => {
+          const rows = section().querySelectorAll(`[data-additem="${list}"]`);
+          const last = rows[rows.length - 1];
+          if (last) { last.focus(); const r = document.createRange(); r.selectNodeContents(last); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+        });
+      }
+    });
+
+    // Drag-to-reorder (milestones / to-do's / dependencies). Drag begins only on the grip
+    // handle, so it never interferes with editing the row's text; the row is the drop target.
+    let dragSrc = null;
+    s.addEventListener("dragstart", e => {
+      const h = e.target.closest("[data-drag]"); if (!h) { return; }
+      dragSrc = { list: h.dataset.drag, idx: +h.dataset.idx };
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", h.dataset.drag); } catch (_) {}
+      const row = h.closest("[data-row]"); if (row) row.classList.add("dragging");
+    });
+    s.addEventListener("dragover", e => {
+      if (!dragSrc) return;
+      const row = e.target.closest(`[data-row="${dragSrc.list}"]`); if (!row) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = "move";
+    });
+    s.addEventListener("drop", e => {
+      if (!dragSrc) return;
+      const row = e.target.closest(`[data-row="${dragSrc.list}"]`); if (!row) return;
+      e.preventDefault();
+      const from = dragSrc.idx, to = +row.dataset.idx, list = dragSrc.list; dragSrc = null;
+      if (from === to || isNaN(to)) { rerender(); return; }
+      const arr = window.DASH.getEng()[list]; if (!arr || !arr[from]) { rerender(); return; }
+      const [moved] = arr.splice(from, 1); arr.splice(to, 0, moved);
+      window.DASH.saveState(); rerender();
+    });
+    s.addEventListener("dragend", () => { dragSrc = null; const d = section(); if (d) d.querySelectorAll(".dragging").forEach(el => el.classList.remove("dragging")); });
 
     // drag the speedometer needle to set burn
     let gaugeDragging = false, pendingEv = null, raf = null;
