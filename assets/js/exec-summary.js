@@ -794,7 +794,7 @@ window.ExecSummary = (function () {
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${e.type === "project" ? goalBanner(e) : ""}
     ${controls}
-    <div class="exec-canvas locked">${tiles}</div>`;
+    <div class="exec-canvas-wrap"><div class="exec-canvas locked">${tiles}</div></div>`;
   }
   function rerender() {
     const s = section(); if (!s) return;
