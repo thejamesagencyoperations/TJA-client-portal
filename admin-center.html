@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=315" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=315">
+<link rel="icon" href="assets/img/favicon.ico?v=316" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=316">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=315">
+<link rel="stylesheet" href="assets/css/styles.css?v=316">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -82,6 +82,21 @@
         <input type="text" id="tmName" placeholder="e.g. Alex Duggan"></label>
       <label class="cl-field" id="tmClientField" style="display:none"><span>Client workspace <em>*</em></span>
         <select id="tmClient"></select></label>
+      <!-- notification choices at invite time (clients only) — lets you suppress the signup
+           email up front. The deliverable-email row is admin-only (it writes the registry). -->
+      <div class="cl-field" id="tmInvitePrefs" style="display:none">
+        <span>Notifications <em class="cl-hint">— change any time later from their email</em></span>
+        <div class="tm-settings" style="margin:6px 0 0">
+          <div class="tm-set-row" style="border-top:none;padding:9px 0">
+            <div class="tm-set-txt"><b>Send the signup email now</b><span>Off = create the login and copy the set-password link to send yourself.</span></div>
+            <label class="tm-switch"><input type="checkbox" id="tmNewSignupEmails" checked><span class="tm-slider-ui"></span></label>
+          </div>
+          <div class="tm-set-row" id="tmNewDeliverableRow" style="padding:9px 0">
+            <div class="tm-set-txt"><b>Deliverable emails</b><span>Email this client on deliverable sends + reviews. Off = Slack + copy-link instead.</span></div>
+            <label class="tm-switch"><input type="checkbox" id="tmNewDeliverableEmails" checked><span class="tm-slider-ui"></span></label>
+          </div>
+        </div>
+      </div>
       <label class="cl-field"><span>Email <em>*</em></span>
         <input type="email" id="tmEmail" placeholder="name@thejamesagency.com"></label>
       <!-- Staff: you set the password and hand it over. Clients: they're emailed a link
@@ -161,12 +176,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=315"></script>
-<script src="assets/js/version-check.js?v=315"></script>
-<script src="assets/js/supabase-sync.js?v=315"></script>
-<script src="assets/js/ui.js?v=315"></script>
-<script src="assets/js/auth.js?v=315"></script>
-<script src="assets/js/chrome-menu.js?v=315"></script>
+<script src="assets/js/supabase-config.js?v=316"></script>
+<script src="assets/js/version-check.js?v=316"></script>
+<script src="assets/js/supabase-sync.js?v=316"></script>
+<script src="assets/js/ui.js?v=316"></script>
+<script src="assets/js/auth.js?v=316"></script>
+<script src="assets/js/chrome-menu.js?v=316"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -176,9 +191,9 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=315"></script>
-<script src="assets/js/client-template.js?v=315"></script>
-<script src="assets/js/client-store.js?v=315"></script>
+<script src="assets/js/clients.js?v=316"></script>
+<script src="assets/js/client-template.js?v=316"></script>
+<script src="assets/js/client-store.js?v=316"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -220,19 +235,22 @@
     $("prefSignupEmails").checked = ig.signupEmails !== false;
     $("tmPrefsOverlay").style.display = "flex";
   }
+  // server-first read-modify-write of ONE client's integrations prefs (never clobber the roster)
+  async function writeClientPrefs(clientId, prefs) {
+    const roster = await window.SUPA.pullScope("_registry", "clients");
+    if (!Array.isArray(roster)) throw new Error("couldn't read the client registry");
+    const c = roster.find(x => x.id === clientId);
+    if (!c) throw new Error("this client isn't in the registry yet");
+    c.integrations = Object.assign({}, c.integrations, prefs);
+    await window.SUPA.pushScopeNow("_registry", "clients", roster);
+    try { const lc = window.TJA_STORE.get(clientId); if (lc) lc.integrations = c.integrations; } catch (e) {}
+    return c.integrations;
+  }
   async function savePrefs() {
     if (!prefsClient) return;
-    const deliverableEmails = $("prefDeliverableEmails").checked;
-    const signupEmails = $("prefSignupEmails").checked;
     $("tmPrefsErr").textContent = "Saving…";
     try {
-      const roster = await window.SUPA.pullScope("_registry", "clients");
-      if (!Array.isArray(roster)) throw new Error("couldn't read the client registry");
-      const c = roster.find(x => x.id === prefsClient);
-      if (!c) throw new Error("this client isn't in the registry yet");
-      c.integrations = Object.assign({}, c.integrations, { deliverableEmails, signupEmails });
-      await window.SUPA.pushScopeNow("_registry", "clients", roster);
-      try { window.TJA_STORE && window.TJA_STORE.get(prefsClient) && (window.TJA_STORE.get(prefsClient).integrations = c.integrations); } catch (e) {}
+      await writeClientPrefs(prefsClient, { deliverableEmails: $("prefDeliverableEmails").checked, signupEmails: $("prefSignupEmails").checked });
       $("tmPrefsErr").textContent = "Saved ✓";
     } catch (e) { $("tmPrefsErr").textContent = "Couldn't save — " + (e.message || e); }
   }
@@ -465,9 +483,14 @@
     $("tmNameField").style.display = invite ? "none" : "";
     $("tmPwField").style.display = invite ? "none" : "";
     $("tmInviteNote").style.display = invite ? "" : "none";
-    $("tmSave").textContent = invite ? "Send invite" : "Create login";
+    $("tmInvitePrefs").style.display = invite ? "" : "none";
+    // deliverable-email pref writes the registry → admin only.
+    if ($("tmNewDeliverableRow")) $("tmNewDeliverableRow").style.display = (invite && !AMPM) ? "" : "none";
+    const signupOn = !$("tmNewSignupEmails") || $("tmNewSignupEmails").checked;
+    $("tmSave").textContent = invite ? (signupOn ? "Send invite" : "Create + copy link") : "Create login";
   }
   $("tmRole").addEventListener("change", syncRoleFields);
+  $("tmNewSignupEmails").addEventListener("change", syncRoleFields);   // button label follows the toggle
 
   // Strong password, crypto-random, with the look-alike characters removed (no O/0, I/l/1)
   // — these get read aloud and retyped, so ambiguity is a real support cost.
@@ -510,9 +533,19 @@
       email: $("tmEmail").value.trim().toLowerCase(), password: $("tmPassword").value,
       name: $("tmName").value.trim(), clientId: invite ? $("tmClient").value : "" };
     if (invite && !payload.clientId) { $("tmErr").textContent = "Pick which client workspace this login is for."; return; }
+    if (invite) {
+      // Honor the signup-email toggle for THIS invite (mode: link = no email, copy instead).
+      const signupOn = $("tmNewSignupEmails").checked;
+      payload.mode = signupOn ? "email" : "link";
+      // Admin: also persist both prefs to the client so future sends/resends obey them.
+      if (!AMPM) {
+        try { await writeClientPrefs(payload.clientId, { signupEmails: signupOn, deliverableEmails: $("tmNewDeliverableEmails").checked }); }
+        catch (e) { /* non-fatal — the invite below still respects payload.mode */ }
+      }
+    }
     $("tmSave").disabled = true;
     const label = $("tmSave").textContent;
-    $("tmSave").textContent = invite ? "Sending…" : "Creating…";
+    $("tmSave").textContent = invite ? (payload.mode === "link" ? "Creating…" : "Sending…") : "Creating…";
     const r = await call(payload);
     $("tmSave").disabled = false; $("tmSave").textContent = label;
     if (r.error) { $("tmErr").textContent = r.error; return; }
