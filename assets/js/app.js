@@ -904,15 +904,15 @@ function applyEngagement() {
   // the folder/tile-picker view, not just once a specific project is open.
   const planOk = !isRetainer() && getProjects().length > 0;
   el("#navPlan").style.display = planOk ? "" : "none";
-  // Media Creative Asset Request tab: only clients whose WMJ sheet actually mentions
-  // paid media. Driven by the SHEET (wmjServiceLines, whose name = User_Department),
-  // NOT the manually-entered contracted disciplines — a paid-media line simply
-  // appearing in the WMJ retainer data is enough. Checked against the RETAINER
-  // engagement directly (not the active view) so it doesn't flicker when toggling
-  // Monthly Services ↔ Projects. Same rule for every role (client, paid-media team, admin).
+  // Media Creative Asset Request tab: only clients whose WMJ sheet has a paid-media line.
+  // Driven by the SHEET (wmjServiceLines, whose name = User_Department), NOT the manual
+  // disciplines. WMJ names that department just "Media" (NOT "Paid Media") — matching only
+  // /paid media/ meant the tab never showed for anyone. Match a "Media" line while excluding
+  // "Organic Social" / "Social Media" (organic, not paid). Checked against the RETAINER
+  // engagement directly so it doesn't flicker toggling Monthly Services ↔ Projects.
   const ret = STATE.engagements && STATE.engagements.retainer;
   const usesPaidMedia = !!(ret && (ret.wmjServiceLines || [])
-    .some(l => /paid\s*media/i.test(l.name || "")));
+    .some(l => l && l.name && /\bmedia\b/i.test(l.name) && !/social/i.test(l.name)));
   el("#navMedia").style.display = usesPaidMedia ? "" : "none";
   if (!usesPaidMedia && currentPage() === "media") activate("exec");
   if (!planOk && currentPage() === "plan") activate("exec");

@@ -190,12 +190,23 @@ window.TJA_NOTIFY = (function () {
     const close = () => { panel.style.display = "none"; };
     host.addEventListener("mouseenter", () => { refresh(); open(); });
     host.addEventListener("mouseleave", () => { clearTimeout(hideTimer); hideTimer = setTimeout(close, 220); });
-    host.querySelector("#notifBell").addEventListener("click", (e) => { e.stopPropagation(); panel.style.display === "none" ? (refresh(), open()) : close(); });
+    // Clicking the bell opens the full Notification Center (hover still shows the quick preview).
+    host.querySelector("#notifBell").addEventListener("click", (e) => { e.stopPropagation(); window.location.href = centerHref(); });
     document.addEventListener("click", (e) => { if (!host.contains(e.target)) close(); });
     window.addEventListener("focus", refresh);
     panel.addEventListener("click", async (e) => {
       const allread = e.target.closest("#notifAllRead");
-      if (allread) { e.stopPropagation(); const ids = [...new Set(cache.filter(x => !x.read).map(x => x.clientId))]; for (const cid of ids) await markClientRead(cid); await refresh(); return; }
+      if (allread) {
+        e.stopPropagation();
+        const ids = [...new Set(cache.filter(x => !x.read).map(x => x.clientId))];
+        // OPTIMISTIC: reflect "read" in the UI immediately, then persist in the background —
+        // no more waiting on a per-client server round-trip before the badge/list update.
+        cache.forEach(x => { x.read = true; });
+        const dot = host.querySelector("#notifDot"); if (dot) dot.style.display = "none";
+        renderPanel();
+        Promise.all(ids.map(cid => markClientRead(cid))).then(refresh).catch(() => {});
+        return;
+      }
       const el = e.target.closest("[data-open]");
       if (el && el.dataset.open) { markClientRead(el.dataset.open); openClientDocs(el.dataset.open, el.dataset.doc); }
     });

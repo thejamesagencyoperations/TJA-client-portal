@@ -592,8 +592,8 @@ window.ExecSummary = (function () {
         <div class="ms-body">
           <div class="tl-label">${ed(m.label, "milestones." + i + ".label", { add: "milestones" })}</div>
           ${isRet ? `<div class="ms-meta">${sprintTag(m, i)}</div>` : ""}
-          <div class="item-dateline">${dateBtn("milestones", i, m.date)}</div>
         </div>
+        ${dateBtn("milestones", i, m.date)}
       </div>`).join("");
     // No "View plan" link here — the dedicated Project Plan tile already carries it
     // (Cameron 2026-07-22), and a second link in the Milestones header was redundant.
@@ -664,9 +664,9 @@ window.ExecSummary = (function () {
       return `<span class="owner-tag ${owners(o)} ${canAdmin() ? "admin-edit" : ""}" ${attr}="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(o)}</span>`;
     };
     const todoRows = (e.todos || []).map((t, i) => `
-      <div class="tile-item" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${ownerTag(t, i, "data-owner")}<div class="ti-body"><span class="ed-host">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span><div class="item-dateline">${dateBtn("todos", i, t.date)}</div></div>${listDel("todos", i)}</div>`).join("");
+      <div class="tile-item" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
     const depRows = (e.dependencies || []).map((d, i) => `
-      <div class="tile-item" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${ownerTag(d, i, "data-depowner")}<div class="ti-body"><span class="ed-host">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}</span><div class="item-dateline">${dateBtn("dependencies", i, d.date)}</div></div>${listDel("dependencies", i)}</div>`).join("");
+      <div class="tile-item" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}</span>${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`).join("");
     const colorPick = canAdmin()
       ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>` : "";
     return `<div class="module">
