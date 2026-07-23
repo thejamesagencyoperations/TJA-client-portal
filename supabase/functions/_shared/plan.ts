@@ -105,6 +105,12 @@ export function parseProjectPlanRows(rows: unknown[][]): ParsedPlan | null {
     const num = cell(r, 0), task = cell(r, 1), who = cell(r, 2), dep = cell(r, 3),
       start = cell(r, 4), end = cell(r, 5), pctRaw = cell(r, 6), notes = cell(r, 7);
     if (!num && !task) continue;
+    // Skip TEMPLATE PLACEHOLDER rows the team leaves in the plan (and hides in the sheet) —
+    // e.g. "Call name (link to Chorus when complete)". A native Google Sheet's hidden state
+    // survives to the Sheets API, but an uploaded .xlsx carries NO row-visibility, so these
+    // stubs would otherwise leak through. Matched conservatively on the TJA
+    // "(link to … when complete)" convention so real tasks are never dropped.
+    if (/\(link to .+ when complete\)/i.test(task)) continue;
     // A PHASE header is an integer-numbered row (1, 2, "4.0") with no owner/dates/%.
     // The numbering check keeps a TBD task ("3.2 | Draft copy", no owner/dates yet)
     // classified as a task. KEEP IN SYNC with client-pr-sheets.js parseProjectPlan.

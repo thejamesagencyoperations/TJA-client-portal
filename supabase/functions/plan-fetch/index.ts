@@ -27,7 +27,7 @@
 import * as XLSX from "npm:xlsx@0.18.5";
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
-import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId } from "../_shared/google.ts";
+import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId, sheetsHiddenRowSet } from "../_shared/google.ts";
 import { parseProjectPlanRows, dropHiddenRows } from "../_shared/plan.ts";
 
 // Pick the plan tab: prefer a sheet named like "…plan…", else the last sheet
@@ -69,7 +69,14 @@ Deno.serve(async (req) => {
     const ws = wb.Sheets[sheetName];
     const startRow = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.r : 0;
     let rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "", blankrows: true }) as unknown[][];
-    rows = dropHiddenRows(rows, ws["!rows"], startRow);   // rows hidden in the sheet stay out of the portal
+    // Drop rows hidden in the source. A native Google Sheet's .xlsx export carries NO
+    // row-visibility, so ask the Sheets API; an uploaded .xlsx keeps its own '!rows' meta.
+    if (meta.mimeType === "application/vnd.google-apps.spreadsheet") {
+      const hidden = await sheetsHiddenRowSet(fileId, sheetName);
+      if (hidden.size) rows = rows.filter((_, i) => !hidden.has(startRow + i));
+    } else {
+      rows = dropHiddenRows(rows, ws["!rows"], startRow);
+    }
 
     const plan = parseProjectPlanRows(rows);
     if (!plan) return json(req, 422, { error: "couldn't read a project plan from that file — expected the #, Task, Who, Dependency, Start, End, % Done, Notes columns" });

@@ -663,9 +663,13 @@ function renderPlanSheet(e, admin) {
         <span class="plan-phase-name">${admin ? `<button class="plan-eye${gInt ? " is-internal" : ""}" data-planeye="${esc(planGroupKey(g))}" title="${gInt ? "Whole phase is internal — hidden from the client. Click to make client-visible." : "Make this whole phase internal (team only)."}">${gInt ? "🙈" : "👁"}</button> ` : ""}${(g.num && !clientView) ? `<span class="plan-gnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${gInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
         <span class="grp-count">${gdone}/${gt.length} complete</span>
       </div>
-      ${gt.map(t => { const isInt = !!internal[planTaskKey(t)]; return `
+      ${gt.map(t => { const ownInt = !!internal[planTaskKey(t)]; const isInt = gInt || ownInt; return `
         <div class="plan-task${isInt ? " is-internal" : ""}"${t.dep ? ` title="Depends on ${esc(t.dep)}"` : ""}>
-          ${admin ? `<button class="plan-eye${isInt ? " is-internal" : ""}" data-planeye="${esc(planTaskKey(t))}" title="${isInt ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${isInt ? "🙈" : "👁"}</button>` : ""}
+          ${admin ? (gInt
+            // the whole phase is internal → every task under it is hidden from the client too.
+            // Show it as such (non-clickable 🙈) so the team can SEE the subtasks are covered.
+            ? `<span class="plan-eye is-internal" title="Hidden from the client — the whole phase is internal" style="opacity:.55;cursor:default">🙈</span>`
+            : `<button class="plan-eye${ownInt ? " is-internal" : ""}" data-planeye="${esc(planTaskKey(t))}" title="${ownInt ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${ownInt ? "🙈" : "👁"}</button>`) : ""}
           <span class="task-dot ${t.status}"></span>
           <span class="plan-task-name">${(t.num && !clientView) ? `<span class="plan-tnum">${esc(t.num)}</span> ` : ""}${esc(t.task)}${isInt && admin ? ` <span class="plan-int-tag">Internal</span>` : ""}${(t.notes && !/complet|progress/i.test(t.notes)) ? ` <span class="task-note">${esc(t.notes)}</span>` : ""}</span>
           ${t.who ? `<span class="plan-who ${whoClass(t.who)}">${esc(t.who)}</span>` : ""}

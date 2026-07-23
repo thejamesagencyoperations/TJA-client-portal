@@ -98,3 +98,24 @@ export async function driveExportBytes(token: string, fileId: string, mimeType: 
   if (!r.ok) throw new Error(`drive export ${r.status}: ${await r.text()}`);
   return new Uint8Array(await r.arrayBuffer());
 }
+
+// Rows the user HID in a NATIVE Google Sheet, as a Set of 0-based row indices. The .xlsx
+// export drops row-visibility entirely (SheetJS sees no '!rows'), so for native Sheets we
+// ask the Sheets API directly for rowMetadata.hiddenByUser / hiddenByFilter. Fails SOFT to an
+// empty set (Sheets API disabled, not shared, or an .xlsx upload) so plan reads never break.
+export async function sheetsHiddenRowSet(fileId: string, sheetTitle: string): Promise<Set<number>> {
+  const out = new Set<number>();
+  try {
+    const token = await driveAccessToken("https://www.googleapis.com/auth/spreadsheets.readonly");
+    const u = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}` +
+      `?ranges=${encodeURIComponent(sheetTitle)}&fields=sheets(properties(title),data(rowMetadata(hiddenByUser,hiddenByFilter)))`;
+    const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return out;
+    const j = await r.json();
+    const sheets = j.sheets || [];
+    const sheet = sheets.find((s: any) => s?.properties?.title === sheetTitle) || sheets[0];
+    const meta = sheet?.data?.[0]?.rowMetadata || [];
+    meta.forEach((m: any, i: number) => { if (m && (m.hiddenByUser || m.hiddenByFilter)) out.add(i); });
+  } catch (_e) { /* Sheets API off / not shared → no filtering */ }
+  return out;
+}

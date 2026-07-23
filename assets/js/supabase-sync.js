@@ -16,6 +16,17 @@ window.SUPA = (function () {
     catch (e) { console.warn("Supabase init failed:", e); }
   }
 
+  // The project migrated its JWT signing keys HS256 → ES256. A token minted before that and
+  // still sitting in this browser's storage is UNVERIFIABLE by the server now ("unrecognized
+  // JWT kid <nil> for algorithm ES256"), so the first request after a cold load fails until a
+  // manual refresh — the exact "it works when I reload" error. Proactively swap the stored
+  // token for a freshly ES256-signed one on boot, and gate data calls on it so nothing races
+  // ahead with the stale token. Non-fatal: no session / offline just resolves.
+  let ready = client
+    ? client.auth.refreshSession().then(() => {}).catch(() => {})
+    : Promise.resolve();
+  async function refreshSession() { if (!client) return; try { await client.auth.refreshSession(); } catch (e) {} }
+
   async function signIn(email, password) {
     if (!client) return { ok: false, error: "supabase-not-configured" };
     const { data, error } = await client.auth.signInWithPassword({ email: (email || "").trim(), password });
@@ -53,6 +64,7 @@ window.SUPA = (function () {
 
   async function pullScope(clientId, scope) {
     if (!client) return null;
+    await ready;   // ensure the token is freshly ES256-signed before any query
     try {
       const q = client.from("app_state").select("data").eq("client_id", clientId).eq("scope", scope).maybeSingle();
       const r = await withTimeout(q, 3500, scope);
@@ -66,6 +78,7 @@ window.SUPA = (function () {
   // pullScope + the row's updated_at stamp — seeds the guarded-write baseline below.
   async function pullScopeFull(clientId, scope) {
     if (!client) return null;
+    await ready;
     try {
       const q = client.from("app_state").select("data,updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle();
       const r = await withTimeout(q, 3500, scope);
@@ -87,6 +100,7 @@ window.SUPA = (function () {
   // first pullScopeFull has run (no baseline = nothing to compare against).
   async function pollScope(clientId, scope) {
     if (!client) return { changed: false };
+    await ready;
     const key = clientId + "::" + scope;
     try {
       const q = client.from("app_state").select("data,updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle();
@@ -129,6 +143,7 @@ window.SUPA = (function () {
   // returns just your own rows for a client). Used by the admin Message Center.
   async function pullAllScope(scope) {
     if (!client) return [];
+    await ready;
     try {
       const q = client.from("app_state").select("client_id,data").eq("scope", scope);
       const r = await withTimeout(q, 4000, scope + "-all");
@@ -295,6 +310,7 @@ window.SUPA = (function () {
   // resurrect data this call just replaced.
   async function pushScopeNow(clientId, scope, value) {
     if (!client) return { ok: false, error: "supabase-not-configured" };
+    await ready;
     const key = clientId + "::" + scope;
     clearTimeout(timers[key]); delete timers[key]; delete latest[key];
     pending[key] = true;
@@ -318,5 +334,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
+  return { enabled, client, ready, refreshSession, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
 })();

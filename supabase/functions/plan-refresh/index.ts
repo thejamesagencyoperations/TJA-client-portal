@@ -15,7 +15,7 @@
 import * as XLSX from "npm:xlsx@0.18.5";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { handleOptions, json } from "../_shared/cors.ts";
-import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId } from "../_shared/google.ts";
+import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId, sheetsHiddenRowSet } from "../_shared/google.ts";
 import { parseProjectPlanRows, dropHiddenRows } from "../_shared/plan.ts";
 
 function pickSheetName(names: string[]): string {
@@ -39,10 +39,18 @@ async function fetchPlan(token: string, fileId: string) {
   const wb = XLSX.read(bytes, { type: "array", cellDates: true });
   const names: string[] = wb.SheetNames || [];
   if (!names.length) return null;
-  const ws = wb.Sheets[pickSheetName(names)];
+  const sheetName = pickSheetName(names);
+  const ws = wb.Sheets[sheetName];
   const startRow = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.r : 0;
   let rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "", blankrows: true }) as unknown[][];
-  rows = dropHiddenRows(rows, ws["!rows"], startRow);   // rows hidden in the sheet stay out of the portal
+  // Native Google Sheet → Sheets API (its .xlsx export has no row-visibility); uploaded .xlsx
+  // → its own '!rows'. Fails soft to no-filtering either way.
+  if (meta.mimeType === "application/vnd.google-apps.spreadsheet") {
+    const hidden = await sheetsHiddenRowSet(fileId, sheetName);
+    if (hidden.size) rows = rows.filter((_, i) => !hidden.has(startRow + i));
+  } else {
+    rows = dropHiddenRows(rows, ws["!rows"], startRow);
+  }
   return parseProjectPlanRows(rows);
 }
 

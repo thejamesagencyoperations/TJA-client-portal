@@ -139,6 +139,7 @@ window.CLIENT_PR_SHEETS = (function () {
         dep = (r[3] || "").trim(), start = (r[4] || "").trim(), end = (r[5] || "").trim(),
         pctRaw = (r[6] || "").trim(), notes = (r[7] || "").trim();
       if (!num && !task) continue;                       // blank / spacer
+      if (/\(link to .+ when complete\)/i.test(task)) continue;   // template placeholder stub (KEEP IN SYNC with plan.ts)
       // A PHASE header is an integer-numbered row (1, 2, "4.0") with no owner/dates/%.
       // The numbering check matters: an early-project task like "3.2 | Draft copy" with
       // WHO/dates still TBD must stay a TASK, not fragment the plan into bogus sections.
