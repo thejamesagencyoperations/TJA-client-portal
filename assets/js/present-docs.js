@@ -244,7 +244,7 @@ window.PresentDocs = (function () {
          deliverable is opened, and this dialog is raised from the gallery, before one exists. -->
     <div class="pd-up-overlay" id="pdUpOverlay" style="display:none">
       <div class="pd-up-card">
-        <div class="pd-sign-title">Send deliverable</div>
+        <div class="pd-sign-title" id="pdUpTitle">Send deliverable</div>
         <div class="pd-sign-sub" id="pdUpSub"></div>
         <label class="pd-review-label" for="pdUpSubject">Subject <span class="pd-up-hint" id="pdUpSubjectHint"></span></label>
         <input type="text" id="pdUpSubject" class="pd-up-subject" placeholder="e.g. Logo concepts — round 1">
@@ -419,6 +419,11 @@ window.PresentDocs = (function () {
     $("pdUpSub").textContent = processed.length === 1
       ? `${processed[0].name} · V1`
       : `${processed.length} files · V1 each`;
+    // Make the confirm button say what actually happens: an AM/PM (or admin) upload goes
+    // STRAIGHT to the client, so it's a send; a creative's lands in the waiting room.
+    const toClient = !uploadsToDraft();
+    if ($("pdUpSend")) $("pdUpSend").textContent = toClient ? "📤 Send to client" : "Add to waiting room";
+    if ($("pdUpTitle")) $("pdUpTitle").textContent = toClient ? "Send to client" : "Add deliverable for approval";
     $("pdUpSubject").value = ""; $("pdUpMsg").value = ""; $("pdUpDue").value = "";
     if ($("pdUpSpecs")) $("pdUpSpecs").value = "";
     if ($("pdUpErr")) $("pdUpErr").style.display = "none";
