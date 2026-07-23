@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA Client Portal — Sign In</title>
-<link rel="icon" href="assets/img/favicon.ico?v=316" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=316">
+<link rel="icon" href="assets/img/favicon.ico?v=317" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=317">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=316">
+<link rel="stylesheet" href="assets/css/styles.css?v=317">
 </head>
 <body>
 <div class="login-wrap">
@@ -39,6 +39,9 @@
       <button type="submit" class="btn btn-primary">Sign In</button>
     </form>
 
+    <div class="login-forgot"><a href="#" id="forgotLink">Forgot your password?</a></div>
+    <div class="login-note" id="loginNote"></div>
+
     <div class="login-foot">
       © 2026 The James Agency · v3.07
     </div>
@@ -46,14 +49,14 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=316"></script>
-<script src="assets/js/version-check.js?v=316"></script>
-<script src="assets/js/supabase-sync.js?v=316"></script>
-<script src="assets/js/auth.js?v=316"></script>
+<script src="assets/js/supabase-config.js?v=317"></script>
+<script src="assets/js/version-check.js?v=317"></script>
+<script src="assets/js/supabase-sync.js?v=317"></script>
+<script src="assets/js/auth.js?v=317"></script>
 <!-- client roster on the login page so per-client logins resolve to their own workspace -->
-<script src="assets/js/clients.js?v=316"></script>
-<script src="assets/js/client-template.js?v=316"></script>
-<script src="assets/js/client-store.js?v=316"></script>
+<script src="assets/js/clients.js?v=317"></script>
+<script src="assets/js/client-template.js?v=317"></script>
+<script src="assets/js/client-store.js?v=317"></script>
 <script>
   // Deep-link from the deliverable email (?open=docs&doc=<id>): stash the target page
   // (and optional specific deliverable) so app.js opens it after login. Same keys the
@@ -85,6 +88,35 @@
     btn.disabled = false;
     if (okLogin) window.location.replace(landing());
     else document.getElementById("loginError").classList.add("show");
+  });
+
+  /* Forgot password — emails a reset link to the account's OWN address (always, regardless
+     of their notification preference; recovery isn't a notification). We show the same
+     confirmation whether or not the email has an account, so nothing can be enumerated. */
+  document.getElementById("forgotLink").addEventListener("click", async function (e) {
+    e.preventDefault();
+    const emailEl = document.getElementById("email");
+    const note = document.getElementById("loginNote");
+    const email = (emailEl.value || "").trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      note.className = "login-note warn show";
+      note.textContent = "Enter your email above first, then tap “Forgot your password?”";
+      emailEl.focus();
+      return;
+    }
+    const cfg = window.SUPABASE_CONFIG || {};
+    const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
+    this.style.pointerEvents = "none";
+    try {
+      if (base) await fetch(base + "/request-password-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: cfg.anonKey || "", Authorization: "Bearer " + (cfg.anonKey || "") },
+        body: JSON.stringify({ email }),
+      });
+    } catch (err) { /* show the same confirmation regardless */ }
+    this.style.pointerEvents = "";
+    note.className = "login-note ok show";
+    note.textContent = "If an account exists for " + email + ", a reset link is on its way. Check your inbox (and spam).";
   });
 </script>
 </body>
