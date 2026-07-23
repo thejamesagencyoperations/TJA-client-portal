@@ -33,7 +33,6 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
-import { portalSettings } from "../_shared/settings.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // 'media' = paid-media team. Staff-tier (own no client workspace) but view-only on
@@ -282,13 +281,13 @@ Deno.serve(async (req) => {
       if (pe) return json(req, 400, { error: pe.message });
 
       // Email vs link. `mode` from the caller wins ('email' | 'link' | 'both'); with no
-      // explicit mode we fall back to the global signup-email toggle. The link is ALWAYS
-      // returned so the caller can copy it — nothing is ever silent.
-      const settings = await portalSettings();
+      // explicit mode we obey THIS CLIENT's signup-email preference
+      // (integrations.signupEmails, default on). The link is ALWAYS returned so the caller
+      // can copy it — nothing is ever silent.
       const mode = String(body.mode || "").toLowerCase();
       const wantEmail = mode === "email" || mode === "both" ? true
         : mode === "link" ? false
-        : settings.signupEmails;   // no explicit choice → obey the slider
+        : (entry?.integrations?.signupEmails !== false);
 
       let emailed = false, emailError = "";
       if (wantEmail) {

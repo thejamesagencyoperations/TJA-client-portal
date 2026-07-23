@@ -34,7 +34,6 @@ import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
 import { postToSlack } from "../_shared/slack.ts";
-import { portalSettings } from "../_shared/settings.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // The only place the portal's own URL exists in the backend. On a future custom
@@ -115,13 +114,13 @@ Deno.serve(async (req) => {
   const slacked = !!(slackRes && slackRes.ok);
 
   // Email vs link. `mode` from the caller wins ('email' | 'link' | 'both'); otherwise obey
-  // the global deliverable-email toggle. When email is off we skip it entirely and hand the
-  // deep link back to be copied — nothing is silent. The link is ALWAYS returned.
-  const settings = await portalSettings();
+  // THIS CLIENT's deliverable-email preference (integrations.deliverableEmails, default on).
+  // When email is off we skip it entirely and hand the deep link back to be copied — nothing
+  // is silent. The link is ALWAYS returned.
   const mode = String((body as any).mode || "").toLowerCase();
   const wantEmail = mode === "email" || mode === "both" ? true
     : mode === "link" ? false
-    : settings.deliverableEmails;
+    : (entry.integrations?.deliverableEmails !== false);
   if (!wantEmail) {
     return json(req, 200, { ok: true, emailed: false, link: REVIEW_URL, slacked });
   }

@@ -9,7 +9,9 @@ export type Integrations = {
   slackChannel?: string;
   emailRecipients?: string[];
   domains?: string[];
-  notifyOff?: string[];   // client-login emails toggled OFF (default: everyone notified)
+  notifyOff?: string[];        // client-login emails toggled OFF (default: everyone notified)
+  deliverableEmails?: boolean;  // per-client: email on deliverable send + review (default true)
+  signupEmails?: boolean;       // per-client: email the client their signup/invite link (default true)
 };
 export type RegistryEntry = {
   id: string; name: string;

@@ -21,7 +21,6 @@ import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
 import { postToSlack } from "../_shared/slack.ts";
-import { portalSettings } from "../_shared/settings.ts";
 
 const PORTAL_BASE_URL = "https://thejamesagencyoperations.github.io/TJA-client-portal";
 
@@ -86,10 +85,9 @@ Deno.serve(async (req) => {
     ...(entry.integrations?.emailRecipients ?? []),
   ].filter(Boolean).map((e) => String(e).trim().toLowerCase());
   const uniq = [...new Set(recipients)].filter((e) => !notifyOff.has(e));
-  // Team email obeys the same global deliverable-email toggle (Slack already fired above,
+  // Team email obeys THIS CLIENT's deliverable-email preference (Slack already fired above,
   // so the team still hears about the review even with email off).
-  const settings = await portalSettings();
-  if (!settings.deliverableEmails) return json(req, 200, { ok: true, emailed: false, slacked });
+  if (entry.integrations?.deliverableEmails === false) return json(req, 200, { ok: true, emailed: false, slacked });
   if (!uniq.length) return json(req, 409, { slacked, error: "no distribution address for this client" });
 
   const commentLine = nComments > 0

@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=314" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=314">
+<link rel="icon" href="assets/img/favicon.ico?v=315" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=315">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=314">
+<link rel="stylesheet" href="assets/css/styles.css?v=315">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -32,7 +32,7 @@
     <div class="page-head page-head-row">
       <div>
         <div class="page-title">Admin Center</div>
-        <div class="page-desc">Every login to the portal — your team and your clients. Only this account can manage them.</div>
+        <div class="page-desc">Every login to the portal — your team and your clients. Click a client's email to set their notification &amp; link preferences.</div>
       </div>
       <div class="tm-actions">
         <button class="btn btn-primary btn-sm" id="tmAdd">＋ Add login</button>
@@ -40,21 +40,6 @@
     </div>
 
     <div class="tm-note" id="tmNote" style="display:none"></div>
-
-    <!-- Email / link delivery toggles (admin only). When a slider is OFF the matching
-         email is NOT sent — instead the portal surfaces a copy-link button so nothing is
-         ever silent. Stored globally in app_state (_settings/clients). -->
-    <div class="tm-settings" id="tmSettings" style="display:none">
-      <div class="tm-set-head">Notifications &amp; links</div>
-      <div class="tm-set-row">
-        <div class="tm-set-txt"><b>Deliverable emails</b><span>Email the client when a deliverable is sent, and notify the team when a review comes in. Off = Slack still posts and you copy a link to send yourself.</span></div>
-        <label class="tm-switch"><input type="checkbox" id="setDeliverableEmails"><span class="tm-slider-ui"></span></label>
-      </div>
-      <div class="tm-set-row">
-        <div class="tm-set-txt"><b>Signup / invite emails</b><span>Email a new client their set-password link. Off = the invite still creates the login and you copy the signup link to send yourself.</span></div>
-        <label class="tm-switch"><input type="checkbox" id="setSignupEmails"><span class="tm-slider-ui"></span></label>
-      </div>
-    </div>
 
     <!-- filter row: role chips + live search, sits on the table it filters -->
     <div class="tm-filter-row" id="tmFilterRow">
@@ -138,6 +123,29 @@
   </div>
 </div>
 
+<!-- Per-client notification preferences — opened by clicking a client's email. -->
+<div class="cl-overlay" id="tmPrefsOverlay" style="display:none">
+  <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
+    <div class="cl-card-head"><div class="cl-title">Preferences · <span id="tmPrefsWho"></span></div>
+      <button class="cl-x" id="tmPrefsX" title="Close">✕</button></div>
+    <p class="cl-done-lead" id="tmPrefsLead" style="margin-bottom:6px"></p>
+    <div class="tm-settings" style="margin:6px 0 4px">
+      <div class="tm-set-row" style="border-top:none">
+        <div class="tm-set-txt"><b>Deliverable emails</b><span>Email this client when a deliverable is sent (and the team when their review comes in). Off = Slack still posts, and you copy a link to send them yourself.</span></div>
+        <label class="tm-switch"><input type="checkbox" id="prefDeliverableEmails"><span class="tm-slider-ui"></span></label>
+      </div>
+      <div class="tm-set-row">
+        <div class="tm-set-txt"><b>Signup / invite emails</b><span>Email this client their set-password link. Off = the invite still creates the login and you copy the signup link to send them yourself.</span></div>
+        <label class="tm-switch"><input type="checkbox" id="prefSignupEmails"><span class="tm-slider-ui"></span></label>
+      </div>
+    </div>
+    <div class="cl-err" id="tmPrefsErr" style="min-height:0"></div>
+    <div class="cl-actions">
+      <button type="button" class="btn btn-primary" id="tmPrefsClose">Done</button>
+    </div>
+  </div>
+</div>
+
 <!-- Copy-link modal — signup links + any "email is off, send it yourself" link. -->
 <div class="cl-overlay" id="tmLinkOverlay" style="display:none">
   <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
@@ -153,12 +161,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=314"></script>
-<script src="assets/js/version-check.js?v=314"></script>
-<script src="assets/js/supabase-sync.js?v=314"></script>
-<script src="assets/js/ui.js?v=314"></script>
-<script src="assets/js/auth.js?v=314"></script>
-<script src="assets/js/chrome-menu.js?v=314"></script>
+<script src="assets/js/supabase-config.js?v=315"></script>
+<script src="assets/js/version-check.js?v=315"></script>
+<script src="assets/js/supabase-sync.js?v=315"></script>
+<script src="assets/js/ui.js?v=315"></script>
+<script src="assets/js/auth.js?v=315"></script>
+<script src="assets/js/chrome-menu.js?v=315"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -168,9 +176,9 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=314"></script>
-<script src="assets/js/client-template.js?v=314"></script>
-<script src="assets/js/client-store.js?v=314"></script>
+<script src="assets/js/clients.js?v=315"></script>
+<script src="assets/js/client-template.js?v=315"></script>
+<script src="assets/js/client-store.js?v=315"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -190,23 +198,43 @@
   const AMPM = !((typeof isAdmin === "function") && isAdmin()) && ((typeof isManager === "function") && isManager());
   let users = [], filter = AMPM ? "client" : "staff";
 
-  /* ---- global email/link delivery settings (admin-controlled, read by the functions) ---- */
-  const SETTINGS = { deliverableEmails: true, signupEmails: true };
-  async function loadSettings() {
+  /* ---- PER-CLIENT notification preferences ----
+     Stored in the client's registry integrations (integrations.deliverableEmails /
+     signupEmails), read by the Edge Functions. Read + write are SERVER-FIRST against the
+     live _registry/clients row so we never clobber the roster (Drive folder, Slack channel,
+     the other 48 clients) with a stale local copy — the WMJ-wipe lesson. Admin only: RLS
+     refuses a manager writing the registry, so the email cells are only clickable for admin. */
+  let prefsClient = null;
+  async function openPrefs(clientId) {
+    prefsClient = clientId;
+    $("tmPrefsWho").textContent = clientName(clientId);
+    $("tmPrefsErr").textContent = "";
+    $("tmPrefsLead").textContent = `How ${clientName(clientId)} is notified. Off = nothing goes silent — you get a copy-link to send yourself instead.`;
+    let ig = {};
     try {
-      const s = await window.SUPA.pullScope("_settings", "clients");
-      if (s && typeof s === "object" && !Array.isArray(s)) {
-        SETTINGS.deliverableEmails = s.deliverableEmails !== false;
-        SETTINGS.signupEmails = s.signupEmails !== false;
-      }
-    } catch (e) {}
-    if ($("setDeliverableEmails")) $("setDeliverableEmails").checked = SETTINGS.deliverableEmails;
-    if ($("setSignupEmails")) $("setSignupEmails").checked = SETTINGS.signupEmails;
+      const roster = await window.SUPA.pullScope("_registry", "clients");
+      const c = Array.isArray(roster) ? roster.find(x => x.id === clientId) : null;
+      ig = (c && c.integrations) || ((window.TJA_STORE.get(clientId) || {}).integrations) || {};
+    } catch (e) { ig = ((window.TJA_STORE.get(clientId) || {}).integrations) || {}; }
+    $("prefDeliverableEmails").checked = ig.deliverableEmails !== false;   // default ON
+    $("prefSignupEmails").checked = ig.signupEmails !== false;
+    $("tmPrefsOverlay").style.display = "flex";
   }
-  async function saveSettings() {
-    SETTINGS.deliverableEmails = $("setDeliverableEmails").checked;
-    SETTINGS.signupEmails = $("setSignupEmails").checked;
-    try { await window.SUPA.pushScopeNow("_settings", "clients", { deliverableEmails: SETTINGS.deliverableEmails, signupEmails: SETTINGS.signupEmails }); } catch (e) {}
+  async function savePrefs() {
+    if (!prefsClient) return;
+    const deliverableEmails = $("prefDeliverableEmails").checked;
+    const signupEmails = $("prefSignupEmails").checked;
+    $("tmPrefsErr").textContent = "Saving…";
+    try {
+      const roster = await window.SUPA.pullScope("_registry", "clients");
+      if (!Array.isArray(roster)) throw new Error("couldn't read the client registry");
+      const c = roster.find(x => x.id === prefsClient);
+      if (!c) throw new Error("this client isn't in the registry yet");
+      c.integrations = Object.assign({}, c.integrations, { deliverableEmails, signupEmails });
+      await window.SUPA.pushScopeNow("_registry", "clients", roster);
+      try { window.TJA_STORE && window.TJA_STORE.get(prefsClient) && (window.TJA_STORE.get(prefsClient).integrations = c.integrations); } catch (e) {}
+      $("tmPrefsErr").textContent = "Saved ✓";
+    } catch (e) { $("tmPrefsErr").textContent = "Couldn't save — " + (e.message || e); }
   }
 
   /* ---- copy-link modal (signup links + "email is off, send it yourself" links) ---- */
@@ -281,7 +309,9 @@
     body.innerHTML = rows.map(u => `
       <tr data-id="${esc(u.id)}">
         <td style="font-weight:600">${esc(u.name || "—")}${u.isYou ? ` <span class="tm-you">you</span>` : ""}</td>
-        <td style="color:var(--text-dim)">${esc(u.email)}</td>
+        <td>${(!AMPM && u.role === "client" && u.clientId && !u.clientId.startsWith("_"))
+          ? `<button class="tm-email-btn" data-prefs="${esc(u.clientId)}" title="Notification &amp; link preferences for this client">${esc(u.email)}</button>`
+          : `<span style="color:var(--text-dim)">${esc(u.email)}</span>`}</td>
         <td>${AMPM
           ? `<span style="color:var(--text-dim)">${ROLE_LABEL[u.role] || esc(u.role)}</span>`
           : `<select class="tm-role" data-roleset="${esc(u.id)}" ${u.isYou ? "disabled title='You can&apos;t change your own role'" : ""}>
@@ -350,8 +380,11 @@
     render();
   });
 
-  /* ---- reset password / remove / copy link ---- */
+  /* ---- reset password / remove / copy link / preferences ---- */
   $("tmBody").addEventListener("click", async (e) => {
+    // click a client's email → per-client notification & link preferences
+    const pf = e.target.closest("[data-prefs]");
+    if (pf) { openPrefs(pf.dataset.prefs); return; }
     // 🔗 Copy link — generate a fresh signup/reset link WITHOUT emailing, and copy it.
     const cl = e.target.closest("[data-copylink]");
     if (cl) {
@@ -527,21 +560,26 @@
   });
   window.TJA_UI.backdropClose($("tmLinkOverlay"), _closeLink);
 
-  if (!AMPM) {
-    // Admin: expose + wire the global email/link settings.
-    $("tmSettings").style.display = "";
-    $("setDeliverableEmails").addEventListener("change", saveSettings);
-    $("setSignupEmails").addEventListener("change", saveSettings);
-    await loadSettings();
-  } else {
+  // per-client preferences modal wiring. Sliders save on toggle (server-first); admin only
+  // ever opens it (the email cells are non-clickable for managers, and RLS refuses the write).
+  const _closePrefs = () => $("tmPrefsOverlay").style.display = "none";
+  $("tmPrefsClose").addEventListener("click", _closePrefs);
+  $("tmPrefsX").addEventListener("click", _closePrefs);
+  $("prefDeliverableEmails").addEventListener("change", savePrefs);
+  $("prefSignupEmails").addEventListener("change", savePrefs);
+  window.TJA_UI.backdropClose($("tmPrefsOverlay"), _closePrefs);
+
+  if (AMPM) {
     // AM/PM: client logins only — retitle + trim the staff chrome. Server enforces the rest.
     const pd = document.querySelector(".page-desc"); if (pd) pd.textContent = "Create and manage your clients' portal logins.";
     $("tmAdd").textContent = "＋ Add client";
     // lock the Add form to a client invite: hide the role picker entirely.
     const roleField = $("tmRole").closest(".cl-field"); if (roleField) roleField.style.display = "none";
     // only the Clients filter chip makes sense.
-    document.querySelectorAll(".tm-chip").forEach(ch => { if (ch.dataset.tmf !== "client") ch.style.display = "none"; else { ch.classList.add("active"); } });
-    document.querySelectorAll(".tm-chip").forEach(ch => { if (ch.dataset.tmf !== "client") ch.classList.remove("active"); });
+    document.querySelectorAll(".tm-chip").forEach(ch => {
+      if (ch.dataset.tmf !== "client") { ch.style.display = "none"; ch.classList.remove("active"); }
+      else ch.classList.add("active");
+    });
   }
 
   await window.TJA_STORE.hydrate().catch(() => {});
