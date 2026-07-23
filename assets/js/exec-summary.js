@@ -334,7 +334,7 @@ window.ExecSummary = (function () {
       // the phase's finish = the LATEST end date among its tasks (ignores empty/earlier rows)
       let best = 0, bestStr = "";
       g.tasks.forEach(t => { const v = dval(t.end); if (v > best) { best = v; bestStr = t.end; } });
-      return `<div class="task-row${isInt ? " is-internal" : ""}">
+      return `<div class="task-row${isInt ? " is-internal" : ""}${state === "complete" ? " is-complete" : ""}">
           ${canAdmin() ? `<button class="plan-eye${isInt ? " is-internal" : ""}" data-planeye="${esc(key)}" title="${isInt ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${isInt ? "🙈" : "👁"}</button>` : ""}
           <span class="task-dot ${state}"></span>
           <span class="task-name">${(g.num && !clientView) ? `<span class="plan-tnum">${esc(g.num)}</span> ` : ""}${esc(g.name)}${isInt && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>
@@ -667,8 +667,16 @@ window.ExecSummary = (function () {
     };
     const todoRows = (e.todos || []).map((t, i) => `
       <div class="tile-item" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
-    const depRows = (e.dependencies || []).map((d, i) => `
-      <div class="tile-item" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}</span>${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`).join("");
+    // Dependencies get the SAME client-visibility toggle as Project Plan phases (Cameron):
+    // an eye button flips d.internal; an internal dependency is hidden from the client view.
+    const clientViewDep = (typeof effectiveRole === "function") && effectiveRole() === "client";
+    const depEye = (d, i) => canAdmin()
+      ? `<button class="plan-eye${d.internal ? " is-internal" : ""}" data-depeye="${i}" title="${d.internal ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${d.internal ? "🙈" : "👁"}</button>`
+      : "";
+    const depRows = (e.dependencies || []).map((d, i) => {
+      if (clientViewDep && d.internal) return "";                 // hidden from the client
+      return `<div class="tile-item${d.internal ? " is-internal" : ""}" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${depEye(d, i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}${d.internal && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`;
+    }).join("");
     const colorPick = canAdmin()
       ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>` : "";
     return `<div class="module">
@@ -1406,6 +1414,8 @@ window.ExecSummary = (function () {
       if (own && canAdmin()) { const t = eng.todos[+own.dataset.owner]; t.owner = t.owner === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
       const depOwn = e.target.closest("[data-depowner]");
       if (depOwn && canAdmin()) { const d = eng.dependencies[+depOwn.dataset.depowner]; d.owner = (d.owner || "TJA") === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
+      const depEyeBtn = e.target.closest("[data-depeye]");
+      if (depEyeBtn && canAdmin()) { const d = eng.dependencies[+depEyeBtn.dataset.depeye]; if (d) { d.internal = !d.internal; window.DASH.saveState(); rerender(); } return; }
       const spr = e.target.closest("[data-sprint]");
       if (spr && canAdmin()) { const m = eng.milestones[+spr.dataset.sprint]; m.sprint = (+m.sprint === 2) ? 1 : 2; window.DASH.saveState(); rerender(); return; }
       const prT = e.target.closest("[data-prtile]");

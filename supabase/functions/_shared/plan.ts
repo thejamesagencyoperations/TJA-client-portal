@@ -45,6 +45,20 @@ function statusOf(notes: string, pct: number | null): string {
 const afterColon = (s: string) => { const i = String(s).indexOf(":"); return i < 0 ? "" : s.slice(i + 1).trim(); };
 const cell = (r: unknown[], i: number) => String((r?.[i] ?? "")).trim();
 
+// Drop rows the user HID in the sheet — a hidden row (e.g. an unstarted task the PM
+// collapsed) must not surface in the portal. `rows` comes from sheet_to_json(header:1,
+// blankrows:true), so output index i maps to sheet row (startRow + i); an entry in the
+// worksheet's '!rows' with .hidden===true marks a hidden row. Only works for .xlsx (the
+// private backend path) — a CSV export carries no row-visibility info.
+export function dropHiddenRows(
+  rows: unknown[][],
+  hiddenFlags: Array<{ hidden?: boolean } | undefined> | undefined,
+  startRow: number,
+): unknown[][] {
+  const flags = hiddenFlags || [];
+  return rows.filter((_, i) => !(flags[startRow + i] && flags[startRow + i]!.hidden));
+}
+
 // Quote-aware CSV → rows[][] (mirrors client-pr-sheets.js parseRows) — used when a
 // plan file is a native Google Sheet exported as CSV rather than an .xlsx.
 export function csvToRows(text: string): string[][] {

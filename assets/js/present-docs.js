@@ -1008,6 +1008,12 @@ window.PresentDocs = (function () {
       }
     }
     saveCur(); renderGallery(); updateSignStatus(); updateMeta();
+    // Flush the review to the shared row IMMEDIATELY (not just the debounced push) so the
+    // agency sees the client's revisions the moment they land — and even if the client
+    // closes the tab right after submitting.
+    if (window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow && !(typeof isCreative === "function" && isCreative())) {
+      try { await window.SUPA.pushScopeNow(sess.client, "deliverables", items); } catch (e) { /* debounced push still queued as fallback */ }
+    }
     // Confirmation now STAYS (no 5s fade) and the rail locks — the client can't silently
     // change a submitted review. applyReviewLock hides Submit, pins "Review submitted",
     // and freezes the fields for this version.
@@ -1404,6 +1410,7 @@ window.PresentDocs = (function () {
     load(); loadDrafts(); renderGallery();
     wireElements();
     startLiveRefresh();
+    liveRefresh();   // pull fresh on open — localStorage may be stale (e.g. a client just submitted a review)
     if (wiredGlobal) return;
     wiredGlobal = true;
     document.addEventListener("keydown", e => {

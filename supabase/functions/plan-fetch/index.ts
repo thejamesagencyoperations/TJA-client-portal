@@ -28,7 +28,7 @@ import * as XLSX from "npm:xlsx@0.18.5";
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId } from "../_shared/google.ts";
-import { parseProjectPlanRows } from "../_shared/plan.ts";
+import { parseProjectPlanRows, dropHiddenRows } from "../_shared/plan.ts";
 
 // Pick the plan tab: prefer a sheet named like "…plan…", else the last sheet
 // (the CEL workbook is [Team, Project Plan]), else the first.
@@ -66,7 +66,10 @@ Deno.serve(async (req) => {
     const sheetNames: string[] = wb.SheetNames || [];
     if (!sheetNames.length) return json(req, 422, { error: "workbook has no sheets" });
     const sheetName = (body.sheet && sheetNames.includes(body.sheet)) ? body.sheet : pickSheetName(sheetNames);
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "" }) as unknown[][];
+    const ws = wb.Sheets[sheetName];
+    const startRow = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.r : 0;
+    let rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "", blankrows: true }) as unknown[][];
+    rows = dropHiddenRows(rows, ws["!rows"], startRow);   // rows hidden in the sheet stay out of the portal
 
     const plan = parseProjectPlanRows(rows);
     if (!plan) return json(req, 422, { error: "couldn't read a project plan from that file — expected the #, Task, Who, Dependency, Start, End, % Done, Notes columns" });
