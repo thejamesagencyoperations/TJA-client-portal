@@ -139,10 +139,8 @@
     clients.forEach(C => {
       const projects = [];
       C._camps.forEach((P, cm) => {
-        // A campaign whose name says "retainer" is Monthly-Services work, not a project — its
-        // hours flow to the retainer/burn via the retainer sheet, so don't spin up a project
-        // folder for it (Cameron 2026-07-22, e.g. AHS "Web Maintenance Retainer").
-        if (/retainer/i.test(cm)) return;
+        // (No "retainer" name filter: annual-retainer campaigns like "SanTan 2026 Retainer" are
+        // legit projects. Misfiled ones are archived by an admin, not auto-hidden by name.)
         // phases = project_names; tasks under each
         const phases = [];
         const tasks = [];

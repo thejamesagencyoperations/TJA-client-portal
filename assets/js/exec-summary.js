@@ -845,6 +845,11 @@ window.ExecSummary = (function () {
       ctl.push(prTileOn(e)
         ? `<button class="exec-actuals-btn" data-prtile="off" title="Hide the PR Coverage tile — Service Lines extends to fill the column">✕ Remove PR Coverage</button>`
         : `<button class="exec-actuals-btn" data-prtile="on" title="Show the PR Coverage tile — Service Lines shrinks back to make room">＋ Add PR Coverage</button>`);
+    // Media Requests tab — admin on/off override (for clients the auto-detect misses, e.g. DCS).
+    if (canAdmin() && window.DASH.mediaTabShown) {
+      const on = window.DASH.mediaTabShown();
+      ctl.push(`<button class="exec-actuals-btn" data-mediatoggle="${on ? "off" : "on"}" title="Show or hide the Media Creative Asset Request tab for this client">${on ? "✕ Remove Media Requests tab" : "＋ Add Media Requests tab"}</button>`);
+    }
     const controls = ctl.length ? `<div class="exec-controls">${ctl.join("")}</div>` : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
@@ -1395,6 +1400,8 @@ window.ExecSummary = (function () {
       if (spr && canAdmin()) { const m = eng.milestones[+spr.dataset.sprint]; m.sprint = (+m.sprint === 2) ? 1 : 2; window.DASH.saveState(); rerender(); return; }
       const prT = e.target.closest("[data-prtile]");
       if (prT && canAdmin()) { eng.prTile = prT.dataset.prtile === "on"; window.DASH.saveState(); rerender(); return; }
+      const mediaT = e.target.closest("[data-mediatoggle]");
+      if (mediaT && canAdmin()) { window.DASH.setMediaTab(mediaT.dataset.mediatoggle === "on"); rerender(); return; }
 
       const ms = e.target.closest("[data-mstoggle]");
       if (ms && canAdmin()) { const m = eng.milestones[+ms.dataset.mstoggle]; m.done = !m.done; window.DASH.saveState(); rerender(); return; }

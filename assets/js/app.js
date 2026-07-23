@@ -158,15 +158,12 @@ if (!engMode) {   // no explicit choice yet for this client — default to which
 }
 let selectedProjectId = sessionStorage.getItem("tja_proj_" + clientId()) || "";
 function getAllProjects() { return STATE.engagements.projects || []; }        // RAW list — placeholders + all
-// "Junk" projects that should never appear as a project folder: WMJ campaigns that are actually
-// retainers ("… Retainer" — Monthly-Services work misfiled as a project) and empty "New Project"
-// placeholders that were auto-created and never named. Hidden at display time so it's immediate,
-// regardless of the next WMJ sync (the wmj-transform filter stops them being re-created).
+// "Junk" projects that should never appear as a project folder: only the empty "New Project"
+// placeholders that get auto-created and never named. (A blanket "retainer" name filter was
+// tried and REMOVED — it wrongly hid legit annual-retainer projects like "SanTan 2026 Retainer";
+// misfiled ones like AHS "Web Maintenance Retainer" are an admin judgment call → archive them.)
 function isJunkProject(p) {
-  const lbl = String(p.label || "").trim(), nm = String(p.name || "");
-  if (/\bretainer\b/i.test(lbl) || /\bretainer\b/i.test(nm)) return true;
-  if (/^new project\b/i.test(lbl)) return true;
-  return false;
+  return /^new project\b/i.test(String(p.label || "").trim());
 }
 function getProjects() {                                                      // client-facing list
   const all = getAllProjects();
@@ -233,9 +230,28 @@ function refreshPRSheet(ret, cfg) {
 
 // shared with exec-summary.js
 // Public surface consumed by exec-summary.js — keep this list tight (only what's actually read).
+// Whether the Media Creative Asset Request tab shows for this client. AUTO = the WMJ "Media"
+// department line OR contracted Paid Media hours; an explicit admin override (mediaForce) wins.
+function mediaAutoDetect(ret) {
+  if (!ret) return false;
+  const wmj = (ret.wmjServiceLines || []).some(l => l && l.name && /\bmedia\b/i.test(l.name) && !/social/i.test(l.name));
+  const contracted = (ret.serviceDisciplines || []).some(d => /paid\s*media/i.test(d.name || "") && (+d.contracted || 0) > 0);
+  return wmj || contracted;
+}
+function mediaTabShown(ret) {
+  ret = ret || (STATE.engagements && STATE.engagements.retainer);
+  if (!ret) return false;
+  if (ret.mediaForce === true) return true;
+  if (ret.mediaForce === false) return false;
+  return mediaAutoDetect(ret);
+}
+
 window.DASH = { getEng, saveState, setPath, badge, refreshPRSheet,
   // "← All projects" link, shown on a project's homepage when several projects exist (handled in exec-summary render so it survives rerender)
-  projectBack: () => (!isRetainer() && getProjects().length > 1 && selectedProject()) ? `<button class="pp-back" data-allprojects>← All projects</button>` : "" };
+  projectBack: () => (!isRetainer() && getProjects().length > 1 && selectedProject()) ? `<button class="pp-back" data-allprojects>← All projects</button>` : "",
+  // media tab admin override — force the Media Requests tab on/off for this client
+  mediaTabShown: () => mediaTabShown(),
+  setMediaTab: (on) => { const r = STATE.engagements && STATE.engagements.retainer; if (!r) return; r.mediaForce = on; saveState(); applyEngagement(); } };
 
 /* ---------- Projects folder (tiles + archive + two-step delete) ---------- */
 const ppAdmin = () => (typeof canEdit === "function" ? canEdit() : true);
@@ -934,15 +950,11 @@ function applyEngagement() {
   // they have MORE than one project. Only when a specific project is open and there's >1.
   const apBtn = el("#allProjectsBtn");
   if (apBtn) apBtn.style.display = (!isRetainer() && selectedProject() && getProjects().length > 1) ? "" : "none";
-  // Media Creative Asset Request tab: only clients whose WMJ sheet has a paid-media line.
-  // Driven by the SHEET (wmjServiceLines, whose name = User_Department), NOT the manual
-  // disciplines. WMJ names that department just "Media" (NOT "Paid Media") — matching only
-  // /paid media/ meant the tab never showed for anyone. Match a "Media" line while excluding
-  // "Organic Social" / "Social Media" (organic, not paid). Checked against the RETAINER
-  // engagement directly so it doesn't flicker toggling Monthly Services ↔ Projects.
+  // Media Creative Asset Request tab (see mediaTabShown): auto-detected from the WMJ "Media"
+  // line OR contracted Paid Media hours, with an admin on/off override for the clients no
+  // signal catches (e.g. DCS has neither in the data). Checked against the retainer engagement.
   const ret = STATE.engagements && STATE.engagements.retainer;
-  const usesPaidMedia = !!(ret && (ret.wmjServiceLines || [])
-    .some(l => l && l.name && /\bmedia\b/i.test(l.name) && !/social/i.test(l.name)));
+  const usesPaidMedia = mediaTabShown(ret);
   el("#navMedia").style.display = usesPaidMedia ? "" : "none";
   if (!usesPaidMedia && currentPage() === "media") activate("exec");
   if (!planOk && currentPage() === "plan") activate("exec");
