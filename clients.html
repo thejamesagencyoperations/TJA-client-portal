@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=301" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=301">
+<link rel="icon" href="assets/img/favicon.ico?v=302" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=302">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=301">
+<link rel="stylesheet" href="assets/css/styles.css?v=302">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -158,12 +158,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=301"></script>
-<script src="assets/js/version-check.js?v=301"></script>
-<script src="assets/js/supabase-sync.js?v=301"></script>
-<script src="assets/js/ui.js?v=301"></script>
-<script src="assets/js/auth.js?v=301"></script>
-<script src="assets/js/chrome-menu.js?v=301"></script>
+<script src="assets/js/supabase-config.js?v=302"></script>
+<script src="assets/js/version-check.js?v=302"></script>
+<script src="assets/js/supabase-sync.js?v=302"></script>
+<script src="assets/js/ui.js?v=302"></script>
+<script src="assets/js/auth.js?v=302"></script>
+<script src="assets/js/chrome-menu.js?v=302"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -190,17 +190,17 @@
     });
   }
 </script>
-<script src="assets/js/clients.js?v=301"></script>
-<script src="assets/js/client-template.js?v=301"></script>
-<script src="assets/js/client-store.js?v=301"></script>
-<script src="assets/js/wmj-transform.js?v=301"></script>
-<script src="assets/js/retainer-transform.js?v=301"></script>
-<script src="assets/js/client-logos.js?v=301"></script>
-<script src="assets/js/client-pr-sheets.js?v=301"></script>
-<script src="assets/js/mgr-sheet.js?v=301"></script>
-<script src="assets/js/retainer-value.js?v=301"></script>
-<script src="assets/js/wmj-sync.js?v=301"></script>
-<script src="assets/js/notifications.js?v=301"></script>
+<script src="assets/js/clients.js?v=302"></script>
+<script src="assets/js/client-template.js?v=302"></script>
+<script src="assets/js/client-store.js?v=302"></script>
+<script src="assets/js/wmj-transform.js?v=302"></script>
+<script src="assets/js/retainer-transform.js?v=302"></script>
+<script src="assets/js/client-logos.js?v=302"></script>
+<script src="assets/js/client-pr-sheets.js?v=302"></script>
+<script src="assets/js/mgr-sheet.js?v=302"></script>
+<script src="assets/js/retainer-value.js?v=302"></script>
+<script src="assets/js/wmj-sync.js?v=302"></script>
+<script src="assets/js/notifications.js?v=302"></script>
 <script>
   if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -254,8 +254,12 @@
   function liveEngagementLabel(c) {
     let e; try { e = (JSON.parse(localStorage.getItem("tja_dashboard_" + c.id) || "{}").engagements) || {}; } catch { e = {}; }
     const hasRet = retainerHasData(e.retainer);
-    // exclude empty "New Project" placeholders so this count matches the projects folder (isJunkProject)
-    const nProj = (e.projects || []).filter(p => !p.archived && !/^new project\b/i.test(String(p.label || "").trim())).length;
+    // exclude retainer campaigns + empty "New Project" placeholders so this count matches the
+    // projects folder (mirrors app.js isJunkProject).
+    const nProj = (e.projects || []).filter(p => {
+      const lbl = String(p.label || "").trim();
+      return !p.archived && !/\bretainer\b/i.test(lbl) && !/\bretainer\b/i.test(String(p.name || "")) && !/^new project\b/i.test(lbl);
+    }).length;
     const parts = [];
     if (hasRet) parts.push("Monthly Services");
     if (nProj) parts.push(nProj + " project" + (nProj === 1 ? "" : "s"));

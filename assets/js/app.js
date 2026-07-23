@@ -158,12 +158,13 @@ if (!engMode) {   // no explicit choice yet for this client — default to which
 }
 let selectedProjectId = sessionStorage.getItem("tja_proj_" + clientId()) || "";
 function getAllProjects() { return STATE.engagements.projects || []; }        // RAW list — placeholders + all
-// "Junk" projects that should never appear as a project folder: only the empty "New Project"
-// placeholders that get auto-created and never named. (A blanket "retainer" name filter was
-// tried and REMOVED — it wrongly hid legit annual-retainer projects like "SanTan 2026 Retainer";
-// misfiled ones like AHS "Web Maintenance Retainer" are an admin judgment call → archive them.)
+// "Junk" projects that should never appear as a project folder:
+//  • anything named "… Retainer" — that's Monthly-Services work, NOT a project (Cameron: a
+//    client like SanTan whose only WMJ campaign is "2026 Retainer" should have ZERO projects).
+//  • empty "New Project" placeholders that get auto-created and never named.
 function isJunkProject(p) {
-  return /^new project\b/i.test(String(p.label || "").trim());
+  const lbl = String(p.label || "").trim(), nm = String(p.name || "");
+  return /\bretainer\b/i.test(lbl) || /\bretainer\b/i.test(nm) || /^new project\b/i.test(lbl);
 }
 function getProjects() {                                                      // client-facing list
   const all = getAllProjects();
