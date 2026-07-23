@@ -164,7 +164,10 @@ function getAllProjects() { return STATE.engagements.projects || []; }        //
 //  • empty "New Project" placeholders that get auto-created and never named.
 function isJunkProject(p) {
   const lbl = String(p.label || "").trim(), nm = String(p.name || "");
-  return /\bretainer\b/i.test(lbl) || /\bretainer\b/i.test(nm) || /^new project\b/i.test(lbl);
+  // A "… Retainer" campaign is Monthly Services, not a project — hide it. BUT "Pre-Retainer"
+  // (e.g. Ancara "Business Immersion Pre-Retainer") is a real pre-engagement project → keep it.
+  const isRetainer = (s) => /\bretainer\b/i.test(s) && !/pre-?\s*retainer/i.test(s);
+  return isRetainer(lbl) || isRetainer(nm) || /^new project\b/i.test(lbl);
 }
 function getProjects() {                                                      // client-facing list
   const all = getAllProjects();

@@ -139,10 +139,10 @@
     clients.forEach(C => {
       const projects = [];
       C._camps.forEach((P, cm) => {
-        // A campaign named "… Retainer" is Monthly-Services work, not a project (Cameron) — its
-        // hours flow to the retainer/burn via the retainer sheet, so don't make a project folder
-        // for it. Covers annual retainers ("2026 Retainer") and service retainers alike.
-        if (/\bretainer\b/i.test(cm)) return;
+        // A campaign named "… Retainer" is Monthly-Services work, not a project — skip it. But
+        // "Pre-Retainer" (e.g. Ancara "Business Immersion Pre-Retainer") IS a real pre-engagement
+        // project, so keep those.
+        if (/\bretainer\b/i.test(cm) && !/pre-?\s*retainer/i.test(cm)) return;
         // phases = project_names; tasks under each
         const phases = [];
         const tasks = [];

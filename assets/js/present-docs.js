@@ -320,7 +320,7 @@ window.PresentDocs = (function () {
       return `<div class="pd-card pd-card-draft" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
         <span class="pd-enlarge-cue">Click to review</span>
-        <div class="pd-thumb"><img src="${v.dataUrl}" alt="${esc(d.name)}"></div>
+        <div class="pd-thumb"><img src="${v.url || v.dataUrl}" alt="${esc(d.name)}"></div>
         ${canSend ? `<button class="btn btn-primary pd-send-btn" data-send="${d.id}">📤 Send to client</button>` : ""}
         <div class="pd-card-foot">
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
@@ -339,7 +339,7 @@ window.PresentDocs = (function () {
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
         <button class="pd-card-export staff-only" data-export="${d.id}" title="Export proof PDF (internal record)">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
-        <div class="pd-thumb"><img src="${v.dataUrl}" alt="${esc(d.name)}"></div>
+        <div class="pd-thumb"><img src="${v.url || v.dataUrl}" alt="${esc(d.name)}"></div>
         <div class="pd-card-foot">
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
           <span class="pd-ver-tag">${esc(v.label)}</span>
@@ -357,14 +357,25 @@ window.PresentDocs = (function () {
       const reader = new FileReader();
       reader.onload = () => {
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
           const max = 1600;
           let { width, height } = img;
           if (width > max) { height = Math.round(height * max / width); width = max; }
           const c = document.createElement("canvas");
           c.width = width; c.height = height;
           c.getContext("2d").drawImage(img, 0, 0, width, height);
-          resolve({ dataUrl: c.toDataURL("image/jpeg", 0.85), name: file.name.replace(/\.[^.]+$/, "") });
+          const dataUrl = c.toDataURL("image/jpeg", 0.85);
+          const name = file.name.replace(/\.[^.]+$/, "");
+          // Upload the resized proof to shared storage (keeps the DB small — no base64 blob).
+          // If storage is off or the upload fails, fall back to storing it inline so uploads
+          // NEVER break. Old deliverables keep their inline dataUrl (rendered via v.url||v.dataUrl).
+          if (window.TJA_FILES && window.TJA_FILES.enabled()) {
+            try {
+              const r = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name });
+              if (r && r.url) { resolve({ url: r.url, name }); return; }
+            } catch (e) { console.warn("proof upload — keeping inline", e); }
+          }
+          resolve({ dataUrl, name });
         };
         img.src = reader.result;
       };
@@ -379,14 +390,18 @@ window.PresentDocs = (function () {
         + " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
     } catch (e) { return new Date().toLocaleString(); }
   }
-  function newVersion(dataUrl, label) {
-    // `state` is ROUTING (pending_approval | sent; ABSENT = sent, so every pre-existing
-    // version needs no migration). `status` stays the client's review verdict — the two
-    // look similar and must never be merged. `vid` is a per-version id (versions had
-    // none) used by dedupeDrafts to self-heal a crashed Send.
-    return { label, dataUrl, annotation: null, pins: [], status: null, clientNotes: "", agencyNotes: "",
+  function newVersion(img, label) {
+    // `img` is the processed proof: {url} (stored in shared storage) or {dataUrl} (inline
+    // fallback), or a legacy raw dataUrl string. Store whichever we have; the UI reads url||dataUrl.
+    // `state` is ROUTING (pending_approval | sent; ABSENT = sent, so every pre-existing version
+    // needs no migration). `status` stays the client's review verdict — never merge the two.
+    const v = { label, annotation: null, pins: [], status: null, clientNotes: "", agencyNotes: "",
       uploaded: stamp(), revisionsDue: "", subject: "", message: "",
       state: "sent", vid: uid() + "_v", uploadedBy: sess.name || sess.email || "" };
+    if (typeof img === "string") v.dataUrl = img;
+    else if (img && img.url) v.url = img.url;
+    else if (img && img.dataUrl) v.dataUrl = img.dataUrl;
+    return v;
   }
 
   /* ---------- upload brief (V1) ----------
@@ -467,7 +482,7 @@ window.PresentDocs = (function () {
     // tellable apart (they'd otherwise all carry the same name).
     const nameFor = (p) => !subject ? p.name : (multi ? subject + " — " + p.name : subject);
     (pendingUpload || []).forEach(p => {
-      const v = newVersion(p.dataUrl, "V1");
+      const v = newVersion(p, "V1");
       v.subject = subject; v.message = message; v.revisionsDue = due;
       const name = nameFor(p);
       if (toDraft) {
@@ -523,7 +538,7 @@ window.PresentDocs = (function () {
       // Creative adds a round to an already-SENT deliverable: the new version becomes a
       // standalone waiting-room card carrying parentId; Send merges it onto the parent
       // and recomputes the V-label then (an admin may add V2 in the meantime).
-      const v = newVersion(p.dataUrl, "V" + (d.versions.length + 1) + " (proposed)");
+      const v = newVersion(p, "V" + (d.versions.length + 1) + " (proposed)");
       v.state = "pending_approval";
       const proposedCard = { id: uid(), name: d.name, active: 0, versions: [v], parentId: d.id };
       draftItems.unshift(proposedCard);
@@ -532,7 +547,7 @@ window.PresentDocs = (function () {
       saveDrafts(); renderGallery();
       return;
     }
-    const v = newVersion(p.dataUrl, "V" + (d.versions.length + 1));
+    const v = newVersion(p, "V" + (d.versions.length + 1));
     const stillDraft = isDraft(d);
     if (stillDraft) v.state = "pending_approval";   // extra round on a not-yet-sent draft stays a draft
     else { v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA"; }
@@ -816,7 +831,8 @@ window.PresentDocs = (function () {
       renderPins(); renderPinList();
     };
     img.onload = () => paint(0);
-    img.src = v.dataUrl;
+    if (v.url) img.crossOrigin = "anonymous";   // stored proof (cross-origin) — allow canvas use
+    img.src = v.url || v.dataUrl;
     if (img.complete && img.naturalWidth) paint(0);   // already-loaded / cached / same-src
   }
   function openModal(id) {
@@ -1096,7 +1112,8 @@ window.PresentDocs = (function () {
         else pins();
       };
       base.onerror = () => resolve(null);
-      base.src = v.dataUrl;
+      if (v.url) base.crossOrigin = "anonymous";   // stored proof — keep the export canvas untainted
+      base.src = v.url || v.dataUrl;
     });
   }
   async function exportPDF(d) {

@@ -159,15 +159,11 @@ window.MediaIntake = (function () {
     });
   }
 
-  // Upload one attached file to Supabase Storage (bucket "media-intake"), return its public URL.
+  // Upload one attached file through the shared TJA_FILES layer, return its public URL.
   async function uploadFile(file) {
-    if (!(window.SUPA && window.SUPA.client)) return null;
-    const safe = String(file.name || "file").replace(/[^\w.\-]+/g, "_");
-    const path = `${clientId()}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`;
-    const { error } = await window.SUPA.client.storage.from("media-intake").upload(path, file, { upsert: false, contentType: file.type || undefined });
-    if (error) { console.warn("media upload", error.message); throw error; }
-    const { data } = window.SUPA.client.storage.from("media-intake").getPublicUrl(path);
-    return data && data.publicUrl;
+    if (!(window.TJA_FILES && window.TJA_FILES.enabled())) throw new Error("storage-not-configured");
+    const r = await window.TJA_FILES.upload(file, { category: "media-intake", clientId: clientId(), name: file.name });
+    return r && r.url;
   }
 
   async function submit(btn) {
