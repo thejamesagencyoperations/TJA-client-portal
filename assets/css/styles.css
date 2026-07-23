@@ -1322,7 +1322,7 @@ body[data-role="client"] .staff-only { display: none !important; }
 .tl-date { font-size: .72rem; color: var(--text-faint); }
 
 /* Bottom tiles */
-.tile-list { display: flex; flex-direction: column; gap: 9px; }
+.tile-list { display: flex; flex-direction: column; gap: 13px; }
 .tile-item { display: flex; align-items: flex-start; gap: 9px; font-size: .84rem; }
 .tile-item .owner-tag,
 .ms-item .owner-tag { font-size: .58rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; flex: none; margin-top: 1px; }
