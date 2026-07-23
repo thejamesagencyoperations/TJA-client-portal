@@ -34,6 +34,7 @@ import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
 import { postToSlack } from "../_shared/slack.ts";
+import { portalSettings } from "../_shared/settings.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // The only place the portal's own URL exists in the backend. On a future custom
@@ -113,6 +114,18 @@ Deno.serve(async (req) => {
     .catch(() => ({ ok: false }));
   const slacked = !!(slackRes && slackRes.ok);
 
+  // Email vs link. `mode` from the caller wins ('email' | 'link' | 'both'); otherwise obey
+  // the global deliverable-email toggle. When email is off we skip it entirely and hand the
+  // deep link back to be copied — nothing is silent. The link is ALWAYS returned.
+  const settings = await portalSettings();
+  const mode = String((body as any).mode || "").toLowerCase();
+  const wantEmail = mode === "email" || mode === "both" ? true
+    : mode === "link" ? false
+    : settings.deliverableEmails;
+  if (!wantEmail) {
+    return json(req, 200, { ok: true, emailed: false, link: REVIEW_URL, slacked });
+  }
+
   /* ---- who gets the EMAIL ---- */
   const svc = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -131,7 +144,7 @@ Deno.serve(async (req) => {
   if (!recipients.length) {
     // Slack may already have gone out — say so, so the UI doesn't imply nothing happened.
     return json(req, 409, {
-      slacked,
+      slacked, link: REVIEW_URL,
       error: "No email address on file for this client. Invite them in the Admin Center, or add an address under Clients → Edit → Integrations.",
     });
   }
@@ -165,7 +178,7 @@ Deno.serve(async (req) => {
 
   try {
     const out = await sendViaResend(recipients, subject, html, text);
-    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length, slacked });
+    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length, slacked, emailed: true, link: REVIEW_URL });
   } catch (e) {
     // Surface WHY. This used to return a bare "email send failed", which told the
     // admin nothing and made the thing undiagnosable from the UI — Resend's own

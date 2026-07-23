@@ -43,6 +43,35 @@ window.TJA_MAIL = (function () {
     clearTimeout(t._hide);
     t._hide = setTimeout(() => { t.style.display = "none"; }, 5000);
   }
+  // When email is OFF (or there's no recipient), nothing should be silent — surface the
+  // deliverable's link with a Copy button so the sender can pass it along themselves.
+  async function copyLinkPrompt(msg, url) {
+    let auto = false;
+    try { await navigator.clipboard.writeText(url); auto = true; } catch (e) {}
+    let t = document.getElementById("tjaLinkToast");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "tjaLinkToast";
+      t.style.cssText = "position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:12001;" +
+        "background:#1c1c1c;color:#fff;font:600 .78rem Inter,sans-serif;padding:12px 16px;border-radius:11px;" +
+        "box-shadow:0 8px 28px rgba(0,0,0,.4);max-width:90vw;display:flex;align-items:center;gap:12px";
+      document.body.appendChild(t);
+    }
+    t.innerHTML = `<span style="max-width:60vw">${msg}${auto ? " — copied ✓" : ""}</span>`;
+    const btn = document.createElement("button");
+    btn.textContent = auto ? "Copy again" : "Copy link";
+    btn.style.cssText = "background:#FF7800;border:none;color:#111;font:700 .74rem Inter,sans-serif;padding:7px 13px;border-radius:8px;cursor:pointer;white-space:nowrap";
+    btn.onclick = async () => { try { await navigator.clipboard.writeText(url); btn.textContent = "Copied ✓"; } catch (e) { btn.textContent = "Select manually"; } };
+    t.appendChild(btn);
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.style.cssText = "background:transparent;border:none;color:#aaa;cursor:pointer;font-size:.9rem";
+    x.onclick = () => { t.style.display = "none"; };
+    t.appendChild(x);
+    t.style.display = "flex";
+    clearTimeout(t._hide);
+    t._hide = setTimeout(() => { t.style.display = "none"; }, 30000);   // stays long enough to act on
+  }
 
   // payload: { clientId, docName, versionLabel, subject, message, dueDate }
   async function sendDeliverable(payload) {
@@ -56,9 +85,20 @@ window.TJA_MAIL = (function () {
         body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
-      if (r.ok) { toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")" + (j.slacked ? " · posted to Slack" : "")); return { ok: true }; }
+      if (r.ok) {
+        if (j.emailed) {
+          toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")" + (j.slacked ? " · posted to Slack" : ""));
+        } else if (j.link) {
+          // Email is toggled off — hand over the copyable link so nothing is silent.
+          copyLinkPrompt("Email is off — send this deliverable link to the client" + (j.slacked ? " (also posted to Slack)" : ""), j.link);
+        } else {
+          toast("Sent to the portal.");
+        }
+        return { ok: true };
+      }
       if (r.status === 409) {
-        toast(j.slacked
+        if (j.link) copyLinkPrompt("No client email on file — copy the deliverable link to send it yourself" + (j.slacked ? " (posted to Slack)" : ""), j.link);
+        else toast(j.slacked
           ? "💬 Posted to Slack — but no client email address is on file, so no email went out (add one in the client's Integrations)."
           : "Sent to the portal — no notification email set for this client (add one in the client's Integrations).");
         return { ok: false, noRecipients: true };

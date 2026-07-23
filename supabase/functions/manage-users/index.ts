@@ -33,6 +33,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
+import { portalSettings } from "../_shared/settings.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // 'media' = paid-media team. Staff-tier (own no client workspace) but view-only on
@@ -185,19 +186,25 @@ Deno.serve(async (req) => {
       return json(req, 200, { logins });
     }
 
-    // Everything below manages real accounts — the agency admin only. An AM/PM is
-    // role='manager' and stops here.
-    if (caller.role !== "admin")
-      return json(req, 403, { error: "Only the agency's admin account can manage logins." });
+    // AM/PMs (role='manager') may create/manage CLIENT logins only — everything else
+    // (staff accounts, role changes, deletes) stays with the agency admin. Each action
+    // below states which tiers it allows; the mutating staff actions re-assert admin.
+    const isAdmin = caller.role === "admin";
+    const isManager = caller.role === "manager";
+    if (!isAdmin && !isManager)
+      return json(req, 403, { error: "Only staff can manage logins." });
 
-    /* ---------- list ---------- */
+    /* ---------- list ----------
+       Admin sees everyone; a manager sees CLIENT logins only (they create + resend
+       those), never staff accounts. */
     if (action === "list") {
       const users = await allAuthUsers(svc);
       const { data: profs } = await svc.from("profiles").select("id,email,role,client_id");
       const byId: Record<string, any> = {};
       (profs || []).forEach((p: any) => byId[p.id] = p);
-      return json(req, 200, {
-        users: users.map((u) => ({
+      const rows = users
+        .filter((u) => isAdmin || (byId[u.id]?.role || u.user_metadata?.role || "client") === "client")
+        .map((u) => ({
           id: u.id,
           email: u.email,
           name: u.user_metadata?.name || "",
@@ -212,18 +219,24 @@ Deno.serve(async (req) => {
           // last_sign_in_at stays null until they actually set a password and land.
           // Without this the Admin Center can't tell "waiting on them" from "active".
           invitedPending: !!u.invited_at && !u.last_sign_in_at,
-        })),
-      });
+        }));
+      return json(req, 200, { users: rows, managerScoped: isManager });
     }
 
     /* ---------- invite (clients) ----------
        The client never gets a password from us — they set their own. Creates the
        auth user via generateLink (which does NOT send anything), writes the profile,
-       then emails our own branded link through Resend. */
+       then emails our own branded link through Resend — UNLESS email is toggled off (or
+       the caller asks for a link only), in which case we skip the email and hand the
+       link back to be copied. The link is ALWAYS returned so nothing is ever silent.
+       Managers may invite CLIENTS only; staff invites stay with the admin. */
     if (action === "invite" || action === "reinvite") {
       const email = String(body.email || "").trim().toLowerCase();
       const role = String(body.role || "client");
       const name = String(body.name || "").trim();
+      // A manager may only ever mint CLIENT logins — never staff accounts.
+      if (isManager && role !== "client")
+        return json(req, 403, { error: "AM/PMs can create client logins only. Ask an admin for staff accounts." });
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(req, 400, { error: "Enter a valid email address." });
       if (!ROLES.includes(role)) return json(req, 400, { error: "Unknown role." });
       const clientId = workspaceFor(role, body.clientId);
@@ -268,20 +281,33 @@ Deno.serve(async (req) => {
         .upsert({ id: userId, email, role, client_id: clientId }, { onConflict: "id" });
       if (pe) return json(req, 400, { error: pe.message });
 
-      try {
-        await sendInviteEmail(email, clientName, link, caller.email || "The James Agency");
-      } catch (e) {
-        // The account exists and is correctly wired — only the email failed. Say so
-        // precisely, so nobody deletes and recreates a perfectly good login.
-        return json(req, 502, {
-          error: "The login was created, but the invite email didn't send: "
-            + String((e as Error).message || e).slice(0, 140)
-            + ' — use "Resend invite" once that\'s sorted.',
-          id: userId, created: true,
-        });
+      // Email vs link. `mode` from the caller wins ('email' | 'link' | 'both'); with no
+      // explicit mode we fall back to the global signup-email toggle. The link is ALWAYS
+      // returned so the caller can copy it — nothing is ever silent.
+      const settings = await portalSettings();
+      const mode = String(body.mode || "").toLowerCase();
+      const wantEmail = mode === "email" || mode === "both" ? true
+        : mode === "link" ? false
+        : settings.signupEmails;   // no explicit choice → obey the slider
+
+      let emailed = false, emailError = "";
+      if (wantEmail) {
+        try {
+          await sendInviteEmail(email, clientName, link, caller.email || "The James Agency");
+          emailed = true;
+        } catch (e) {
+          // The account exists and is correctly wired — only the email failed. Don't hard-
+          // fail: hand back the link so they can still send it manually.
+          emailError = String((e as Error).message || e).slice(0, 140);
+        }
       }
-      return json(req, 200, { ok: true, id: userId, invited: email });
+      return json(req, 200, { ok: true, id: userId, invited: email, link, emailed, emailError });
     }
+
+    // From here down: staff-account management — the agency admin ONLY. A manager who
+    // reaches this (creating staff, changing roles, setting passwords, deleting) is refused.
+    if (!isAdmin)
+      return json(req, 403, { error: "Only the agency's admin account can do that." });
 
     /* ---------- create ---------- */
     if (action === "create") {

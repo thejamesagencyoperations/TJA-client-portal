@@ -337,7 +337,8 @@ window.PresentDocs = (function () {
       const last = d.versions[d.versions.length - 1] || v;
       return `<div class="pd-card" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
-        <button class="pd-card-export staff-only" data-export="${d.id}" title="Export proof PDF (internal record)">⬇</button>
+        <button class="pd-card-export staff-only" data-copylink="${d.id}" title="Copy a shareable link to this deliverable">🔗</button>
+        <button class="pd-card-export staff-only" data-export="${d.id}" title="Export proof PDF (internal record)" style="right:76px">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
         <div class="pd-thumb"><img src="${v.url || v.dataUrl}" alt="${esc(d.name)}"></div>
         <div class="pd-card-foot">
@@ -350,6 +351,29 @@ window.PresentDocs = (function () {
       </div>`;
     }).join("");
     g.innerHTML = draftCards + sentCards;   // waiting room first — it's the actionable pile
+  }
+
+  // Shareable deep link to a deliverable — same shape the email/Slack use
+  // (<portal>/?open=docs&doc=<id>), resolved against the current portal URL.
+  function deliverableLink(id) {
+    try { return new URL("./?open=docs&doc=" + encodeURIComponent(id), location.href).href; }
+    catch (e) { return location.origin + "/?open=docs&doc=" + encodeURIComponent(id); }
+  }
+  async function copyDeliverableLink(id) {
+    const url = deliverableLink(id);
+    let ok = false;
+    try { await navigator.clipboard.writeText(url); ok = true; } catch (e) {}
+    let t = document.getElementById("pdLinkToast");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "pdLinkToast";
+      t.style.cssText = "position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:12000;" +
+        "background:#1c1c1c;color:#fff;font:600 .78rem Inter,sans-serif;padding:10px 16px;border-radius:9px;" +
+        "box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:80vw;text-align:center";
+      document.body.appendChild(t);
+    }
+    t.textContent = ok ? "🔗 Deliverable link copied to clipboard" : "Couldn't copy — link: " + url;
+    t.style.display = ""; clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = "none"; }, 4000);
   }
 
   /* ---------- image processing ---------- */
@@ -1442,6 +1466,8 @@ window.PresentDocs = (function () {
     $("pdVerFile").addEventListener("change", e => { handleResubmit(e.target.files[0]); e.target.value = ""; });
 
     $("pdGallery").addEventListener("click", e => {
+      const lnk = e.target.closest("[data-copylink]");
+      if (lnk) { e.stopPropagation(); copyDeliverableLink(lnk.dataset.copylink); return; }
       const exp = e.target.closest("[data-export]");
       if (exp) { e.stopPropagation(); exportPDF(deliv(exp.dataset.export)); return; }
       const snd = e.target.closest("[data-send]");

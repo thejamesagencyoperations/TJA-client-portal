@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=313" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=313">
+<link rel="icon" href="assets/img/favicon.ico?v=314" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=314">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=313">
+<link rel="stylesheet" href="assets/css/styles.css?v=314">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -40,6 +40,21 @@
     </div>
 
     <div class="tm-note" id="tmNote" style="display:none"></div>
+
+    <!-- Email / link delivery toggles (admin only). When a slider is OFF the matching
+         email is NOT sent — instead the portal surfaces a copy-link button so nothing is
+         ever silent. Stored globally in app_state (_settings/clients). -->
+    <div class="tm-settings" id="tmSettings" style="display:none">
+      <div class="tm-set-head">Notifications &amp; links</div>
+      <div class="tm-set-row">
+        <div class="tm-set-txt"><b>Deliverable emails</b><span>Email the client when a deliverable is sent, and notify the team when a review comes in. Off = Slack still posts and you copy a link to send yourself.</span></div>
+        <label class="tm-switch"><input type="checkbox" id="setDeliverableEmails"><span class="tm-slider-ui"></span></label>
+      </div>
+      <div class="tm-set-row">
+        <div class="tm-set-txt"><b>Signup / invite emails</b><span>Email a new client their set-password link. Off = the invite still creates the login and you copy the signup link to send yourself.</span></div>
+        <label class="tm-switch"><input type="checkbox" id="setSignupEmails"><span class="tm-slider-ui"></span></label>
+      </div>
+    </div>
 
     <!-- filter row: role chips + live search, sits on the table it filters -->
     <div class="tm-filter-row" id="tmFilterRow">
@@ -123,24 +138,39 @@
   </div>
 </div>
 
+<!-- Copy-link modal — signup links + any "email is off, send it yourself" link. -->
+<div class="cl-overlay" id="tmLinkOverlay" style="display:none">
+  <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
+    <div class="cl-card-head"><div class="cl-title" id="tmLinkTitle">Copy the link</div>
+      <button class="cl-x" id="tmLinkX" title="Close">✕</button></div>
+    <p class="cl-done-lead" id="tmLinkLead"></p>
+    <div class="cl-creds"><div class="cl-cred" style="flex:1"><span>Link</span><code id="tmLinkUrl" style="word-break:break-all"></code></div></div>
+    <div class="cl-actions">
+      <button type="button" class="btn btn-primary" id="tmLinkCopy">Copy link</button>
+      <button type="button" class="btn btn-ghost" id="tmLinkClose">Done</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=313"></script>
-<script src="assets/js/version-check.js?v=313"></script>
-<script src="assets/js/supabase-sync.js?v=313"></script>
-<script src="assets/js/ui.js?v=313"></script>
-<script src="assets/js/auth.js?v=313"></script>
-<script src="assets/js/chrome-menu.js?v=313"></script>
+<script src="assets/js/supabase-config.js?v=314"></script>
+<script src="assets/js/version-check.js?v=314"></script>
+<script src="assets/js/supabase-sync.js?v=314"></script>
+<script src="assets/js/ui.js?v=314"></script>
+<script src="assets/js/auth.js?v=314"></script>
+<script src="assets/js/chrome-menu.js?v=314"></script>
 <script>
   requireAuth();
-  // The agency account (role=admin) only. AM/PMs are role=manager and land back on
-  // the picker; a client goes to their own workspace. The function refuses them
-  // regardless — this just avoids serving a dead page.
-  if (typeof isAdmin === "function" && !isAdmin())
+  // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
+  // creatives/paid-media to the picker, a client to their own workspace. The function
+  // re-checks server-side, so this just avoids serving a dead page.
+  const _canAdminCenter = (typeof isAdmin === "function" && isAdmin()) || (typeof isManager === "function" && isManager());
+  if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=313"></script>
-<script src="assets/js/client-template.js?v=313"></script>
-<script src="assets/js/client-store.js?v=313"></script>
+<script src="assets/js/clients.js?v=314"></script>
+<script src="assets/js/client-template.js?v=314"></script>
+<script src="assets/js/client-store.js?v=314"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -155,7 +185,41 @@
 
   const FN = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.url)
     ? window.SUPABASE_CONFIG.url.replace(/\/$/, "") + "/functions/v1/manage-users" : "";
-  let users = [], filter = "staff";
+  // AM/PM (manager) mode: client logins only — no staff accounts, no role changes, no
+  // deletes, no email settings. The Edge Function enforces all of this server-side too.
+  const AMPM = !((typeof isAdmin === "function") && isAdmin()) && ((typeof isManager === "function") && isManager());
+  let users = [], filter = AMPM ? "client" : "staff";
+
+  /* ---- global email/link delivery settings (admin-controlled, read by the functions) ---- */
+  const SETTINGS = { deliverableEmails: true, signupEmails: true };
+  async function loadSettings() {
+    try {
+      const s = await window.SUPA.pullScope("_settings", "clients");
+      if (s && typeof s === "object" && !Array.isArray(s)) {
+        SETTINGS.deliverableEmails = s.deliverableEmails !== false;
+        SETTINGS.signupEmails = s.signupEmails !== false;
+      }
+    } catch (e) {}
+    if ($("setDeliverableEmails")) $("setDeliverableEmails").checked = SETTINGS.deliverableEmails;
+    if ($("setSignupEmails")) $("setSignupEmails").checked = SETTINGS.signupEmails;
+  }
+  async function saveSettings() {
+    SETTINGS.deliverableEmails = $("setDeliverableEmails").checked;
+    SETTINGS.signupEmails = $("setSignupEmails").checked;
+    try { await window.SUPA.pushScopeNow("_settings", "clients", { deliverableEmails: SETTINGS.deliverableEmails, signupEmails: SETTINGS.signupEmails }); } catch (e) {}
+  }
+
+  /* ---- copy-link modal (signup links + "email is off, send it yourself" links) ---- */
+  function showLink(title, lead, url) {
+    const ov2 = $("tmLinkOverlay");
+    $("tmLinkTitle").textContent = title;
+    $("tmLinkLead").textContent = lead;
+    $("tmLinkUrl").textContent = url;
+    $("tmLinkCopy").textContent = "Copy link";
+    ov2.style.display = "flex";
+    // auto-copy on open so it's already on the clipboard the moment they see it
+    navigator.clipboard && navigator.clipboard.writeText(url).then(() => { $("tmLinkCopy").textContent = "Copied ✓"; }).catch(() => {});
+  }
 
   function note(html, kind) {
     const n = $("tmNote");
@@ -218,20 +282,26 @@
       <tr data-id="${esc(u.id)}">
         <td style="font-weight:600">${esc(u.name || "—")}${u.isYou ? ` <span class="tm-you">you</span>` : ""}</td>
         <td style="color:var(--text-dim)">${esc(u.email)}</td>
-        <td><select class="tm-role" data-roleset="${esc(u.id)}" ${u.isYou ? "disabled title='You can&apos;t change your own role'" : ""}>
+        <td>${AMPM
+          ? `<span style="color:var(--text-dim)">${ROLE_LABEL[u.role] || esc(u.role)}</span>`
+          : `<select class="tm-role" data-roleset="${esc(u.id)}" ${u.isYou ? "disabled title='You can&apos;t change your own role'" : ""}>
           ${["admin","manager","creative","media","client"].map(r => `<option value="${r}"${r === u.role ? " selected" : ""}>${ROLE_LABEL[r]}</option>`).join("")}
-        </select></td>
+        </select>`}</td>
         <td style="color:var(--text-dim)">${esc(clientName(u.clientId))}</td>
         <td style="color:var(--text-dim)">${u.invitedPending
           ? `<span class="tm-pending">Invited — not accepted</span>`
           : esc(when(u.lastSignIn))}</td>
         <td style="text-align:right;white-space:nowrap">
           ${u.role === "client"
+            // A copyable signup/reset link — for sending it yourself (Slack, DM) or when
+            // the invite email is toggled off. Generates a fresh link on click.
+            ? `<button class="btn btn-ghost btn-sm tm-linkbtn" data-copylink="${esc(u.id)}" title="Generate a signup / reset link to copy">🔗 Copy link</button>` : ""}
+          ${u.role === "client"
             // Clients never receive a password from us — resending the invite is the
             // only correct recovery, whether they lost the link or it expired.
             ? `<button class="btn btn-ghost btn-sm" data-reinvite="${esc(u.id)}">${u.invitedPending ? "Resend invite" : "Send reset link"}</button>`
-            : `<button class="btn btn-ghost btn-sm" data-pw="${esc(u.id)}">Reset password</button>`}
-          ${u.isYou ? "" : `<button class="btn btn-ghost btn-sm tm-del" data-del="${esc(u.id)}">Remove</button>`}
+            : (AMPM ? "" : `<button class="btn btn-ghost btn-sm" data-pw="${esc(u.id)}">Reset password</button>`)}
+          ${(u.isYou || AMPM) ? "" : `<button class="btn btn-ghost btn-sm tm-del" data-del="${esc(u.id)}">Remove</button>`}
         </td>
       </tr>`).join("");
   }
@@ -280,8 +350,19 @@
     render();
   });
 
-  /* ---- reset password / remove ---- */
+  /* ---- reset password / remove / copy link ---- */
   $("tmBody").addEventListener("click", async (e) => {
+    // 🔗 Copy link — generate a fresh signup/reset link WITHOUT emailing, and copy it.
+    const cl = e.target.closest("[data-copylink]");
+    if (cl) {
+      const u = users.find(x => x.id === cl.dataset.copylink);
+      const was = cl.textContent; cl.disabled = true; cl.textContent = "Generating…";
+      const r = await call({ action: "reinvite", id: u.id, role: u.role, email: u.email, clientId: u.clientId, name: u.name, mode: "link" });
+      cl.disabled = false; cl.textContent = was;
+      if (r.error) { window.TJA_UI.alert(r.error); return; }
+      if (r.link) showLink("Signup link", `Copy this and send it to ${u.email} yourself (Slack, text, wherever). It lets them set their password and sign in.`, r.link);
+      return;
+    }
     const ri = e.target.closest("[data-reinvite]");
     if (ri) {
       const u = users.find(x => x.id === ri.dataset.reinvite);
@@ -291,7 +372,12 @@
       const was = ri.textContent; ri.disabled = true; ri.textContent = "Sending…";
       const r = await call({ action: "reinvite", id: u.id, role: u.role, email: u.email, clientId: u.clientId, name: u.name });
       ri.disabled = false; ri.textContent = was;
-      window.TJA_UI.alert(r.error ? r.error : `Sent to ${u.email}.`);
+      if (r.error) { window.TJA_UI.alert(r.error); return; }
+      // If the email went, say so; if it's toggled off (link only), pop the copyable link.
+      if (r.emailed) window.TJA_UI.alert(`Sent to ${u.email}.`);
+      else if (r.link) showLink("Signup link", `Email is off — copy this and send it to ${u.email} yourself. It lets them set their password.`, r.link);
+      else window.TJA_UI.alert(`Sent to ${u.email}.`);
+      load(true);
       return;
     }
     const pw = e.target.closest("[data-pw]");
@@ -366,9 +452,11 @@
   $("tmGen").addEventListener("click", () => { $("tmPassword").value = genPassword(); $("tmPassword").focus(); });
 
   $("tmAdd").addEventListener("click", () => {
-    $("tmErr").textContent = ""; $("tmForm").reset(); fillClients(); syncRoleFields();
+    $("tmErr").textContent = ""; $("tmForm").reset(); fillClients();
+    if (AMPM) $("tmRole").value = "client";   // managers only ever invite clients (role field is hidden)
+    syncRoleFields();
     $("tmPassword").value = genPassword();   // start from a strong one rather than a blank box
-    ov.style.display = "flex"; setTimeout(() => $("tmRole").focus(), 30);
+    ov.style.display = "flex"; setTimeout(() => $(AMPM ? "tmEmail" : "tmRole").focus(), 30);
   });
   const close = () => ov.style.display = "none";
   $("tmCancel").addEventListener("click", close);
@@ -396,7 +484,15 @@
     $("tmSave").disabled = false; $("tmSave").textContent = label;
     if (r.error) { $("tmErr").textContent = r.error; return; }
     close();
-    if (invite) window.TJA_UI.alert(`Invite sent to ${payload.email}.\n\nThey'll set their own password and land in ${clientName(payload.clientId)}'s workspace. The link expires in 24 hours — you can resend it from the list.`, { title: "Invite sent ✓" });
+    if (invite) {
+      if (r.emailed) {
+        window.TJA_UI.alert(`Invite emailed to ${payload.email}.\n\nThey'll set their own password and land in ${clientName(payload.clientId)}'s workspace. You can also grab the link any time with 🔗 Copy link on their row.`, { title: "Invite sent ✓" });
+      } else if (r.link) {
+        showLink("Signup link", `Email is off — copy this and send it to ${payload.email} yourself. It lets them set their password and land in ${clientName(payload.clientId)}'s workspace.`, r.link);
+      } else {
+        window.TJA_UI.alert(`Invite created for ${payload.email}.`, { title: "Invite created ✓" });
+      }
+    }
     else showCreated(payload.email, payload.password, role, payload.name, payload.clientId);
     await load();
   });
@@ -420,6 +516,33 @@
   const closeDone = () => { doneOv.style.display = "none"; };
   $("tmDoneClose").addEventListener("click", closeDone);
   window.TJA_UI.backdropClose(doneOv, closeDone);
+
+  // copy-link modal wiring
+  const _closeLink = () => $("tmLinkOverlay").style.display = "none";
+  $("tmLinkClose").addEventListener("click", _closeLink);
+  $("tmLinkX").addEventListener("click", _closeLink);
+  $("tmLinkCopy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText($("tmLinkUrl").textContent); $("tmLinkCopy").textContent = "Copied ✓"; }
+    catch (e) { $("tmLinkCopy").textContent = "Select it manually"; }
+  });
+  window.TJA_UI.backdropClose($("tmLinkOverlay"), _closeLink);
+
+  if (!AMPM) {
+    // Admin: expose + wire the global email/link settings.
+    $("tmSettings").style.display = "";
+    $("setDeliverableEmails").addEventListener("change", saveSettings);
+    $("setSignupEmails").addEventListener("change", saveSettings);
+    await loadSettings();
+  } else {
+    // AM/PM: client logins only — retitle + trim the staff chrome. Server enforces the rest.
+    const pd = document.querySelector(".page-desc"); if (pd) pd.textContent = "Create and manage your clients' portal logins.";
+    $("tmAdd").textContent = "＋ Add client";
+    // lock the Add form to a client invite: hide the role picker entirely.
+    const roleField = $("tmRole").closest(".cl-field"); if (roleField) roleField.style.display = "none";
+    // only the Clients filter chip makes sense.
+    document.querySelectorAll(".tm-chip").forEach(ch => { if (ch.dataset.tmf !== "client") ch.style.display = "none"; else { ch.classList.add("active"); } });
+    document.querySelectorAll(".tm-chip").forEach(ch => { if (ch.dataset.tmf !== "client") ch.classList.remove("active"); });
+  }
 
   await window.TJA_STORE.hydrate().catch(() => {});
   await load();

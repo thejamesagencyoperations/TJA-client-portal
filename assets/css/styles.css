@@ -424,6 +424,22 @@ body[data-role="client"] .staff-only { display: none !important; }
 .tm-note code { font-size: .9em; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 @media (max-width: 620px) { .tm-actions { flex-wrap: wrap; gap: 8px; } }
 
+/* email/link delivery toggles (Admin Center) */
+.tm-settings { margin: 0 0 18px; padding: 6px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.tm-set-head { font-size: .64rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); padding: 12px 0 6px; }
+.tm-set-row { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+.tm-set-txt { flex: 1; min-width: 0; }
+.tm-set-txt b { display: block; font-size: .84rem; font-weight: 600; }
+.tm-set-txt span { display: block; font-size: .72rem; color: var(--text-dim); margin-top: 2px; line-height: 1.4; }
+.tm-switch { position: relative; display: inline-block; width: 42px; height: 24px; flex: none; cursor: pointer; }
+.tm-switch input { opacity: 0; width: 0; height: 0; }
+.tm-slider-ui { position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .18s ease; }
+.tm-slider-ui::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 50%; background: #fff; transition: transform .18s ease; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.tm-switch input:checked + .tm-slider-ui { background: var(--orange); }
+.tm-switch input:checked + .tm-slider-ui::before { transform: translateX(18px); }
+/* copy-link button that shows up on a client row when a link is available */
+.tm-linkbtn { color: var(--orange); }
+
 /* Integrations section in the client Add/Edit modal (collapsed by default) */
 .cl-integrations { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .cl-integrations summary { cursor: pointer; font-size: .78rem; font-weight: 700; color: var(--text-dim); }
