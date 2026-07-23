@@ -846,7 +846,8 @@ window.ExecSummary = (function () {
         ? `<button class="exec-actuals-btn" data-prtile="off" title="Hide the PR Coverage tile — Service Lines extends to fill the column">✕ Remove PR Coverage</button>`
         : `<button class="exec-actuals-btn" data-prtile="on" title="Show the PR Coverage tile — Service Lines shrinks back to make room">＋ Add PR Coverage</button>`);
     // Media Requests tab — admin on/off override (for clients the auto-detect misses, e.g. DCS).
-    if (canAdmin() && window.DASH.mediaTabShown) {
+    // Monthly-Services view only (the media tab is a retainer thing) — not on the project view.
+    if (canAdmin() && e.type !== "project" && window.DASH.mediaTabShown) {
       const on = window.DASH.mediaTabShown();
       ctl.push(`<button class="exec-actuals-btn" data-mediatoggle="${on ? "off" : "on"}" title="Show or hide the Media Creative Asset Request tab for this client">${on ? "✕ Remove Media Requests tab" : "＋ Add Media Requests tab"}</button>`);
     }
