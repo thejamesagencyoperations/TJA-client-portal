@@ -42,8 +42,9 @@ window.MediaIntake = (function () {
     return `<div class="mi-asset" data-asset>
       <div class="mi-asset-head"><span>Asset ${n}</span><button type="button" class="mi-asset-x" data-assetdel title="Remove this asset">✕</button></div>
       <label class="mi-f"><span>Asset(s) — name of file</span><input data-f="name" placeholder="Name of the file / asset"></label>
-      <label class="mi-f"><span>Attach — upload the file <em>jpg, png, mp4, pdf… — or use a link below</em></span><input type="file" class="mi-file" data-file accept="image/*,video/*,.pdf,.gif"></label>
-      <label class="mi-f"><span>…or a Drive / YouTube link <em>YouTube assets MUST use a YouTube video link</em></span><input data-f="driveLink" placeholder="https://drive.google.com/…  or  https://youtube.com/…"></label>
+      ${(window.TJA_FILES && window.TJA_FILES.enabled())
+        ? `<label class="mi-f"><span>Attach — upload the file <em>jpg, png, mp4, pdf…</em></span><input type="file" class="mi-file" data-file accept="image/*,video/*,.pdf,.gif"></label>` : ""}
+      <label class="mi-f"><span>Attach — Drive / YouTube link <em>YouTube assets MUST use a YouTube video link</em></span><input data-f="driveLink" placeholder="https://drive.google.com/…  or  https://youtube.com/…"></label>
       <label class="mi-f"><span>Landing Page URL <em>leave blank if you'd like the media team to create this</em></span><input data-f="landingUrl" placeholder="https://…"></label>
       <label class="mi-f"><span>Headline <em>leave blank if you'd like the media team to create this</em></span><input data-f="headline"></label>
       <label class="mi-f"><span>Body Copy <em>leave blank if you'd like the media team to create this</em></span><textarea data-f="body" rows="3"></textarea></label>

@@ -13,6 +13,11 @@
    window.TJA_FILES.uploadDataUrl(dataUrl, {category, clientId, name})  (for canvas JPEGs, e.g. proofs)
    ============================================================ */
 window.TJA_FILES = (function () {
+  // KILL SWITCH (Cameron 2026-07-23): storage is OFF until the final Drive destination is wired.
+  // While false, NOTHING is written anywhere — Present Docs falls back to inline (its old
+  // behaviour) and the media form hides its file input. Flip to true only when put() points at
+  // the agreed Drive location.
+  const STORAGE_ENABLED = false;
   const BUCKET = "media-intake";   // interim Supabase Storage bucket (reused; no extra setup)
 
   const safe = (s) => String(s || "file").replace(/[^\w.\-]+/g, "_").slice(0, 120);
@@ -47,5 +52,5 @@ window.TJA_FILES = (function () {
     return { url, path, name: opts.name || "file", size: blob.size || 0, type: blob.type || "" };
   }
 
-  return { upload, uploadDataUrl, bucket: BUCKET, enabled: () => !!(window.SUPA && window.SUPA.client) };
+  return { upload, uploadDataUrl, bucket: BUCKET, enabled: () => STORAGE_ENABLED && !!(window.SUPA && window.SUPA.client) };
 })();
