@@ -12,47 +12,10 @@
    JWT — deploy with --no-verify-jwt.
      supabase functions deploy plan-refresh --use-api --no-verify-jwt
    ============================================================ */
-import * as XLSX from "npm:xlsx@0.18.5";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { handleOptions, json } from "../_shared/cors.ts";
-import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId, sheetsHiddenRowSet } from "../_shared/google.ts";
-import { parseProjectPlanRows, dropHiddenRows } from "../_shared/plan.ts";
-
-function pickSheetName(names: string[]): string {
-  return names.find((n) => /plan/i.test(n)) || names[names.length - 1] || names[0];
-}
-// Order-INSENSITIVE serialization for the change check. Postgres jsonb does NOT preserve
-// object key order, so the stored plan comes back with keys in a different order than a
-// fresh parse — plain JSON.stringify would then report a "change" on every run. Sorting
-// keys makes the comparison reflect real content changes only.
-function stable(v: unknown): string {
-  if (v === null || typeof v !== "object") return JSON.stringify(v);
-  if (Array.isArray(v)) return "[" + v.map(stable).join(",") + "]";
-  const o = v as Record<string, unknown>;
-  return "{" + Object.keys(o).sort().map((k) => JSON.stringify(k) + ":" + stable(o[k])).join(",") + "}";
-}
-async function fetchPlan(token: string, fileId: string) {
-  const meta = await driveGetMeta(token, fileId);
-  const bytes = (meta.mimeType === "application/vnd.google-apps.spreadsheet")
-    ? await driveExportBytes(token, fileId, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    : await driveDownloadBytes(token, fileId);
-  const wb = XLSX.read(bytes, { type: "array", cellDates: true });
-  const names: string[] = wb.SheetNames || [];
-  if (!names.length) return null;
-  const sheetName = pickSheetName(names);
-  const ws = wb.Sheets[sheetName];
-  const startRow = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.r : 0;
-  let rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "", blankrows: true }) as unknown[][];
-  // Native Google Sheet → Sheets API (its .xlsx export has no row-visibility); uploaded .xlsx
-  // → its own '!rows'. Fails soft to no-filtering either way.
-  if (meta.mimeType === "application/vnd.google-apps.spreadsheet") {
-    const hidden = await sheetsHiddenRowSet(fileId, sheetName);
-    if (hidden.size) rows = rows.filter((_, i) => !hidden.has(startRow + i));
-  } else {
-    rows = dropHiddenRows(rows, ws["!rows"], startRow);
-  }
-  return parseProjectPlanRows(rows);
-}
+import { driveAccessToken, parseDriveFileId } from "../_shared/google.ts";
+import { fetchPlanFromDrive as fetchPlan, stable } from "../_shared/planfetch.ts";
 
 Deno.serve(async (req) => {
   const pre = handleOptions(req); if (pre) return pre;

@@ -1,0 +1,25 @@
+name: Drive watch renew
+
+# Registers / renews the Google Drive files.watch webhooks that make project-plan
+# edits push to the portal near-instantly. Drive channels expire (~a day), so this
+# renews any expiring within 12h. Inert until DRIVE_WEBHOOK_URL is set (custom domain
+# + Google domain verification) — until then drive-watch-setup returns 428, harmless.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"     # every 6 hours
+  workflow_dispatch: {}
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger drive-watch-setup
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        run: |
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/drive-watch-setup" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+            -H "Authorization: Bearer ${ANON_KEY}" \
+            -w "\nHTTP %{http_code}\n"

@@ -3,6 +3,26 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 // Short-lived admin helper (deleted right after use). Gated by a one-off key in the query.
 const KEY = "tja-slack-setup-9c1f";
 
+// Explicit channel→client aliases for the abbreviated channels the auto-matcher can't guess.
+// (channel name without the "client-" prefix → client id in the registry.)
+const ALIAS: Record<string, string> = {
+  "hopco": "healthcare-outcome-performance-company",
+  "ycs": "yc-s-mongolian-grill",
+  "firrp": "florence-immigrant-refugee-rights-project",
+  "frc": "fox-restaurant-concepts",
+  "usapickleball": "usa-pickleball",
+  "sub-zero": "sub-zero-group-southwest",
+  "rcs": "rcs-inc",
+  "professionalpipingsystems": "professional-piping-systems-llc",
+  "sage-hospitality": "sage-hospitality-group",
+  "arizonahumanesociety": "az-humane-society",
+  "wood-partners": "wood-partners-goldwater",
+  "m-culinaryconcepts": "m-culinary-concepts",
+  "az-dept-of-child-safety": "arizona-department-of-child-safety",
+  "ccaz": "custom-controls-of-arizona",
+  "hvh-ms": "hotel-valley-ho",
+};
+
 async function listChannels(token: string) {
   const out: Array<{ id: string; name: string }> = [];
   let cursor = "";
@@ -14,7 +34,7 @@ async function listChannels(token: string) {
     if (cursor) u.searchParams.set("cursor", cursor);
     const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
     const j = await r.json();
-    if (!j.ok) return { error: j.error, got: out };
+    if (!j.ok) return { error: j.error, needed: j.needed, provided: j.provided, has_scopes: r.headers.get("x-oauth-scopes"), got: out };
     for (const c of j.channels || []) out.push({ id: c.id, name: c.name });
     cursor = j.response_metadata?.next_cursor || "";
     if (!cursor) break;
@@ -68,7 +88,8 @@ Deno.serve(async (req) => {
     const clientChans = (channels || []).filter((ch) => /^client-/.test(ch.name)).map((ch) => ({ ...ch, slug: ch.name.replace(/^client-/, "") }));
     const matched: any[] = [], unmatched: any[] = [];
     for (const ch of clientChans) {
-      const hit = roster.find((c) => c.id === ch.slug || slug(c.name) === ch.slug);
+      const aliasId = ALIAS[ch.slug];
+      const hit = roster.find((c) => c.id === ch.slug || slug(c.name) === ch.slug || (aliasId && c.id === aliasId));
       if (hit) matched.push({ client: hit.id, name: hit.name, channel: "#" + ch.name });
       else unmatched.push("#" + ch.name);
     }
@@ -85,6 +106,20 @@ Deno.serve(async (req) => {
     const clientsNoChannel = roster.filter((c) => !c.integrations?.slackChannel && !matched.find((m) => m.client === c.id))
       .map((c) => ({ id: c.id, name: c.name }));
     return J({ committed: commit, matched_count: matched.length, matched, unmatched_channels: unmatched, clients_without_a_channel: clientsNoChannel });
+  }
+
+  if (op === "announce") {
+    // Post the "notifications are live" message to every client that has a slackChannel set.
+    const { data } = await svc.from("app_state").select("data").eq("client_id", "_registry").eq("scope", "clients").maybeSingle();
+    const roster: any[] = Array.isArray(data?.data) ? data!.data : [];
+    const withCh = roster.filter((c) => c.integrations?.slackChannel);
+    const results: any[] = [];
+    for (const c of withCh) {
+      const r = await post(token, c.integrations.slackChannel,
+        `🔔 *TJA portal test* — Slack notifications for *${c.name}* are live. Deliverable sends and client reviews will post here.`);
+      results.push({ client: c.id, channel: c.integrations.slackChannel, ok: !!r.ok, error: r.ok ? undefined : (r.error || r) });
+    }
+    return J({ posted: results.filter((r) => r.ok).length, total: results.length, results });
   }
 
   return J({ error: "unknown op" });
