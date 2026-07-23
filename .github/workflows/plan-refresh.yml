@@ -7,7 +7,7 @@ name: Project plan auto-refresh
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # every 15 minutes (GitHub may delay under load)
+    - cron: "*/5 * * * *"    # every 5 minutes (GitHub's floor; may delay under load)
   workflow_dispatch: {}
 
 jobs:
