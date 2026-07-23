@@ -35,7 +35,9 @@
 
     const items = [];
     if (staff) items.push({ label: "All Clients", href: "clients.html" });
-    if (r === "admin") items.push({ label: "Admin Center", href: "admin-center.html" });
+    // Admin Center is open to AM/PMs too now (they create/manage CLIENT logins there); the
+    // page + manage-users function enforce the client-only limits server-side.
+    if (r === "admin" || r === "manager") items.push({ label: "Admin Center", href: "admin-center.html" });
     if (r === "admin") items.push({ label: "Backup & Sync", href: "backup.html" });
     const links = items
       .filter((it) => it.href.toLowerCase() !== here)

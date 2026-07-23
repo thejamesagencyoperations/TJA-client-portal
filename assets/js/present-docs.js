@@ -73,6 +73,30 @@ window.PresentDocs = (function () {
     catch (e) { console.warn("Portal sandbox: storage full — keeping drafts in memory only.", e); }
     if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(sess.client, "deliverables_draft", draftItems);
   }
+  // Live-refresh suppression window: for a few seconds after a local mutation (delete, send,
+  // stage a version), don't let liveRefresh re-pull — otherwise a pull that lands before our
+  // write does re-adds what we just removed (the "it deletes, pops back, then deletes" bug).
+  let suppressLiveUntil = 0;
+  const guardLive = () => { suppressLiveUntil = nowMs() + 4000; };
+  function nowMs() { try { return Date.now(); } catch (e) { return 0; } }
+  // Immediate (awaited) writes — used for mutations that must hit the server before any pull,
+  // so the change can't bounce back. Fall back to the debounced save if pushScopeNow is absent.
+  async function saveNow() {
+    guardLive();
+    try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+    if (window.SUPA && window.SUPA.enabled && !(typeof isCreative === "function" && isCreative())) {
+      if (window.SUPA.pushScopeNow) { try { await window.SUPA.pushScopeNow(sess.client, "deliverables", items); return; } catch (e) {} }
+      window.SUPA.pushScope(sess.client, "deliverables", items);
+    }
+  }
+  async function saveDraftsNow() {
+    guardLive();
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {}
+    if (window.SUPA && window.SUPA.enabled) {
+      if (window.SUPA.pushScopeNow) { try { await window.SUPA.pushScopeNow(sess.client, "deliverables_draft", draftItems); return; } catch (e) {} }
+      window.SUPA.pushScope(sess.client, "deliverables_draft", draftItems);
+    }
+  }
   // Self-heal for a crash between the two Send pushes (sent write landed, draft removal
   // didn't): any draft whose version already exists in `items` is a stale duplicate.
   function dedupeDrafts() {
@@ -359,10 +383,8 @@ window.PresentDocs = (function () {
     try { return new URL("./?open=docs&doc=" + encodeURIComponent(id), location.href).href; }
     catch (e) { return location.origin + "/?open=docs&doc=" + encodeURIComponent(id); }
   }
-  async function copyDeliverableLink(id) {
-    const url = deliverableLink(id);
-    let ok = false;
-    try { await navigator.clipboard.writeText(url); ok = true; } catch (e) {}
+  // small transient toast (shared by copy-link + version-staged confirmations)
+  function flashDocsToast(msg, ms) {
     let t = document.getElementById("pdLinkToast");
     if (!t) {
       t = document.createElement("div");
@@ -372,8 +394,14 @@ window.PresentDocs = (function () {
         "box-shadow:0 6px 24px rgba(0,0,0,.35);max-width:80vw;text-align:center";
       document.body.appendChild(t);
     }
-    t.textContent = ok ? "🔗 Deliverable link copied to clipboard" : "Couldn't copy — link: " + url;
-    t.style.display = ""; clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = "none"; }, 4000);
+    t.textContent = msg;
+    t.style.display = ""; clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = "none"; }, ms || 4500);
+  }
+  async function copyDeliverableLink(id) {
+    const url = deliverableLink(id);
+    let ok = false;
+    try { await navigator.clipboard.writeText(url); ok = true; } catch (e) {}
+    flashDocsToast(ok ? "🔗 Deliverable link copied to clipboard" : "Couldn't copy — link: " + url, 4000);
   }
 
   /* ---------- image processing ---------- */
@@ -560,35 +588,50 @@ window.PresentDocs = (function () {
       } catch (e) { console.warn("deliverable email failed", e); }
     }
   }
+  // Is there already a proposed next round staged (waiting to be sent) for this deliverable?
+  function proposalPendingFor(d) { return d ? draftItems.find(x => x.parentId === d.id) : null; }
+  // Gate a NEW round on an already-sent deliverable: can't stage/send another while one is
+  // already staged, and can't start one until the client has reviewed the current sent round.
+  function blockNewRound(d) {
+    const pending = proposalPendingFor(d);
+    if (pending) {
+      const pv = pending.versions[pending.versions.length - 1] || {};
+      if (window.TJA_UI) window.TJA_UI.alert(
+        `${(pv.label || "A new version").replace(" (proposed)", "")} is already staged and waiting to be sent. Send it to the client (or remove it) before adding another round.`,
+        { title: "A round is already staged" });
+      return true;
+    }
+    return blockIfAwaitingReview(d);
+  }
   async function handleResubmit(file) {
     const d = deliv(curId); if (!d || !file) return;
+    // A new round on an already-sent deliverable is gated FIRST (before we even process the
+    // file): one round at a time, and not until the client has reviewed the current one.
+    if (!isDraft(d) && blockNewRound(d)) return;
     persistCanvas();
     const p = await processFile(file);
-    if (uploadsToDraft() && !isDraft(d)) {
-      // Creative adds a round to an already-SENT deliverable: the new version becomes a
-      // standalone waiting-room card carrying parentId; Send merges it onto the parent
-      // and recomputes the V-label then (an admin may add V2 in the meantime).
+    if (!isDraft(d)) {
+      // ALREADY-SENT deliverable → the new round is STAGED in the waiting room as a proposed
+      // version that must be explicitly SENT ("Send to client"). This is now the flow for ALL
+      // staff (was creative-only) so a version never silently auto-sends — the review button
+      // always appears, and the next round is gated on this one. Send merges it onto the
+      // parent + recomputes the V-label then.
       const v = newVersion(p, "V" + (d.versions.length + 1) + " (proposed)");
       v.state = "pending_approval";
       const proposedCard = { id: uid(), name: d.name, active: 0, versions: [v], parentId: d.id };
       draftItems.unshift(proposedCard);
-      // docId = the proposed CARD's id (resolvable by openDoc), not the version id
-      if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: proposedCard.id, docName: d.name, versionLabel: v.label, by: sess.name || "Creative" }); } catch (e) {} }
-      saveDrafts(); renderGallery();
+      if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: proposedCard.id, docName: d.name, versionLabel: v.label, by: sess.name || "Staff" }); } catch (e) {} }
+      await saveDraftsNow();
+      closeModal();                 // drop back to the gallery so the staged card + Send button are front-and-centre
+      flashDocsToast(`${v.label.replace(" (proposed)", "")} staged — click “📤 Send to client” to submit it for review.`);
       return;
     }
-    // Direct-to-client round: can't go out until the client has reviewed the last sent one.
-    if (!isDraft(d) && blockIfAwaitingReview(d)) return;
+    // Adding a round to a not-yet-sent DRAFT deliverable → stays a draft (extra pre-send round).
     const v = newVersion(p, "V" + (d.versions.length + 1));
-    const stillDraft = isDraft(d);
-    if (stillDraft) v.state = "pending_approval";   // extra round on a not-yet-sent draft stays a draft
-    else { v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA"; }
+    v.state = "pending_approval";
     d.versions.push(v);
     d.active = d.versions.length - 1;
-    if (stillDraft) saveDrafts(); else save();
-    // A new round on an ALREADY-SENT deliverable reaches the client immediately, so it's a
-    // send and must announce itself. Only the draft case stays silent.
-    if (!stillDraft) announceSend({ id: d.id, name: d.name, version: v });
+    await saveDraftsNow();
     loadVersionIntoModal(); renderGallery();
   }
 
@@ -620,6 +663,7 @@ window.PresentDocs = (function () {
       revert = () => { items.shift(); draft.versions.forEach(v => { v.state = "pending_approval"; }); };
     }
     // 1. the client-visible write — this is the one that must not fail silently
+    guardLive();
     if (window.SUPA && window.SUPA.enabled) {
       const r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items);
       if (!r.ok) {
@@ -1036,6 +1080,7 @@ window.PresentDocs = (function () {
     // agency sees the client's revisions the moment they land — and even if the client
     // closes the tab right after submitting.
     if (window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow && !(typeof isCreative === "function" && isCreative())) {
+      guardLive();
       try { await window.SUPA.pushScopeNow(sess.client, "deliverables", items); } catch (e) { /* debounced push still queued as fallback */ }
     }
     // Confirmation now STAYS (no 5s fade) and the rail locks — the client can't silently
@@ -1404,6 +1449,7 @@ window.PresentDocs = (function () {
   let liveBusy = false, liveWired = false;
   async function liveRefresh() {
     if (liveBusy) return;
+    if (nowMs() < suppressLiveUntil) return;                        // just mutated — don't re-pull stale
     if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pullScope)) return;
     const g = $("pdGallery"); if (!g) return;                       // docs page not mounted
     const m = $("pdModal"); if (m && m.classList.contains("open")) return;   // reviewing — don't yank state
@@ -1465,7 +1511,7 @@ window.PresentDocs = (function () {
     $("pdResubmit").addEventListener("click", () => $("pdVerFile").click());
     $("pdVerFile").addEventListener("change", e => { handleResubmit(e.target.files[0]); e.target.value = ""; });
 
-    $("pdGallery").addEventListener("click", e => {
+    $("pdGallery").addEventListener("click", async e => {
       const lnk = e.target.closest("[data-copylink]");
       if (lnk) { e.stopPropagation(); copyDeliverableLink(lnk.dataset.copylink); return; }
       const exp = e.target.closest("[data-export]");
@@ -1476,9 +1522,11 @@ window.PresentDocs = (function () {
       if (del) {
         e.stopPropagation();
         const id = del.dataset.del;
-        if (draftItems.some(x => x.id === id)) { draftItems = draftItems.filter(x => x.id !== id); saveDrafts(); }
-        else { items = items.filter(x => x.id !== id); save(); }
-        renderGallery(); return;
+        // Remove locally + repaint immediately, then flush the removal to the server RIGHT AWAY
+        // (guardLive keeps a stray pull from re-adding it — the "deletes, pops back" bug).
+        if (draftItems.some(x => x.id === id)) { draftItems = draftItems.filter(x => x.id !== id); renderGallery(); await saveDraftsNow(); }
+        else { items = items.filter(x => x.id !== id); renderGallery(); await saveNow(); }
+        return;
       }
       const card = e.target.closest(".pd-card");
       if (card) openModal(card.dataset.id);

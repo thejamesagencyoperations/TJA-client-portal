@@ -110,7 +110,15 @@ window.TJA_NOTIFY = (function () {
     if (!Array.isArray(feed)) feed = loadFeed(clientId);
     let changed = false;
     feed.forEach(e => { if (!e.read) { e.read = true; changed = true; } });
-    if (changed) saveFeed(clientId, feed);
+    if (changed) {
+      try { localStorage.setItem(key(clientId), JSON.stringify(feed)); } catch (e) {}
+      // Push the READ state IMMEDIATELY (awaited), not via the debounced saveFeed — the caller
+      // re-pulls right after, and a not-yet-landed write meant the badge cleared then popped
+      // back to unread. pushScopeNow makes the server authoritative before that re-pull.
+      if (window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow) {
+        try { await window.SUPA.pushScopeNow(clientId, "notifications", feed); } catch (e) { saveFeed(clientId, feed); }
+      } else saveFeed(clientId, feed);
+    }
     return changed;
   }
 
