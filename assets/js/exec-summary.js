@@ -83,9 +83,12 @@ window.ExecSummary = (function () {
     const dot = (col) => `<span class="cond-dot ${col} ${lvl === col ? "on" : ""} ${canAdmin() ? "admin-edit" : ""}" data-cond="${col}" ${canAdmin() ? `title="Set to ${col}"` : ""}></span>`;
     // projects show their due date prominently right in the condition area —
     // admins get a calendar picker; clients see the formatted date
+    // Show the end date as an orange pill in "Sep 30, 2026" form (normalize whatever's
+    // stored). Admin: the pill opens a hidden native picker; client: read-only pill.
+    const dueShown = (function () { const iso = dueToISO(e.dueDate); return iso ? isoToDue(iso) : (e.dueDate || ""); })();
     const dueVal = canAdmin()
-      ? `<input type="date" class="proj-due-input" data-projdue value="${dueToISO(e.dueDate)}" title="Set the due date">`
-      : `<span class="proj-due-date">${esc(e.dueDate || "—")}</span>`;
+      ? `<span class="date-cell"><button type="button" class="date-pill is-set proj-due-pill" data-projduepick title="Set the due date">${dueShown ? esc(dueShown) : "＋ Set date"}</button><input type="date" class="date-hidden" data-projdue value="${dueToISO(e.dueDate)}"></span>`
+      : (dueShown ? `<span class="date-pill is-set">${esc(dueShown)}</span>` : `<span class="proj-due-date">—</span>`);
     const due = (e.type === "project")
       ? `<div class="proj-due"><span class="proj-due-cal">${IC.cal}</span><span class="proj-due-label">Due date</span>${dueVal}</div>`
       : "";
@@ -248,7 +251,6 @@ window.ExecSummary = (function () {
         <div class="module-head"><span class="module-title">${IC.burn}Project Progress · ${pct}%</span></div>
         <div class="pizza">${steps}</div>
         ${(admin && manual) ? `<div class="pizza-controls"><button class="row-add" data-addstep>＋ Add step</button></div>` : ""}
-        ${admin ? `<div class="burn-edit">${manual ? "Click a dot to mark it complete · edit the names · ✕ removes a step" : "Click a phase to mark it complete."}</div>` : ""}
         ${conditionInline(e)}
       </div>`;
     }
@@ -1125,7 +1127,7 @@ window.ExecSummary = (function () {
     s.addEventListener("change", e => {
       if (e.target.closest("[data-svcalloc]")) { window.DASH.saveState(); return; }
       const dd = e.target.closest("[data-projdue]");
-      if (dd && canAdmin()) { window.DASH.getEng().dueDate = isoToDue(dd.value); window.DASH.saveState(); return; }
+      if (dd && canAdmin()) { window.DASH.getEng().dueDate = isoToDue(dd.value); window.DASH.saveState(); rerender(); return; }
       const tc = e.target.closest("[data-todocolor]");
       if (tc) { window.DASH.getEng().todoClientColor = tc.value; window.DASH.saveState(); rerender(); return; }
       // inline completion-date picker (milestones / to-do's) → store ISO on the item
@@ -1311,6 +1313,13 @@ window.ExecSummary = (function () {
       const dp = e.target.closest("[data-datepick]");
       if (dp && canAdmin()) {
         const inp = dp.parentElement.querySelector("[data-datefield]");
+        if (inp) { if (typeof inp.showPicker === "function") { try { inp.showPicker(); } catch (_) { inp.focus(); } } else { inp.focus(); inp.click(); } }
+        return;
+      }
+      // end-date orange pill → open its hidden native picker (sibling [data-projdue])
+      const dpj = e.target.closest("[data-projduepick]");
+      if (dpj && canAdmin()) {
+        const inp = dpj.parentElement.querySelector("[data-projdue]");
         if (inp) { if (typeof inp.showPicker === "function") { try { inp.showPicker(); } catch (_) { inp.focus(); } } else { inp.focus(); inp.click(); } }
         return;
       }
