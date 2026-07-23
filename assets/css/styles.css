@@ -943,7 +943,9 @@ body[data-role="client"] .staff-only { display: none !important; }
 .mi-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .mi-radios { display: flex; flex-direction: column; gap: 7px; margin-top: 2px; }
 .mi-radio { display: flex; align-items: center; gap: 9px; font-size: .86rem; color: var(--text); cursor: pointer; }
-.mi-radio input { width: 15px; height: 15px; accent-color: var(--orange); flex: none; }
+/* higher specificity than `.mi-f input` (which is a full-width text-field style) so the radio
+   stays a 15px control instead of stretching full width and shoving its label off-screen. */
+.mi-radios .mi-radio input { width: 15px; height: 15px; padding: 0; border: none; background: none; accent-color: var(--orange); flex: none; }
 .mi-f { display: flex; flex-direction: column; gap: 4px; }
 .mi-f.mi-wide { grid-column: 1 / -1; }
 .mi-f > span { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); font-weight: 700; }

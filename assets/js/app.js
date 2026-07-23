@@ -157,10 +157,22 @@ if (!engMode) {   // no explicit choice yet for this client — default to which
   engMode = (!retainerHasData() && hasProj) ? "project" : "retainer";
 }
 let selectedProjectId = sessionStorage.getItem("tja_proj_" + clientId()) || "";
-function getAllProjects() { return STATE.engagements.projects || []; }        // includes archived — admin/internal use
-function getProjects() {                                                      // client-facing list — archived hidden
+function getAllProjects() { return STATE.engagements.projects || []; }        // RAW list — placeholders + all
+// "Junk" projects that should never appear as a project folder: WMJ campaigns that are actually
+// retainers ("… Retainer" — Monthly-Services work misfiled as a project) and empty "New Project"
+// placeholders that were auto-created and never named. Hidden at display time so it's immediate,
+// regardless of the next WMJ sync (the wmj-transform filter stops them being re-created).
+function isJunkProject(p) {
+  const lbl = String(p.label || "").trim(), nm = String(p.name || "");
+  if (/\bretainer\b/i.test(lbl) || /\bretainer\b/i.test(nm)) return true;
+  if (/^new project\b/i.test(lbl)) return true;
+  return false;
+}
+function getProjects() {                                                      // client-facing list
   const all = getAllProjects();
-  return (typeof canEdit === "function" && canEdit()) ? all : all.filter(p => !p.archived);
+  const editor = typeof canEdit === "function" && canEdit();
+  // never hide the project you're actively in (keeps the "+ Add project" flow working)
+  return all.filter(p => (editor || !p.archived) && (p.id === selectedProjectId || !isJunkProject(p)));
 }
 function isRetainer() { return engMode === "retainer"; }
 function selectedProject() { return getProjects().find(p => p.id === selectedProjectId) || null; }
@@ -259,7 +271,9 @@ let projBucket = "current";   // admin-only Current/Archived folder toggle (clie
 // Projects landing — a folder of project tiles (Projects is a top-mode, not a left-nav tab).
 function renderProjectFolder() {
   const admin = ppAdmin();
-  const all = admin ? getAllProjects() : getProjects();
+  // filter junk (misfiled retainers + empty "New Project" placeholders) from the folder for
+  // everyone — but keep the project you're actively in so a fresh "+ Add" isn't hidden.
+  const all = (admin ? getAllProjects() : getProjects()).filter(p => p.id === selectedProjectId || !isJunkProject(p));
   const bucket = admin ? projBucket : "current";
   const projects = all.filter(p => !!p.archived === (bucket === "archived"));
   const nCurrent = all.filter(p => !p.archived).length, nArchived = all.length - nCurrent;
@@ -870,10 +884,10 @@ function retainerHidden() {
 function applyEngagement() {
   const tog = el("#engToggle");
   const actions = el("#engActions");
-  // Admin AND manager (full editors — see auth.js canEdit) always see both toggles so
-  // they can set either one up; creatives/clients only see an engagement that actually
-  // has data — no empty Monthly Services / Projects.
-  const canManage = (typeof isAdminOrManager === "function") ? isAdminOrManager() : true;
+  // Editors (admin/manager) see the setup controls; creatives/clients only see engagements
+  // that actually have data. Uses canEdit() (EFFECTIVE role), so preview-as-client hides the
+  // "+ Monthly Services" setup button too — matching what a real client login sees (Cameron).
+  const canManage = (typeof canEdit === "function") ? canEdit() : true;
   const hidden = retainerHidden();
   const enabled = retainerEnabled();
   const hasRet = !hidden && (canManage ? enabled : retainerHasData());
