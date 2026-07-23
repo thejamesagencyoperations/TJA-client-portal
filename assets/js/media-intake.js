@@ -42,7 +42,8 @@ window.MediaIntake = (function () {
     return `<div class="mi-asset" data-asset>
       <div class="mi-asset-head"><span>Asset ${n}</span><button type="button" class="mi-asset-x" data-assetdel title="Remove this asset">✕</button></div>
       <label class="mi-f"><span>Asset(s) — name of file</span><input data-f="name" placeholder="Name of the file / asset"></label>
-      <label class="mi-f"><span>Attach — Drive link to the file <em>YouTube assets must include a YouTube video link</em></span><input data-f="driveLink" placeholder="https://drive.google.com/…"></label>
+      <label class="mi-f"><span>Attach — upload the file <em>jpg, png, mp4, pdf… — or use a link below</em></span><input type="file" class="mi-file" data-file accept="image/*,video/*,.pdf,.gif"></label>
+      <label class="mi-f"><span>…or a Drive / YouTube link <em>YouTube assets MUST use a YouTube video link</em></span><input data-f="driveLink" placeholder="https://drive.google.com/…  or  https://youtube.com/…"></label>
       <label class="mi-f"><span>Landing Page URL <em>leave blank if you'd like the media team to create this</em></span><input data-f="landingUrl" placeholder="https://…"></label>
       <label class="mi-f"><span>Headline <em>leave blank if you'd like the media team to create this</em></span><input data-f="headline"></label>
       <label class="mi-f"><span>Body Copy <em>leave blank if you'd like the media team to create this</em></span><textarea data-f="body" rows="3"></textarea></label>
@@ -65,8 +66,9 @@ window.MediaIntake = (function () {
       const bits = [];
       if (a.purpose) bits.push(esc(a.purpose) + (a.purposeDetail ? ` — ${esc(a.purposeDetail)}` : ""));
       if (a.launchDate) bits.push("launch " + esc(a.launchDate));
+      const file = a.fileUrl ? ` · <a href="${esc(a.fileUrl)}" target="_blank" rel="noopener">${esc(a.fileName || "file")}</a>` : "";
       const link = a.driveLink ? ` · <a href="${esc(a.driveLink)}" target="_blank" rel="noopener">link</a>` : "";
-      return `<div class="mi-sub-asset"><span class="mi-sub-aname">${esc(a.name || "Asset " + (i + 1))}</span>${link}${bits.length ? `<span class="mi-sub-meta">${bits.join(" · ")}</span>` : ""}</div>`;
+      return `<div class="mi-sub-asset"><span class="mi-sub-aname">${esc(a.name || "Asset " + (i + 1))}</span>${file}${link}${bits.length ? `<span class="mi-sub-meta">${bits.join(" · ")}</span>` : ""}</div>`;
     }).join("");
     const st = STATUS[s.status] || "New";
     const statusCtl = isStaff()
@@ -157,16 +159,45 @@ window.MediaIntake = (function () {
     });
   }
 
+  // Upload one attached file to Supabase Storage (bucket "media-intake"), return its public URL.
+  async function uploadFile(file) {
+    if (!(window.SUPA && window.SUPA.client)) return null;
+    const safe = String(file.name || "file").replace(/[^\w.\-]+/g, "_");
+    const path = `${clientId()}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${safe}`;
+    const { error } = await window.SUPA.client.storage.from("media-intake").upload(path, file, { upsert: false, contentType: file.type || undefined });
+    if (error) { console.warn("media upload", error.message); throw error; }
+    const { data } = window.SUPA.client.storage.from("media-intake").getPublicUrl(path);
+    return data && data.publicUrl;
+  }
+
   async function submit(btn) {
     const host = document.getElementById("miAssets");
     const err = document.getElementById("miErr");
-    const assets = collectAssets(host);
-    if (!assets.length) { err.textContent = "Add at least one asset (an asset name, or any field)."; err.style.display = ""; return; }
+    // build each asset block, uploading its attached file (if any) to Storage first
+    const blocks = [...host.querySelectorAll("[data-asset]")];
+    const assets = [];
     err.style.display = "none";
     const t = await token();
     if (!t) { err.textContent = "You need to be signed in to submit."; err.style.display = ""; return; }
     btn.disabled = true; btn.textContent = "Submitting…";
     try {
+      for (const blk of blocks) {
+        const a = {};
+        blk.querySelectorAll("[data-f]").forEach((el) => {
+          if (el.type === "radio") { if (el.checked) a[el.dataset.f] = el.value; return; }
+          const v = (el.value || "").trim(); if (v) a[el.dataset.f] = v;
+        });
+        const fi = blk.querySelector("[data-file]");
+        const file = fi && fi.files && fi.files[0];
+        if (file) {
+          btn.textContent = "Uploading…";
+          try { const url = await uploadFile(file); if (url) { a.fileUrl = url; a.fileName = file.name; } }
+          catch (up) { err.textContent = "Couldn't upload " + file.name + " — the media-intake storage bucket may not be set up yet."; err.style.display = ""; btn.disabled = false; btn.textContent = "Submit request"; return; }
+        }
+        if (Object.keys(a).length) assets.push(a);
+      }
+      if (!assets.length) { err.textContent = "Add at least one asset (a name, a file, a link, or any field)."; err.style.display = ""; btn.disabled = false; btn.textContent = "Submit request"; return; }
+      btn.textContent = "Submitting…";
       const r = await fetch(fnBase() + "/media-intake", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + t }, body: JSON.stringify({ action: "submit", assets }) });
       const j = await r.json().catch(() => ({}));
       if (r.ok) {
