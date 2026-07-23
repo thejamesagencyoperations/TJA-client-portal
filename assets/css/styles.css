@@ -589,6 +589,23 @@ body[data-role="client"] .staff-only { display: none !important; }
 .pd-modal.pd-noreview #pdSubmit { display: none; }
 /* client feedback is the client's — staff read it, don't author it */
 .pd-modal.pd-noreview #pdClientNotes { pointer-events: none; opacity: .7; }
+/* Clients never author the Agency (internal/TJA) notes — read-only for the client view. */
+.pd-modal.pd-clientview #pdAgencyNotes { pointer-events: none; opacity: .7; background: rgba(255,255,255,.03); }
+/* Once the CLIENT has submitted their review of a version that verdict is FINAL — hide
+   Submit so they can't resubmit, lock the whole review rail + on-image markup, and keep
+   the confirmation permanently visible. Applies to the client view only. */
+.pd-modal.pd-reviewed #pdSubmit { display: none; }
+.pd-modal.pd-reviewed .pd-status-opts,
+.pd-modal.pd-reviewed .pd-revdue-row,
+.pd-modal.pd-reviewed #pdClientNotes,
+.pd-modal.pd-reviewed #pdAgencyNotes,
+.pd-modal.pd-reviewed #pdClearComments,
+.pd-modal.pd-reviewed .pd-pinlist,
+.pd-modal.pd-reviewed #pdCanvas,
+.pd-modal.pd-reviewed #pdPins { pointer-events: none; }
+.pd-modal.pd-reviewed .pd-status-opts,
+.pd-modal.pd-reviewed #pdClientNotes { opacity: .75; }
+.pd-modal.pd-reviewed #pdSaved { opacity: 1 !important; }
 .pd-card-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-del {
   position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;

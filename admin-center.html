@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=308" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=308">
+<link rel="icon" href="assets/img/favicon.ico?v=309" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=309">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=308">
+<link rel="stylesheet" href="assets/css/styles.css?v=309">
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -124,12 +124,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=308"></script>
-<script src="assets/js/version-check.js?v=308"></script>
-<script src="assets/js/supabase-sync.js?v=308"></script>
-<script src="assets/js/ui.js?v=308"></script>
-<script src="assets/js/auth.js?v=308"></script>
-<script src="assets/js/chrome-menu.js?v=308"></script>
+<script src="assets/js/supabase-config.js?v=309"></script>
+<script src="assets/js/version-check.js?v=309"></script>
+<script src="assets/js/supabase-sync.js?v=309"></script>
+<script src="assets/js/ui.js?v=309"></script>
+<script src="assets/js/auth.js?v=309"></script>
+<script src="assets/js/chrome-menu.js?v=309"></script>
 <script>
   requireAuth();
   // The agency account (role=admin) only. AM/PMs are role=manager and land back on
@@ -138,9 +138,9 @@
   if (typeof isAdmin === "function" && !isAdmin())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=308"></script>
-<script src="assets/js/client-template.js?v=308"></script>
-<script src="assets/js/client-store.js?v=308"></script>
+<script src="assets/js/clients.js?v=309"></script>
+<script src="assets/js/client-template.js?v=309"></script>
+<script src="assets/js/client-store.js?v=309"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -236,9 +236,10 @@
       </tr>`).join("");
   }
 
-  async function load() {
+  async function load(silent) {
     const r = await call({ action: "list" });
     if (r.error) {
+      if (silent) return;   // background refresh — don't flash an error over a good list
       $("tmBody").innerHTML = `<tr><td colspan="6" style="padding:18px 16px;color:var(--text-faint)">Couldn't load the team.</td></tr>`;
       if (r.error === "no-session") {
         note(`<b>You're signed in with the demo password.</b> Team management talks to the live backend, so it needs your real Supabase login. Sign out and back in with your real password.`, "warn");
@@ -422,6 +423,13 @@
 
   await window.TJA_STORE.hydrate().catch(() => {});
   await load();
+
+  // Live refresh: an invite accepted (or any status change) elsewhere shows up here without
+  // a manual reload. Re-fetch when the tab regains focus / becomes visible, and on a slow
+  // poll. Silent so a transient network blip never wipes the good list on screen.
+  window.addEventListener("focus", () => load(true));
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(true); });
+  setInterval(() => { if (!document.hidden) load(true); }, 30000);
 })();
 </script>
 </body>

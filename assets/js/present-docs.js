@@ -547,6 +547,8 @@ window.PresentDocs = (function () {
       saveDrafts(); renderGallery();
       return;
     }
+    // Direct-to-client round: can't go out until the client has reviewed the last sent one.
+    if (!isDraft(d) && blockIfAwaitingReview(d)) return;
     const v = newVersion(p, "V" + (d.versions.length + 1));
     const stillDraft = isDraft(d);
     if (stillDraft) v.state = "pending_approval";   // extra round on a not-yet-sent draft stays a draft
@@ -572,6 +574,9 @@ window.PresentDocs = (function () {
     const sentBy = sess.name || sess.email || "TJA";
     let revert;
     const parent = draft.parentId ? items.find(x => x.id === draft.parentId) : null;
+    // Releasing a proposed next round onto a parent whose current version the client
+    // hasn't reviewed yet — hold it until they respond.
+    if (parent && blockIfAwaitingReview(parent)) return;
     if (parent) {
       const v = draft.versions[draft.versions.length - 1];
       v.state = "sent"; v.sentAt = sentStamp; v.sentBy = sentBy;
@@ -818,6 +823,7 @@ window.PresentDocs = (function () {
     updateMeta();
     document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
     renderVersions();
+    applyReviewLock();   // lock Agency Notes for clients + freeze the rail if this version is already reviewed
     const img = $("pdImg");
     // Robust paint: wait (up to ~20 frames) until the image is decoded AND laid
     // out (clientWidth > 0) before sizing the canvas/pin overlay. Fixes markup +
@@ -851,6 +857,48 @@ window.PresentDocs = (function () {
     $("pdSaved").classList.remove("show");
     loadVersionIntoModal();
     maybeShowDisclaimer();
+  }
+
+  /* Lock the review rail for the client view: Agency Notes are always read-only to the
+     client, and once THIS version has been submitted the whole rail is frozen (Submit
+     hidden, status/notes/markup locked) with the confirmation pinned. Re-runs on every
+     version switch — each version carries its own submitted state. */
+  function applyReviewLock() {
+    const m = $("pdModal"); if (!m) return;
+    const clientView = (typeof effectiveRole === "function") ? effectiveRole() === "client" : true;
+    m.classList.toggle("pd-clientview", clientView);
+    const an = $("pdAgencyNotes"); if (an) an.readOnly = clientView;      // internal TJA notes — never client-authored
+    const d = deliv(curId); const v = d ? active(d) : null;
+    const reviewed = !!(clientView && v && v.reviewedAt);                 // client already filed this version's review
+    m.classList.toggle("pd-reviewed", reviewed);
+    const cn = $("pdClientNotes"); if (cn) cn.readOnly = reviewed;
+    if (reviewed) { const rd = $("pdRevDue"); if (rd) rd.disabled = true; }
+    const saved = $("pdSaved");
+    if (saved) {
+      if (reviewed) { saved.textContent = "✓ Review submitted — thank you"; saved.classList.add("show"); }
+      else { saved.textContent = "✓ Review saved"; saved.classList.remove("show"); }
+    }
+  }
+
+  // A new round must not reach the client until they've reviewed the current one. Returns
+  // the blocking version (the latest ALREADY-SENT version with no client review yet) or
+  // null when it's fine to add/send a new version (nothing sent yet, or it's been reviewed).
+  function unreviewedSentVersion(d) {
+    if (!d || !d.versions) return null;
+    for (let i = d.versions.length - 1; i >= 0; i--) {
+      const v = d.versions[i];
+      if (v.state === "pending_approval") continue;   // still in the waiting room — hasn't reached the client
+      return v.reviewedAt ? null : v;                 // the latest sent one gates the next round
+    }
+    return null;                                      // nothing sent yet
+  }
+  function blockIfAwaitingReview(d) {
+    const v = unreviewedSentVersion(d);
+    if (!v) return false;
+    if (window.TJA_UI) window.TJA_UI.alert(
+      `The client hasn't submitted their review of ${v.label} yet. You can send the next version once they've responded.`,
+      { title: "Awaiting client review" });
+    return true;
   }
 
   /* ---------- proof disclaimer (client-facing, Cameron 2026-07-20) ----------
@@ -895,7 +943,16 @@ window.PresentDocs = (function () {
     // Reviews are client-only — the button is hidden for staff, but guard the action too.
     if (typeof effectiveRole === "function" && effectiveRole() !== "client") return;
     const d = deliv(curId); if (!d) return;
-    const av = active(d); av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
+    const av = active(d);
+    // A review must carry a verdict — otherwise the card would sit on "Pending Review"
+    // forever even though they submitted. Require one of the three responses.
+    if (!av.status) {
+      if (window.TJA_UI) window.TJA_UI.alert(
+        "Please choose a response — Approve, Approve with changes, or Revisions needed — before submitting your review.",
+        { title: "Choose a response" });
+      return;
+    }
+    av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
     persistCanvas();
     // an approval needs a signature first
     if ((av.status === "approved" || av.status === "changes") && !av.signature) { openSignaturePad(); return; }
@@ -945,8 +1002,10 @@ window.PresentDocs = (function () {
       }
     }
     saveCur(); renderGallery(); updateSignStatus(); updateMeta();
-    const s = $("pdSaved"); s.classList.add("show");
-    setTimeout(() => s.classList.remove("show"), 2200);
+    // Confirmation now STAYS (no 5s fade) and the rail locks — the client can't silently
+    // change a submitted review. applyReviewLock hides Submit, pins "Review submitted",
+    // and freezes the fields for this version.
+    applyReviewLock();
   }
   function updateSignStatus() {
     const el = $("pdSignStatus"); if (!el) return;
@@ -1299,9 +1358,46 @@ window.PresentDocs = (function () {
   // The Present Docs page DOM is rebuilt every time its tab repaints, so the
   // element listeners must re-attach each time; document/window listeners attach once.
   let wiredGlobal = false;
+  /* ---------- live auto-refresh (Present Docs) ----------
+     Keep an open gallery current when the OTHER side acts — a client submits a review, an
+     AM/PM releases a draft, a creative posts a proposal — without a manual refresh. Re-pulls
+     the deliverable scope(s) and repaints, but NEVER while a review/upload overlay is open
+     (that would clobber an in-progress annotation) or while our own write is in flight. The
+     INSTANT path is app.js's Realtime socket, which calls liveRefresh() on any deliverables
+     change; this module also self-polls (focus / tab-visible / 25s) as the resilient fallback. */
+  let liveBusy = false, liveWired = false;
+  async function liveRefresh() {
+    if (liveBusy) return;
+    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pullScope)) return;
+    const g = $("pdGallery"); if (!g) return;                       // docs page not mounted
+    const m = $("pdModal"); if (m && m.classList.contains("open")) return;   // reviewing — don't yank state
+    const up = $("pdUpOverlay"); if (up && up.style.display !== "none") return;
+    if (window.SUPA.hasPendingWrite &&
+       (window.SUPA.hasPendingWrite(sess.client, "deliverables") ||
+        window.SUPA.hasPendingWrite(sess.client, "deliverables_draft"))) return;
+    liveBusy = true;
+    try {
+      const sent = await window.SUPA.pullScope(sess.client, "deliverables");
+      if (Array.isArray(sent)) { items = sent; try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
+      if (isStaffFn()) {
+        const dr = await window.SUPA.pullScope(sess.client, "deliverables_draft");
+        if (Array.isArray(dr)) { draftItems = dr; try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {} }
+      }
+      renderGallery();
+    } catch (e) { /* transient — next tick */ }
+    finally { liveBusy = false; }
+  }
+  function startLiveRefresh() {
+    if (liveWired) return; liveWired = true;
+    setInterval(liveRefresh, 25000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) liveRefresh(); });
+    window.addEventListener("focus", liveRefresh);
+  }
+
   function init() {
     load(); loadDrafts(); renderGallery();
     wireElements();
+    startLiveRefresh();
     if (wiredGlobal) return;
     wiredGlobal = true;
     document.addEventListener("keydown", e => {
@@ -1472,5 +1568,5 @@ window.PresentDocs = (function () {
     openModal(id);
   }
 
-  return { render, init, openDoc };
+  return { render, init, openDoc, liveRefresh };
 })();

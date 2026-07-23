@@ -1247,7 +1247,13 @@ function applyEngagement() {
     // INSTANT: a Realtime websocket event on this client fires an immediate pull.
     if (window.SUPA.subscribeScope) {
       window.SUPA.subscribeScope(cid, (payload) => {
-        if (!payload || !payload.new || payload.new.scope === "dashboard") tick();
+        const sc = payload && payload.new && payload.new.scope;
+        if (!sc || sc === "dashboard") tick();
+        // Present Docs owns its own state — nudge it to repaint the gallery the instant a
+        // deliverable/review/draft changes (client submits, draft released) with no refresh.
+        if (!sc || sc === "deliverables" || sc === "deliverables_draft") {
+          if (window.PresentDocs && window.PresentDocs.liveRefresh) window.PresentDocs.liveRefresh();
+        }
       });
     }
     // FALLBACK: a slow poll (30s) still converges if the websocket drops/reconnects, plus an

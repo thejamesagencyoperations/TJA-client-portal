@@ -21,10 +21,14 @@
 export async function postToSlack(channel: string | undefined, text: string): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   const botToken = Deno.env.get("SLACK_BOT_TOKEN");
   const webhook = Deno.env.get("SLACK_WEBHOOK_URL");
+  // Central fallback: when a client has no per-client channel in the integrations map,
+  // route to SLACK_DEFAULT_CHANNEL so notifications still land in one team channel. This
+  // is what makes Slack work with ZERO per-client setup; per-client channels override it.
+  const fallback = (Deno.env.get("SLACK_DEFAULT_CHANNEL") || "").trim();
   try {
     if (botToken) {
-      const ch = (channel || "").trim();
-      if (!ch) return { ok: false, skipped: true };          // no channel configured for this client
+      const ch = ((channel || "").trim()) || fallback;
+      if (!ch) return { ok: false, skipped: true };          // no per-client channel AND no default configured
       const r = await fetch("https://slack.com/api/chat.postMessage", {
         method: "POST",
         headers: { Authorization: `Bearer ${botToken}`, "Content-Type": "application/json; charset=utf-8" },
