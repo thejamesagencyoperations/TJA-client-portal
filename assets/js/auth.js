@@ -235,9 +235,29 @@ function setPreview(on) {
 
 // The EFFECTIVE role the UI should render as right now.
 function effectiveRole() { return isPreviewing() ? "client" : (getSession() ? getSession().role : "client"); }
-// Can edit CLIENT WORK — the agency account and the AM/PMs, both. Creatives edit
-// nothing (they only upload); clients edit nothing. NOT the same as isAdmin().
-function canEdit() { const r = effectiveRole(); return r === "admin" || r === "manager"; }
+// Does the AM/PM own the client they're looking at? An AM/PM can VIEW every client but only
+// EDITS the ones they're tagged on (client.managers, matched to their login name). Admins own
+// everything. Matching is trim + case-insensitive; the login name must match the manager tag
+// (the Admin Center create form enforces "must match their manager tag exactly").
+function ownsCurrentClient() {
+  if (isAdmin()) return true;
+  try {
+    const s = getSession(); if (!s) return false;
+    const myName = String(s.name || "").trim().toLowerCase();
+    if (!myName) return false;
+    const c = (window.TJA_STORE && typeof window.TJA_STORE.get === "function") ? window.TJA_STORE.get(s.client) : null;
+    const mgrs = (c && Array.isArray(c.managers)) ? c.managers : [];
+    return mgrs.some(m => String(m).trim().toLowerCase() === myName);
+  } catch (e) { return false; }
+}
+// Can edit CLIENT WORK — the agency account (every client) and an AM/PM (only THEIR clients;
+// they still view all others). Creatives edit nothing (they only upload); clients edit nothing.
+function canEdit() {
+  const r = effectiveRole();
+  if (r === "admin") return true;
+  if (r === "manager") return ownsCurrentClient();
+  return false;
+}
 
 // What a role is CALLED in the UI. One definition — the topbar pill exists on two
 // separate pages and they were already drifting (a manager read "Admin" on one and
@@ -249,5 +269,7 @@ function roleLabel(r) { return ROLE_LABELS[r || effectiveRole()] || "Client"; }
 // the AM/PM whose job it is — never the creative who uploaded it.
 // Paid-media is staff but explicitly NOT an uploader — they only triage media
 // requests. Excluding isMedia() here keeps Present Docs fully view-only for them.
-function canUploadDocs() { return !isPreviewing() && isStaff() && !isMedia(); }
+// Upload = admin (any client) or creative (any client, into the waiting room) or an AM/PM but
+// ONLY on their own clients. Paid-media never uploads. Managers on someone else's client can't.
+function canUploadDocs() { return !isPreviewing() && isStaff() && !isMedia() && (!isManager() || ownsCurrentClient()); }
 function canSendDocs() { return canEdit(); }

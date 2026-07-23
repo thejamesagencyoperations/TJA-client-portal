@@ -49,7 +49,11 @@ function persistState() {
   // be an RLS-rejected write.
   // GUARDED push: if someone else wrote this client since our last pull, the CAS
   // fails and onDashboardConflict re-pulls + warns instead of silently clobbering.
-  if (window.SUPA && window.SUPA.enabled && (typeof isAdminOrManager !== "function" || isAdminOrManager())) {
+  // Only admins (any client) and AM/PMs on THEIR OWN clients write the dashboard. A manager
+  // viewing someone else's client is view-only, so even boot self-heals don't push there.
+  const mayWrite = (typeof isAdmin !== "function") ? true
+    : isAdmin() || (typeof isManager === "function" && isManager() && typeof ownsCurrentClient === "function" && ownsCurrentClient());
+  if (window.SUPA && window.SUPA.enabled && mayWrite) {
     if (window.SUPA.pushScopeGuarded) window.SUPA.pushScopeGuarded(clientId(), "dashboard", STATE, onDashboardConflict);
     else window.SUPA.pushScope(clientId(), "dashboard", STATE);
   }
@@ -832,6 +836,11 @@ function toggleTheme() {
 function applyRole() {
   const effRole = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
   document.body.dataset.role = effRole;
+  // An AM/PM viewing a client that isn't theirs is VIEW-ONLY — hide the .admin-only edit
+  // controls that are normally visible to managers (Files remove, etc.). canEdit/canUploadDocs
+  // already return false for them; this covers the CSS-gated controls centrally.
+  const mgrViewOnly = (typeof isManager === "function" && isManager()) && (typeof ownsCurrentClient === "function" && !ownsCurrentClient()) && !(typeof isPreviewing === "function" && isPreviewing());
+  document.body.classList.toggle("mgr-viewonly", !!mgrViewOnly);
   // "All clients" / "My clients" is a staff nav — hide it in client view (incl. staff
   // previewing as client). Managers were missing here (added when schema-v7 introduced
   // the role) — an AM/PM had no way back to the picker once inside a client.
