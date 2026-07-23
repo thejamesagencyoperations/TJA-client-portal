@@ -229,6 +229,16 @@ window.DASH = { getEng, saveState, setPath, badge, refreshPRSheet,
 const ppAdmin = () => (typeof canEdit === "function" ? canEdit() : true);
 
 function projectPct(p) {
+  // A connected project-plan sheet is the source of truth (same number the open project shows,
+  // via planCompletionPct) — so the All-Projects folder % matches the project's own % (Cameron).
+  const ps = p.projectPlanSheet;
+  if (ps && Array.isArray(ps.groups) && ps.groups.length) {
+    const m = ps.meta || {};
+    if (m.condition && m.condition.pct != null) return m.condition.pct;
+    let done = 0, total = 0;
+    ps.groups.forEach(g => (g.tasks || []).forEach(t => { total++; if (t.status === "complete") done++; }));
+    return total ? Math.round(done / total * 100) : 0;
+  }
   if (p.source === "wmj") {                                  // WMJ projects: trust the synced progress
     if (typeof p.progressPct === "number") return p.progressPct;
     const wph = (p.pizza && p.pizza.phases) || [];
@@ -670,9 +680,11 @@ function initPlan() {
     // Re-resolve the engagement AFTER every await — the auto-refresh can adopt a new
     // STATE while the prompt/fetch is in flight, and writing to the old (detached)
     // object would silently discard the connect.
-    if (!raw.trim()) { const eng = getEng(); delete eng.projectPlanSheet; delete eng.projectPlanSheetUrl; saveState(); repaint("plan"); return; }
+    if (!raw.trim()) { const eng = getEng(); delete eng.projectPlanSheet; delete eng.projectPlanSheetUrl; saveState(); repaintAll(); return; }
     conn.disabled = true; conn.textContent = "Connecting…";
-    const store = (parsed) => { const eng = getEng(); eng.projectPlanSheet = parsed; eng.projectPlanSheetUrl = raw.trim(); saveState(); repaint("plan"); };
+    // repaintAll (not just the plan page) so the Exec Summary — Project Progress % + the
+    // Project Plan tile — reflects the new plan immediately, no manual refresh (Cameron).
+    const store = (parsed) => { const eng = getEng(); eng.projectPlanSheet = parsed; eng.projectPlanSheetUrl = raw.trim(); saveState(); repaintAll(); };
 
     // 1) A public native Google Sheet → read the CSV directly in the browser (no backend needed).
     const cfg = reg && reg.parseSheetUrl(raw);
@@ -904,6 +916,10 @@ function applyEngagement() {
   // the folder/tile-picker view, not just once a specific project is open.
   const planOk = !isRetainer() && getProjects().length > 0;
   el("#navPlan").style.display = planOk ? "" : "none";
+  // "← All projects" topbar button: lets a client (or admin) get back to the folder and see
+  // they have MORE than one project. Only when a specific project is open and there's >1.
+  const apBtn = el("#allProjectsBtn");
+  if (apBtn) apBtn.style.display = (!isRetainer() && selectedProject() && getProjects().length > 1) ? "" : "none";
   // Media Creative Asset Request tab: only clients whose WMJ sheet has a paid-media line.
   // Driven by the SHEET (wmjServiceLines, whose name = User_Department), NOT the manual
   // disciplines. WMJ names that department just "Media" (NOT "Paid Media") — matching only
