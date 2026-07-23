@@ -169,8 +169,9 @@ function isJunkProject(p) {
 function getProjects() {                                                      // client-facing list
   const all = getAllProjects();
   const editor = typeof canEdit === "function" && canEdit();
-  // never hide the project you're actively in (keeps the "+ Add project" flow working)
-  return all.filter(p => (editor || !p.archived) && (p.id === selectedProjectId || !isJunkProject(p)));
+  // junk (retainers + "New Project" placeholders) is ALWAYS hidden — even if it's the currently
+  // selected project. The "+ Add project" flow names its project "Untitled project" (not junk).
+  return all.filter(p => (editor || !p.archived) && !isJunkProject(p));
 }
 function isRetainer() { return engMode === "retainer"; }
 function selectedProject() { return getProjects().find(p => p.id === selectedProjectId) || null; }
@@ -182,7 +183,7 @@ function getEng() {
 }
 function newProjectTemplate(id) {
   return {
-    id, type: "project", label: "New Project", name: "New Project — rename me",
+    id, type: "project", label: "Untitled project", name: "Untitled project — rename me",
     northStar: "", dueDate: "",
     pizza: { phases: [{ label: "Discovery", done: false }, { label: "Strategy", done: false }, { label: "Design", done: false }, { label: "Build", done: false }, { label: "Launch", done: false }] },
     condition: { level: "green", note: "" },
@@ -288,9 +289,8 @@ let projBucket = "current";   // admin-only Current/Archived folder toggle (clie
 // Projects landing — a folder of project tiles (Projects is a top-mode, not a left-nav tab).
 function renderProjectFolder() {
   const admin = ppAdmin();
-  // filter junk (misfiled retainers + empty "New Project" placeholders) from the folder for
-  // everyone — but keep the project you're actively in so a fresh "+ Add" isn't hidden.
-  const all = (admin ? getAllProjects() : getProjects()).filter(p => p.id === selectedProjectId || !isJunkProject(p));
+  // junk (retainers + "New Project" placeholders) is always filtered from the folder for everyone.
+  const all = (admin ? getAllProjects() : getProjects()).filter(p => !isJunkProject(p));
   const bucket = admin ? projBucket : "current";
   const projects = all.filter(p => !!p.archived === (bucket === "archived"));
   const nCurrent = all.filter(p => !p.archived).length, nArchived = all.length - nCurrent;
@@ -910,12 +910,20 @@ function applyEngagement() {
   const hasRet = !hidden && (canManage ? enabled : retainerHasData());
   const hasProj = canManage || getProjects().length > 0;
 
+  // A selection pointing at a now-hidden (retainer / placeholder) project must be dropped, so
+  // getEng() can't resolve back to it. This is what kept SanTan showing its retainer "project".
+  if (selectedProjectId && !getProjects().some(p => p.id === selectedProjectId)) selectProject("");
+
   // Don't strand a client on an engagement that has no data.
   if (!hasRet && isRetainer()) {
     setEngMode("project");
     const ps = getProjects();
     if (ps.length === 1 && !selectedProject()) selectProject(ps[0].id);
   } else if (!hasProj && !isRetainer()) {
+    setEngMode("retainer");
+  } else if (!isRetainer() && getProjects().length === 0 && hasRet && currentPage() !== "projectplan") {
+    // a retainer-only client (no real projects) shouldn't sit in Projects mode — show Monthly
+    // Services. The Projects toggle still shows for admins (via the empty folder) to add one.
     setEngMode("retainer");
   }
 
