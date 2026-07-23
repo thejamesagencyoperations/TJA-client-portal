@@ -344,6 +344,7 @@ window.PresentDocs = (function () {
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
           <span class="pd-ver-tag">${esc(v.label)}</span>
           ${badge(v.status)}
+          ${v.sentAt ? `<span class="pd-sent-pill" title="Sent to the client${v.sentBy ? " by " + esc(v.sentBy) : ""}${v.sentAt ? " · " + esc(v.sentAt) : ""}">✓ Sent to client</span>` : ""}
         </div>
         ${dueLine(last)}
       </div>`;

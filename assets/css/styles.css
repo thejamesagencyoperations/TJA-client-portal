@@ -607,6 +607,10 @@ body[data-role="client"] .staff-only { display: none !important; }
 .pd-modal.pd-reviewed #pdClientNotes { opacity: .75; }
 .pd-modal.pd-reviewed #pdSaved { opacity: 1 !important; }
 .pd-card-name { font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* green "Sent to client" confirmation pill on a released deliverable card */
+.pd-sent-pill { display: inline-block; margin-top: 4px; font-size: .62rem; font-weight: 700;
+  letter-spacing: .03em; color: var(--good); background: rgba(46,160,67,.13);
+  border: 1px solid rgba(46,160,67,.4); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
 .pd-del {
   position: absolute; top: 8px; right: 8px; width: 26px; height: 26px;
   border-radius: 7px; border: none; background: rgba(0,0,0,.55); color: #fff;
