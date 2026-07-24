@@ -706,27 +706,24 @@ window.ExecSummary = (function () {
   // Popup: a note box + "Send to PR Wins" → posts the hit (link + note) to #tja-pr_wins.
   function openPrWinPopup(hit) {
     const clientName = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name) || "";
+    const old = document.getElementById("prWinPop"); if (old) old.remove();
+    // Same burn-pop-overlay / burn-pop shell as the other exec popups, so it matches the UI.
     const ov = document.createElement("div");
-    ov.className = "prwin-overlay";
-    ov.innerHTML =
-      `<div class="prwin-card">
-        <div class="prwin-title">Send to <span class="prwin-chan">#tja-pr_wins</span></div>
-        <div class="prwin-sub">${esc(hit.outlet || "")}${hit.date ? " · " + esc(hit.date) : ""}${hit.link ? " · link attached" : ""}</div>
-        <textarea class="prwin-text" placeholder="Add a note about this win (optional)…"></textarea>
-        <div class="prwin-err"></div>
-        <div class="prwin-actions">
-          <button type="button" class="pd-tool-btn prwin-cancel">Cancel</button>
-          <button type="button" class="btn btn-primary prwin-send">📣 Send to PR Wins</button>
-        </div>
-      </div>`;
+    ov.id = "prWinPop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop note-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Send to #tja-pr_wins</div>
+      <p class="bp-lead">${esc(hit.outlet || "")}${hit.date ? " · " + esc(hit.date) : ""}${hit.link ? " · link attached" : ""}</p>
+      <textarea class="note-pop-ta prwin-text" rows="4" placeholder="Add a note about this win (optional)…"></textarea>
+      <div class="prwin-err"></div>
+      <div class="bp-actions"><button type="button" class="btn btn-ghost" data-prwincancel>Cancel</button><button type="button" class="btn btn-primary" data-prwinsend>📣 Send to PR Wins</button></div>
+    </div>`;
     document.body.appendChild(ov);
     const close = () => ov.remove();
-    ov.querySelector(".prwin-cancel").addEventListener("click", close);
+    ov.querySelector("[data-prwincancel]").addEventListener("click", close);
     ov.addEventListener("click", (ev) => { if (ev.target === ov) close(); });
-    document.addEventListener("keydown", function esckey(ev) { if (ev.key === "Escape") { close(); document.removeEventListener("keydown", esckey); } });
     const ta = ov.querySelector(".prwin-text"); setTimeout(() => ta.focus(), 30);
-    ov.querySelector(".prwin-send").addEventListener("click", async () => {
-      const btn = ov.querySelector(".prwin-send"), err = ov.querySelector(".prwin-err");
+    ov.querySelector("[data-prwinsend]").addEventListener("click", async () => {
+      const btn = ov.querySelector("[data-prwinsend]"), err = ov.querySelector(".prwin-err");
       btn.disabled = true; btn.textContent = "Sending…"; err.textContent = "";
       const ok = await sendPrWin(hit, ta.value.trim(), clientName);
       if (ok) { close(); if (typeof flashRefreshed === "function") flashRefreshed("📣 Posted to #tja-pr_wins"); }

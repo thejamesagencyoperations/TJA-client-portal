@@ -1447,19 +1447,8 @@ body[data-role="client"] .staff-only { display: none !important; }
   display: inline-flex; align-items: center; cursor: pointer; opacity: .9; transition: opacity .14s, background .14s; }
 .pr-win-btn:hover { opacity: 1; background: rgba(255,255,255,.06); }
 .pr-win-btn svg { display: block; }
-/* PR-win send popup */
-.prwin-overlay { position: fixed; inset: 0; z-index: 11000; background: rgba(0,0,0,.5);
-  display: flex; align-items: center; justify-content: center; padding: 20px; }
-.prwin-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; width: 100%;
-  max-width: 460px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
-.prwin-title { font-size: 1rem; font-weight: 700; }
-.prwin-chan { color: var(--orange); }
-.prwin-sub { font-size: .74rem; color: var(--text-dim); margin: 4px 0 12px; }
-.prwin-text { width: 100%; min-height: 90px; resize: vertical; font: inherit; font-size: .86rem;
-  padding: 10px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
-.prwin-text:focus { outline: none; border-color: var(--orange); }
-.prwin-err { color: var(--bad); font-size: .76rem; min-height: 0; margin-top: 6px; }
-.prwin-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+/* PR-win send popup reuses the shared .burn-pop shell; only the inline error needs a style */
+.prwin-err { color: var(--bad); font-size: .76rem; min-height: 0; margin-top: 8px; }
 
 /* ---- Executive Summary kanban (2 columns + movable tiles) ---- */
 /* Executive Summary — free canvas: tiles are absolutely positioned and drag anywhere */
