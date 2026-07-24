@@ -1267,6 +1267,45 @@ function applyEngagement() {
     window.addEventListener("focus", tick);
     document.addEventListener("focusout", () => { if (pending) setTimeout(tick, 150); });
   })();
+
+  /* ---------- fresh project plan on OPEN ----------
+     The 5-min cron keeps plans current in the background, but the case that actually bites is
+     "I just edited the sheet and opened the client" — you'd see the pre-edit copy until the
+     next run. So on open we re-pull this client's connected plan(s) straight from Drive and
+     adopt any change. Staff only (plan-fetch is staff-gated), silent, and it only writes when
+     the plan REALLY differs — compared with an order-insensitive serializer because jsonb
+     doesn't preserve key order (a plain stringify would "change" on every open). */
+  (function refreshPlansOnOpen() {
+    if (!(window.SUPA && window.SUPA.enabled)) return;
+    if (typeof isStaff === "function" && !isStaff()) return;
+    const stable = (v) => {
+      if (v === null || typeof v !== "object") return JSON.stringify(v);
+      if (Array.isArray(v)) return "[" + v.map(stable).join(",") + "]";
+      return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + stable(v[k])).join(",") + "}";
+    };
+    const engList = () => {
+      const e = (STATE && STATE.engagements) || {};
+      return [].concat(Array.isArray(e.projects) ? e.projects : [], e.retainer ? [e.retainer] : []);
+    };
+    setTimeout(async () => {
+      const cid = clientId();
+      const urls = [...new Set(engList().map(p => p && p.projectPlanSheetUrl).filter(Boolean))];
+      for (const url of urls) {
+        try {
+          const srv = await planServerFetch(url, cid);
+          if (!srv.ok || !srv.plan || !srv.plan.groups || !srv.plan.groups.length) continue;
+          // Re-resolve AFTER the await — the auto-refresh may have adopted a new STATE object.
+          let changed = false;
+          engList().forEach(p => {
+            if (p && p.projectPlanSheetUrl === url && stable(p.projectPlanSheet) !== stable(srv.plan)) {
+              p.projectPlanSheet = srv.plan; changed = true;
+            }
+          });
+          if (changed) { saveState(); repaintAll(); flashRefreshed("↻ Project plan updated"); }
+        } catch (e) { /* offline / not shared — the cron still covers it */ }
+      }
+    }, 1200);   // let the first paint land before spending a Drive round-trip
+  })();
 })();
 
 // subtle, non-blocking "just refreshed" pill (auto-fades) so a live repaint isn't mysterious
