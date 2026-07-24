@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=322" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=322">
+<link rel="icon" href="assets/img/favicon.ico?v=323" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=323">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=322">
+<link rel="stylesheet" href="assets/css/styles.css?v=323">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -143,6 +143,26 @@
   </div>
 </div>
 
+<!-- Per-manager client assignments (admin only) — view / add / remove AM & PM assignments. -->
+<div class="cl-overlay" id="tmAssignOverlay" style="display:none">
+  <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
+    <div class="cl-card-head"><div class="cl-title">Assignments · <span id="tmAssignWho"></span></div>
+      <button class="cl-x" id="tmAssignX" title="Close">✕</button></div>
+    <p class="cl-done-lead" id="tmAssignLead" style="margin-bottom:8px"></p>
+    <div id="tmAssignList" class="tm-assign-list"></div>
+    <div class="tm-assign-add">
+      <div class="tm-assign-add-head">Add an assignment</div>
+      <div class="tm-assign-add-row">
+        <select id="tmAssignClient" class="tm-client-filter" style="flex:1"></select>
+        <select id="tmAssignRole" class="tm-client-filter" style="flex:0 0 92px"><option value="am">AM</option><option value="pm">PM</option></select>
+        <button type="button" class="btn btn-primary btn-sm" id="tmAssignAdd">Add</button>
+      </div>
+    </div>
+    <div class="cl-err" id="tmAssignErr" style="min-height:0"></div>
+    <div class="cl-actions"><button type="button" class="btn btn-primary" id="tmAssignClose">Done</button></div>
+  </div>
+</div>
+
 <!-- Per-client notification preferences — opened by clicking a client's email. -->
 <div class="cl-overlay" id="tmPrefsOverlay" style="display:none">
   <div class="cl-card cl-card-sm" role="dialog" aria-modal="true">
@@ -181,12 +201,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=322"></script>
-<script src="assets/js/version-check.js?v=322"></script>
-<script src="assets/js/supabase-sync.js?v=322"></script>
-<script src="assets/js/ui.js?v=322"></script>
-<script src="assets/js/auth.js?v=322"></script>
-<script src="assets/js/chrome-menu.js?v=322"></script>
+<script src="assets/js/supabase-config.js?v=323"></script>
+<script src="assets/js/version-check.js?v=323"></script>
+<script src="assets/js/supabase-sync.js?v=323"></script>
+<script src="assets/js/ui.js?v=323"></script>
+<script src="assets/js/auth.js?v=323"></script>
+<script src="assets/js/chrome-menu.js?v=323"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -196,9 +216,9 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=322"></script>
-<script src="assets/js/client-template.js?v=322"></script>
-<script src="assets/js/client-store.js?v=322"></script>
+<script src="assets/js/clients.js?v=323"></script>
+<script src="assets/js/client-template.js?v=323"></script>
+<script src="assets/js/client-store.js?v=323"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -258,6 +278,56 @@
       await writeClientPrefs(prefsClient, { deliverableEmails: $("prefDeliverableEmails").checked, signupEmails: $("prefSignupEmails").checked });
       $("tmPrefsErr").textContent = "Saved ✓";
     } catch (e) { $("tmPrefsErr").textContent = "Couldn't save — " + (e.message || e); }
+  }
+
+  /* ---- per-manager client assignments (admin only) ----
+     Each client carries `am` + `pm` (full login names) and `managers = [am, pm]` (the
+     edit-access list ownsCurrentClient reads). Assigning/removing here is a SERVER-FIRST
+     read-modify-write of the registry, and flags the client integrations.amPmManual = true
+     so the nightly assignment-sync leaves it alone (manual wins). RLS refuses a manager the
+     registry write, so this is admin-only. */
+  let assignName = "";
+  const eqName = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+  function syncManagers(c) { c.managers = [...new Set([c.am, c.pm].filter(Boolean))]; }
+  async function mutateClient(clientId, fn) {
+    const roster = await window.SUPA.pullScope("_registry", "clients");
+    if (!Array.isArray(roster)) throw new Error("couldn't read the client registry");
+    const c = roster.find(x => x.id === clientId);
+    if (!c) throw new Error("client not found in the registry");
+    fn(c);
+    await window.SUPA.pushScopeNow("_registry", "clients", roster);
+    try { const lc = window.TJA_STORE.get(clientId); if (lc) { lc.am = c.am; lc.pm = c.pm; lc.managers = c.managers; lc.integrations = c.integrations; } } catch (e) {}
+    return roster;
+  }
+  // clients this manager is on, freshest first from the registry
+  function assignmentsFor(name, roster) {
+    const list = [];
+    (roster || []).forEach(c => {
+      if (String(c.id || "").startsWith("_")) return;
+      if (eqName(c.am, name)) list.push({ id: c.id, name: c.name, role: "AM" });
+      if (eqName(c.pm, name)) list.push({ id: c.id, name: c.name, role: "PM" });
+    });
+    return list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }
+  async function openAssign(name) {
+    assignName = name;
+    $("tmAssignWho").textContent = name;
+    $("tmAssignErr").textContent = "";
+    $("tmAssignLead").textContent = `Clients ${name} manages. Manual changes here override the assignment-sheet sync for that client.`;
+    // client dropdown = every real client
+    const clients = (window.TJA_STORE.list() || []).filter(c => !String(c.id).startsWith("_")).sort((a, b) => a.name.localeCompare(b.name));
+    $("tmAssignClient").innerHTML = clients.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+    $("tmAssignOverlay").style.display = "flex";
+    await renderAssignList();
+  }
+  async function renderAssignList() {
+    const box = $("tmAssignList");
+    let roster = [];
+    try { roster = await window.SUPA.pullScope("_registry", "clients") || []; } catch (e) { roster = window.TJA_STORE.list() || []; }
+    const rows = assignmentsFor(assignName, roster);
+    box.innerHTML = rows.length
+      ? rows.map(r => `<div class="tm-assign-item"><span class="tm-assign-role ${r.role.toLowerCase()}">${r.role}</span><span class="tm-assign-name">${esc(r.name)}</span><button class="tm-assign-rm" data-rm="${esc(r.id)}" data-role="${r.role.toLowerCase()}" title="Remove this assignment">✕</button></div>`).join("")
+      : `<div class="pr-date" style="padding:6px 0">No client assignments yet.</div>`;
   }
 
   /* ---- copy-link modal (signup links + "email is off, send it yourself" links) ---- */
@@ -357,6 +427,9 @@
           ? `<span class="tm-pending">Invited — not accepted</span>`
           : esc(when(u.lastSignIn))}</td>
         <td style="text-align:right;white-space:nowrap">
+          ${(!AMPM && u.role !== "client" && u.name)
+            // Admin: view/add/remove this AM/PM's client assignments (manual override of the sync).
+            ? `<button class="btn btn-ghost btn-sm tm-linkbtn" data-assign="${esc(u.name)}" title="View & change this person's client assignments">⇄ Assignments</button>` : ""}
           ${u.role === "client"
             // A copyable signup/reset link — for sending it yourself (Slack, DM) or when
             // the invite email is toggled off. Generates a fresh link on click.
@@ -419,6 +492,9 @@
 
   /* ---- reset password / remove / copy link / preferences ---- */
   $("tmBody").addEventListener("click", async (e) => {
+    // ⇄ Assignments — view/add/remove this AM/PM's clients
+    const asg = e.target.closest("[data-assign]");
+    if (asg) { openAssign(asg.dataset.assign); return; }
     // click a client's email → per-client notification & link preferences
     const pf = e.target.closest("[data-prefs]");
     if (pf) { openPrefs(pf.dataset.prefs); return; }
@@ -627,6 +703,41 @@
   $("prefDeliverableEmails").addEventListener("change", savePrefs);
   $("prefSignupEmails").addEventListener("change", savePrefs);
   window.TJA_UI.backdropClose($("tmPrefsOverlay"), _closePrefs);
+
+  // assignments modal wiring
+  const _closeAssign = () => $("tmAssignOverlay").style.display = "none";
+  $("tmAssignClose").addEventListener("click", _closeAssign);
+  $("tmAssignX").addEventListener("click", _closeAssign);
+  window.TJA_UI.backdropClose($("tmAssignOverlay"), _closeAssign);
+  $("tmAssignAdd").addEventListener("click", async () => {
+    const clientId = $("tmAssignClient").value, role = $("tmAssignRole").value;
+    if (!clientId) return;
+    $("tmAssignErr").textContent = "Saving…";
+    try {
+      await mutateClient(clientId, c => {
+        if (role === "am") c.am = assignName; else c.pm = assignName;
+        syncManagers(c);
+        c.integrations = Object.assign({}, c.integrations, { amPmManual: true });
+      });
+      $("tmAssignErr").textContent = "";
+      await renderAssignList();
+    } catch (e) { $("tmAssignErr").textContent = "Couldn't save — " + (e.message || e); }
+  });
+  $("tmAssignList").addEventListener("click", async (e) => {
+    const rm = e.target.closest("[data-rm]"); if (!rm) return;
+    $("tmAssignErr").textContent = "Removing…";
+    try {
+      await mutateClient(rm.dataset.rm, c => {
+        // remove this person from whichever role(s) they hold on the client
+        if (eqName(c.am, assignName)) c.am = null;
+        if (eqName(c.pm, assignName)) c.pm = null;
+        syncManagers(c);
+        c.integrations = Object.assign({}, c.integrations, { amPmManual: true });
+      });
+      $("tmAssignErr").textContent = "";
+      await renderAssignList();
+    } catch (e) { $("tmAssignErr").textContent = "Couldn't remove — " + (e.message || e); }
+  });
 
   if (AMPM) {
     // AM/PM: client logins only — retitle + trim the staff chrome. Server enforces the rest.

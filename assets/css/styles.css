@@ -459,6 +459,18 @@ body[data-role="client"] .staff-only { display: none !important; }
 .tm-email-btn { background: none; border: none; padding: 0; font: inherit; color: var(--text-dim);
   cursor: pointer; text-align: left; border-bottom: 1px dashed transparent; }
 .tm-email-btn:hover { color: var(--orange); border-bottom-color: var(--orange); }
+/* per-manager assignment modal */
+.tm-assign-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 14px; max-height: 240px; overflow-y: auto; }
+.tm-assign-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+.tm-assign-role { font-size: .58rem; font-weight: 800; letter-spacing: .06em; padding: 2px 7px; border-radius: 999px; flex: none; }
+.tm-assign-role.am { color: var(--orange); background: rgba(255,120,0,.13); border: 1px solid rgba(255,120,0,.4); }
+.tm-assign-role.pm { color: #6aa6ff; background: rgba(106,166,255,.14); border: 1px solid rgba(106,166,255,.42); }
+.tm-assign-name { flex: 1; font-size: .84rem; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-assign-rm { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: .9rem; flex: none; }
+.tm-assign-rm:hover { color: var(--bad); }
+.tm-assign-add { border-top: 1px solid var(--line); padding-top: 12px; }
+.tm-assign-add-head { font-size: .62rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+.tm-assign-add-row { display: flex; gap: 8px; align-items: center; }
 
 /* Integrations section in the client Add/Edit modal (collapsed by default) */
 .cl-integrations { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
