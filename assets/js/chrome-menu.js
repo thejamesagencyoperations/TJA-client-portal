@@ -38,6 +38,9 @@
     // Admin Center is open to AM/PMs too now (they create/manage CLIENT logins there); the
     // page + manage-users function enforce the client-only limits server-side.
     if (r === "admin" || r === "manager") items.push({ label: "Admin Center", href: "admin-center.html" });
+    // Edit history — admin sees every client, an AM/PM sees their own (audit_log RLS is
+    // admin+manager; the page scopes a manager to their assigned clients).
+    if (r === "admin" || r === "manager") items.push({ label: "History", href: "history.html" });
     if (r === "admin") items.push({ label: "Backup & Sync", href: "backup.html" });
     const links = items
       .filter((it) => it.href.toLowerCase() !== here)

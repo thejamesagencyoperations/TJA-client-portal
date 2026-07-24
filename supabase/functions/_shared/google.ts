@@ -99,6 +99,54 @@ export async function driveExportBytes(token: string, fileId: string, mimeType: 
   return new Uint8Array(await r.arrayBuffer());
 }
 
+/* ---- Drive write helpers (shared by drive-upload + history-snapshot) ---- */
+
+// Multipart upload of raw bytes into a folder. One request: JSON metadata + media.
+export async function driveUploadBytes(
+  token: string, folderId: string, name: string, bytes: Uint8Array, mimeType = "application/octet-stream",
+): Promise<{ id: string; webViewLink?: string }> {
+  const boundary = "tja_" + crypto.randomUUID();
+  const meta = JSON.stringify({ name, parents: [folderId] });
+  const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n` +
+    `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const tail = `\r\n--${boundary}--`;
+  const body = new Blob([head, bytes, tail]);
+  const r = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink",
+    { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` }, body },
+  );
+  if (!r.ok) throw new Error(`drive upload ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return await r.json();
+}
+
+// Find a sub-folder by name under `parentId`, creating it if absent. Returns its id.
+// Used to lay out history/<snapshots|audit-archive>/<client>/… without pre-made folders.
+export async function driveEnsureFolder(token: string, parentId: string, name: string): Promise<string> {
+  const q = `name='${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and ` +
+    `mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const u = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}` +
+    `&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+  if (r.ok) {
+    const j = await r.json();
+    if (j.files && j.files.length) return j.files[0].id;
+  }
+  const c = await fetch("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name, parents: [parentId], mimeType: "application/vnd.google-apps.folder" }),
+  });
+  if (!c.ok) throw new Error(`drive mkdir ${c.status}: ${(await c.text()).slice(0, 200)}`);
+  return (await c.json()).id;
+}
+
+// gzip in-memory (Deno/edge runtime has CompressionStream) — snapshots compress ~10×.
+export async function gzipBytes(input: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream("gzip");
+  const stream = new Blob([input]).stream().pipeThrough(cs);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 // Rows the user HID in a NATIVE Google Sheet, as a Set of 0-based row indices. The .xlsx
 // export drops row-visibility entirely (SheetJS sees no '!rows'), so for native Sheets we
 // ask the Sheets API directly for rowMetadata.hiddenByUser / hiddenByFilter. Fails SOFT to an

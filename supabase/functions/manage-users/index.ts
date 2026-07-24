@@ -33,7 +33,14 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
+import { audit } from "../_shared/audit.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+
+// Login changes are the highest-stakes actions in the portal — always attributed to the
+// staff member who made them (never 'system'). Fire-and-forget.
+function auditActor(caller: { email?: string; role?: string }, clientId: string, action: string, summary: string) {
+  audit({ clientId, action, summary, actorEmail: caller?.email || "", actorName: caller?.email || "", actorRole: caller?.role || "admin" });
+}
 
 // 'media' = paid-media team. Staff-tier (own no client workspace) but view-only on
 // client work — enforced in RLS (no write policy) + client-side. schema-v10 widens
@@ -300,6 +307,8 @@ Deno.serve(async (req) => {
           emailError = String((e as Error).message || e).slice(0, 140);
         }
       }
+      auditActor(caller, clientId, "login.invited",
+        `${action === "reinvite" ? "re-sent an invite to" : "invited"} ${email}${emailed ? "" : " (link only — no email)"}`);
       return json(req, 200, { ok: true, id: userId, invited: email, link, emailed, emailError });
     }
 
@@ -335,6 +344,7 @@ Deno.serve(async (req) => {
       const { error: pe } = await svc.from("profiles")
         .upsert({ id: data.user.id, email, role, client_id: clientId }, { onConflict: "id" });
       if (pe) return json(req, 400, { error: pe.message });
+      auditActor(caller, clientId, "login.created", `created a ${role} login for ${email}`);
       return json(req, 200, { ok: true, id: data.user.id });
     }
 
@@ -368,6 +378,7 @@ Deno.serve(async (req) => {
       if (ue) return json(req, 400, { error: ue.message });
       const { error: pe } = await svc.from("profiles").update({ role, client_id: clientId }).eq("id", id);
       if (pe) return json(req, 400, { error: pe.message });
+      auditActor(caller, clientId, "login.role_changed", `changed ${name || id}'s role to ${role}`);
       return json(req, 200, { ok: true });
     }
 
@@ -397,6 +408,7 @@ Deno.serve(async (req) => {
       // is untouched — deleting a login never deletes their dashboard.
       const { error } = await svc.auth.admin.deleteUser(id);
       if (error) return json(req, 400, { error: error.message });
+      auditActor(caller, "_registry", "login.removed", `removed a login (${prof?.role || "user"})`);
       return json(req, 200, { ok: true });
     }
 

@@ -15,6 +15,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { handleOptions, json } from "../_shared/cors.ts";
 import { driveAccessToken, parseDriveFileId } from "../_shared/google.ts";
+import { audit } from "../_shared/audit.ts";
 import { fetchPlanFromDrive as fetchPlan, stable } from "../_shared/planfetch.ts";
 
 Deno.serve(async (req) => {
@@ -64,6 +65,7 @@ Deno.serve(async (req) => {
         .eq("client_id", row.client_id).eq("scope", "dashboard").eq("updated_at", row.updated_at)
         .select("client_id");
       if (!upd || !upd.length) { skipped++; changed--; }   // lost the race — leave the human edit intact
+      else audit({ clientId: row.client_id, scope: "dashboard", action: "plan.refreshed", summary: "project plan re-pulled from the connected sheet" });
     }
   }
   return json(req, 200, { ok: true, checked, changed, failed, skipped });

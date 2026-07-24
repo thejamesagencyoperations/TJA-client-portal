@@ -415,8 +415,13 @@ window.WMJ_SYNC = (function () {
     // BOTH sheets; each sync loadState→saveState the whole client doc. Running them
     // sequentially guarantees the retainer write lands last for shared clients, so the
     // projects write can never clobber the retainer's wmjServiceLines with a stale copy.
+    // The audit trail is for HUMAN edits. A sync run rewrites many clients' dashboards in one
+    // burst, which would bury the history in machine noise — so mute per-write auditing for the
+    // duration and log ONE summary row at the end instead.
+    const muteAudit = (on) => { try { if (window.SUPA && window.SUPA.setAuditMuted) window.SUPA.setAuditMuted(on); } catch (e) {} };
     const run = () =>
-      sync()
+      Promise.resolve(muteAudit(true))
+        .then(() => sync())
         .then(pv => { window.__wmjProjResult = pv; })
         .catch(err => { console.warn("WMJ projects sync", err); })
         .then(() => syncRetainers())
@@ -433,8 +438,16 @@ window.WMJ_SYNC = (function () {
         .catch(err => { console.warn("mgr-sheet sync", err); })
         .then(() => {
           try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
+          muteAudit(false);
+          // one line on the record that the machine sync ran (not 50 per-client diffs)
+          try {
+            const n = (window.__wmjProjResult && window.__wmjProjResult.clients) || 0;
+            if (window.SUPA && window.SUPA.auditEvent)
+              window.SUPA.auditEvent("_registry", "wmj.sync", "Workamajig sync ran" + (n ? ` — ${n} client${n === 1 ? "" : "s"} updated` : ""));
+          } catch (e) {}
           if (onDone) { try { onDone(window.__wmjProjResult || null); } catch (e) {} }
-        });
+        })
+        .catch(err => { muteAudit(false); console.warn("WMJ sync chain", err); });
     run();
     if (!timer) timer = setInterval(run, HOUR);
   }

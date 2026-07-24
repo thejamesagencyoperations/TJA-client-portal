@@ -21,6 +21,7 @@
      supabase functions deploy assign-sync --use-api --no-verify-jwt
    ============================================================ */
 import { json } from "../_shared/cors.ts";
+import { audit } from "../_shared/audit.ts";
 import { csvToRows } from "../_shared/plan.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -157,6 +158,13 @@ Deno.serve(async (req) => {
       }
       await svc.from("app_state").update({ data: roster, updated_at: new Date().toISOString() })
         .eq("client_id", "_registry").eq("scope", "clients");
+      // on the record: who ended up assigned where, per run
+      audit({
+        clientId: "_registry", scope: "clients", action: "assignments.synced",
+        summary: `AM/PM assignments synced from "${tabName}" — ${applied.length} client${applied.length === 1 ? "" : "s"}`,
+        changes: applied.slice(0, 40).map((a) => ({ p: a.name, f: "", t: `AM ${a.am || "—"} · PM ${a.pm || "—"}` })),
+        n: applied.length,
+      });
     }
 
     return json(req, 200, {

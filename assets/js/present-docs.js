@@ -580,6 +580,12 @@ window.PresentDocs = (function () {
           versionLabel: version.label, by: version.sentBy || sess.name || "TJA" });
       } catch (e) {}
     }
+    // on the record: a named event reads better in History than a raw deliverables diff
+    try {
+      if (window.SUPA && window.SUPA.auditEvent)
+        window.SUPA.auditEvent(sess.client, "deliverable.sent",
+          `sent ${name}${version && version.label ? " " + version.label : ""} to the client`, { scope: "deliverables" });
+    } catch (e) {}
     if (window.TJA_MAIL && window.TJA_MAIL.sendDeliverable) {
       try {
         window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docId: id, docName: name,
@@ -1078,6 +1084,14 @@ window.PresentDocs = (function () {
     // change a submitted review. applyReviewLock hides Submit, pins "Review submitted",
     // and freezes the fields for this version.
     applyReviewLock();
+    // on the record — who reviewed what, with their verdict
+    try {
+      if (v && d && window.SUPA && window.SUPA.auditEvent) {
+        const verdict = STATUS_WORD[v.status] || v.status || "responded";
+        window.SUPA.auditEvent(sess.client, "deliverable.reviewed",
+          `reviewed ${d.name}${v.label ? " " + v.label : ""} — ${verdict}`, { scope: "deliverables" });
+      }
+    } catch (e) {}
     // Notify the team of the client's review — with the deliverable's PDF attached to the
     // Slack post. Generated AFTER the UI locks so the client never waits on it, then handed
     // to send-review-notification (which posts the proof to the client's Slack channel).
@@ -1534,8 +1548,11 @@ window.PresentDocs = (function () {
         const id = del.dataset.del;
         // Remove locally + repaint immediately, then flush the removal to the server RIGHT AWAY
         // (guardLive keeps a stray pull from re-adding it — the "deletes, pops back" bug).
+        const gone = (draftItems.find(x => x.id === id) || items.find(x => x.id === id) || {}).name || "a deliverable";
         if (draftItems.some(x => x.id === id)) { draftItems = draftItems.filter(x => x.id !== id); renderGallery(); await saveDraftsNow(); }
         else { items = items.filter(x => x.id !== id); renderGallery(); await saveNow(); }
+        // deletions are the events people most need to trace back
+        try { if (window.SUPA && window.SUPA.auditEvent) window.SUPA.auditEvent(sess.client, "deliverable.deleted", `deleted ${gone}`, { scope: "deliverables" }); } catch (e) {}
         return;
       }
       const card = e.target.closest(".pd-card");

@@ -472,6 +472,32 @@ body[data-role="client"] .staff-only { display: none !important; }
 .tm-assign-add-head { font-size: .62rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
 .tm-assign-add-row { display: flex; gap: 8px; align-items: center; }
 
+/* ---- Edit history (history.html) ---- */
+.hist-feed { display: flex; flex-direction: column; }
+.hist-day { font-size: .62rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-dim); margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.hist-row { display: flex; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
+.hist-row:last-child { border-bottom: none; }
+.hist-ico { flex: none; width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center;
+  justify-content: center; font-size: .78rem; background: var(--panel); border: 1px solid var(--line); }
+.hist-row.edit .hist-ico { color: var(--orange); border-color: rgba(255,120,0,.4); background: rgba(255,120,0,.1); }
+.hist-row.deliverable .hist-ico { color: #6aa6ff; border-color: rgba(106,166,255,.42); background: rgba(106,166,255,.12); }
+.hist-row.login .hist-ico { color: #b57bff; border-color: rgba(181,123,255,.42); background: rgba(181,123,255,.12); }
+.hist-row.sync .hist-ico { color: var(--text-dim); }
+.hist-body { flex: 1; min-width: 0; }
+.hist-line { font-size: .86rem; line-height: 1.4; }
+.hist-meta { font-size: .72rem; color: var(--text-dim); margin-top: 2px; }
+.hist-toggle { background: none; border: none; padding: 0; font: inherit; font-size: .72rem;
+  color: var(--orange); cursor: pointer; text-decoration: underline; }
+.hist-detail { margin-top: 8px; padding: 8px 10px; border-radius: 9px; background: var(--panel);
+  border: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
+.hist-change { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: .74rem; }
+.hc-path { font-weight: 600; color: var(--text-dim); word-break: break-all; }
+.hc-from { color: var(--text-faint); text-decoration: line-through; word-break: break-word; }
+.hc-arrow { color: var(--text-faint); }
+.hc-to { color: var(--text); font-weight: 600; word-break: break-word; }
+.hist-more-note { font-size: .7rem; color: var(--text-faint); font-style: italic; }
+
 /* Integrations section in the client Add/Edit modal (collapsed by default) */
 .cl-integrations { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .cl-integrations summary { cursor: pointer; font-size: .78rem; font-weight: 700; color: var(--text-dim); }

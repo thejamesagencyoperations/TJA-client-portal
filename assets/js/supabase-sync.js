@@ -71,6 +71,8 @@ window.SUPA = (function () {
       if (r && r.__timeout) { console.warn("SUPA pull timeout", scope); return null; }
       const { data, error } = r;
       if (error) { console.warn("SUPA pull", scope, error.message); return null; }
+      // seed the audit ancestor so the FIRST edit after load produces a real diff
+      if (data) auditPrev[clientId + "::" + scope] = cloneJSON(data.data);
       return data ? data.data : null;
     } catch (e) { console.warn("SUPA pull", scope, e); return null; }
   }
@@ -88,6 +90,7 @@ window.SUPA = (function () {
       if (!data) return null;
       lastKnown[clientId + "::" + scope] = data.updated_at;
       baseData[clientId + "::" + scope] = cloneJSON(data.data);   // ancestor for the 3-way merge
+      auditPrev[clientId + "::" + scope] = cloneJSON(data.data);  // …and for the audit diff
       return { data: data.data, updated_at: data.updated_at };
     } catch (e) { console.warn("SUPA pullFull", scope, e); return null; }
   }
@@ -180,6 +183,7 @@ window.SUPA = (function () {
           { onConflict: "client_id,scope" }
         );
         if (error) console.warn("SUPA push", scope, error.message);
+        else auditWrite(clientId, scope, latest[key]);   // one row per coalesced burst
       } catch (e) { console.warn("SUPA push", scope, e); }
       finally { pending[key] = false; }
     }, 600);
@@ -204,6 +208,100 @@ window.SUPA = (function () {
     return JSON.stringify(v === undefined ? null : v);
   }
   const sameVal = (a, b) => stableStr(a) === stableStr(b);
+
+  /* ============================================================
+     AUDIT TRAIL (version / edit history) — see schema-v12-audit.sql.
+     Every write that goes through this module is diffed against the previous value and
+     one compact row per edit BURST is appended to `audit_log`. Storage discipline: only
+     field-level {path, from, to} triples, values truncated — full snapshots live in Drive.
+     Fire-and-forget by design: auditing must NEVER slow down or fail a data write.
+     ============================================================ */
+  const auditPrev = {};            // clientId::scope -> last value we know of (the diff ancestor)
+  const AUDIT_MAX_CHANGES = 40;    // keep rows small; `n` still reports the true total
+  const AUDIT_VAL_CHARS = 120;
+  // Scopes that are machine chatter, not human edits — never audited.
+  const AUDIT_SKIP_SCOPES = { presence: 1, notifications: 1 };
+  // Paths that churn without being meaningful edits (tile geometry, send-bookkeeping).
+  const AUDIT_SKIP_RE = /(^|\.)(layout|prSlackSent|updatedAt|lastSync)(\.|$)/;
+  const SCOPE_LABEL = {
+    dashboard: "Dashboard", deliverables: "Present Docs", deliverables_draft: "Present Docs (waiting room)",
+    files: "Files", clients: "Client registry", media_intake: "Media requests",
+  };
+  let auditMuted = 0;              // >0 while a bulk machine sync runs (see setAuditMuted)
+  function setAuditMuted(on) { auditMuted = Math.max(0, auditMuted + (on ? 1 : -1)); }
+
+  const shortVal = (v) => {
+    if (v === undefined || v === null) return "";
+    if (Array.isArray(v)) return v.length + " item" + (v.length === 1 ? "" : "s");
+    if (typeof v === "object") return "…";
+    const s = String(v);
+    return s.length > AUDIT_VAL_CHARS ? s.slice(0, AUDIT_VAL_CHARS) + "…" : s;
+  };
+  // Walk old vs new and collect {p:path, f:from, t:to}. Arrays whose length changed are one
+  // summary entry (a row added/removed), matching how merge3 treats structural array changes.
+  function diffValues(a, b, path, out) {
+    if (out.length >= AUDIT_MAX_CHANGES + 1) return out;   // +1 so callers can tell it was capped
+    if (path && AUDIT_SKIP_RE.test(path)) return out;
+    if (sameVal(a, b)) return out;
+    const po = (x) => x && typeof x === "object" && !Array.isArray(x);
+    if (po(a) && po(b)) {
+      new Set([...Object.keys(a), ...Object.keys(b)]).forEach((k) => diffValues(a[k], b[k], path ? path + "." + k : k, out));
+      return out;
+    }
+    if (Array.isArray(a) && Array.isArray(b) && a.length === b.length) {
+      for (let i = 0; i < a.length; i++) diffValues(a[i], b[i], path + "." + i, out);
+      return out;
+    }
+    out.push({ p: path || "(root)", f: shortVal(a), t: shortVal(b) });
+    return out;
+  }
+  function actor() {
+    try {
+      const s = (typeof getSession === "function") && getSession();
+      // the REAL role, not effectiveRole() — an admin previewing as a client is still an admin
+      if (s) return { actor_email: s.email || "", actor_name: s.name || "", actor_role: s.role || "" };
+    } catch (e) {}
+    return { actor_email: "", actor_name: "", actor_role: "" };
+  }
+  // Append one row. Never throws, never awaited by a data write.
+  function logAudit(row) {
+    try {
+      if (!client) return;
+      client.from("audit_log").insert(Object.assign({}, actor(), row))
+        .then((r) => { if (r && r.error) console.debug("audit skipped:", r.error.message); })
+        .catch(() => {});
+    } catch (e) {}
+  }
+  // The standard path: diff a scope write and log it if anything meaningful changed.
+  function auditWrite(clientId, scope, value) {
+    try {
+      if (auditMuted || AUDIT_SKIP_SCOPES[scope]) return;
+      // internal bookkeeping workspaces are noise — EXCEPT the '_registry' roster, whose
+      // changes (AM/PM assignments, integrations) are exactly what we want on the record.
+      if (String(clientId).startsWith("_") && clientId !== "_registry") return;
+      const key = clientId + "::" + scope;
+      const prev = auditPrev[key];
+      auditPrev[key] = cloneJSON(value);
+      if (prev === undefined) return;            // first write this session — no ancestor to diff
+      const all = diffValues(prev, value, "", []);
+      if (!all.length) return;
+      const capped = all.slice(0, AUDIT_MAX_CHANGES);
+      const label = SCOPE_LABEL[scope] || scope;
+      logAudit({
+        client_id: clientId, scope, action: "edit",
+        summary: `edited ${label} — ${all.length} change${all.length === 1 ? "" : "s"}`,
+        changes: capped, n: all.length,
+      });
+    } catch (e) {}
+  }
+  // Public: record a SEMANTIC event (a send, a review, a deletion) rather than a raw diff.
+  function auditEvent(clientId, action, summary, extra) {
+    try {
+      if (auditMuted) return;
+      logAudit({ client_id: clientId, scope: (extra && extra.scope) || null, action, summary: summary || action, changes: (extra && extra.changes) || [], n: (extra && extra.n) || 0 });
+    } catch (e) {}
+  }
+
   // 3-WAY MERGE. base = common ancestor, mine = my edits, theirs = the server's current version.
   // A field only I changed keeps MY value; a field only they changed takes THEIRS; a field we
   // BOTH changed takes theirs (last-write-wins) but is pushed onto `conflicts` so the UI can hand
@@ -253,7 +351,7 @@ window.SUPA = (function () {
           .eq("client_id", clientId).eq("scope", scope).eq("updated_at", lastKnown[key])
           .select("updated_at");
         if (error) { console.warn("SUPA pushGuarded", scope, error.message); return; }
-        if (data && data.length) { lastKnown[key] = data[0].updated_at; baseData[key] = cloneJSON(latest[key]); return; }   // CAS won
+        if (data && data.length) { lastKnown[key] = data[0].updated_at; baseData[key] = cloneJSON(latest[key]); auditWrite(clientId, scope, latest[key]); return; }   // CAS won
         // 0 rows: either the row vanished or someone else wrote. Look.
         const cur = await client.from("app_state").select("data,updated_at")
           .eq("client_id", clientId).eq("scope", scope).maybeSingle();
@@ -285,6 +383,7 @@ window.SUPA = (function () {
           if (up.error) { console.warn("SUPA merge", scope, up.error.message); break; }
           if (up.data && up.data.length) {                      // merged landed
             lastKnown[key] = up.data[0].updated_at; baseData[key] = cloneJSON(merged); latest[key] = cloneJSON(merged);
+            auditWrite(clientId, scope, merged);
             if (typeof onConflict === "function") { try { onConflict(merged, conflicts); } catch (e) {} }
             landed = true;
           } else {                                              // a THIRD writer raced in — re-pull + retry
@@ -320,6 +419,7 @@ window.SUPA = (function () {
         { onConflict: "client_id,scope" }
       );
       if (error) { console.warn("SUPA pushNow", scope, error.message); return { ok: false, error: error.message }; }
+      auditWrite(clientId, scope, value);
       return { ok: true };
     } catch (e) { console.warn("SUPA pushNow", scope, e); return { ok: false, error: String(e) }; }
     finally { pending[key] = false; }
@@ -334,5 +434,20 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA removeClient", e); }
   }
 
-  return { enabled, client, ready, refreshSession, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient };
+  // Read the audit trail for the History page. RLS already restricts SELECT to admin +
+  // manager, so a client/creative simply gets nothing back. Newest first, paginated.
+  async function readAudit({ clientId, before, limit } = {}) {
+    if (!client) return [];
+    await ready;
+    try {
+      let q = client.from("audit_log").select("*").order("ts", { ascending: false }).limit(limit || 200);
+      if (clientId) q = q.eq("client_id", clientId);
+      if (before) q = q.lt("ts", before);
+      const { data, error } = await q;
+      if (error) { console.warn("SUPA readAudit", error.message); return []; }
+      return data || [];
+    } catch (e) { console.warn("SUPA readAudit", e); return []; }
+  }
+
+  return { enabled, client, ready, refreshSession, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient, auditEvent, setAuditMuted, readAudit };
 })();
