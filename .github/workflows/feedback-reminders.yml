@@ -1,0 +1,25 @@
+name: Present Docs feedback reminders
+
+# Nudges clients who haven't reviewed a deliverable — 3 days before the feedback-due
+# date and on the due date. Runs once a day at 10:00 America/Phoenix. Phoenix is UTC-7
+# year-round (no DST), so 10:00 local = 17:00 UTC. The function only sends each milestone
+# once, so a slightly-late cron run is harmless.
+
+on:
+  schedule:
+    - cron: "0 17 * * *"     # 17:00 UTC = 10:00 America/Phoenix
+  workflow_dispatch: {}
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger feedback-reminders
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        run: |
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/feedback-reminders" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+            -H "Authorization: Bearer ${ANON_KEY}" \
+            -w "\nHTTP %{http_code}\n"
