@@ -53,8 +53,7 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const dry = url.searchParams.get("dry") === "1";
   const secret = Deno.env.get("SNAPSHOT_SECRET");
-  const dryKey = dry && url.searchParams.get("key") === "tja-assign-dry-8k3q";   // TEMP dry bypass — remove before cron
-  if (!dryKey && (!secret || req.headers.get("x-snapshot-secret") !== secret)) return json(req, 401, { error: "bad or missing secret" });
+  if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
 
   const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   try {
