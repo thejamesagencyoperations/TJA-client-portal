@@ -254,7 +254,12 @@ window.TJA_STORE = (function () {
       if (Array.isArray(remote) && remote.length) {
         const local = readAdded();
         const map = new Map(local.map(c => [c.id, c]));
-        remote.forEach(c => { if (!map.has(c.id)) map.set(c.id, c); });
+        // OVERLAY remote onto local (was additive-only). The registry is the server-owned
+        // source of truth for admin fields — manager tags, am/pm assignments, integrations —
+        // so an existing client must adopt those from remote, else assignment/access changes
+        // made elsewhere never reach an already-loaded browser. Server READ updating local is
+        // the safe direction (the WMJ-wipe was about local WRITES clobbering the server).
+        remote.forEach(c => { const cur = map.get(c.id); map.set(c.id, cur ? Object.assign({}, cur, c) : c); });
         try { localStorage.setItem(LS_KEY, JSON.stringify([...map.values()])); } catch {}
       }
     } catch (e) { console.warn("roster hydrate", e); }
