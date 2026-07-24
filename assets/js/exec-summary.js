@@ -700,6 +700,58 @@ window.ExecSummary = (function () {
     </div>`;
   }
 
+  // colored Slack mark → opens the "send to #tja-pr_wins" popup for this hit (staff only)
+  const SLACK_MARK = `<svg viewBox="0 0 122.8 122.8" width="15" height="15" aria-hidden="true"><path d="M25.8 77.6c0 7.1-5.8 12.9-12.9 12.9S0 84.7 0 77.6s5.8-12.9 12.9-12.9h12.9v12.9z" fill="#e01e5a"/><path d="M32.3 77.6c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V77.6z" fill="#e01e5a"/><path d="M45.2 25.8c-7.1 0-12.9-5.8-12.9-12.9S38.1 0 45.2 0s12.9 5.8 12.9 12.9v12.9H45.2z" fill="#36c5f0"/><path d="M45.2 32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H12.9C5.8 58.1 0 52.3 0 45.2s5.8-12.9 12.9-12.9h32.3z" fill="#36c5f0"/><path d="M97 45.2c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H97V45.2z" fill="#2eb67d"/><path d="M90.5 45.2c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V12.9C64.7 5.8 70.5 0 77.6 0s12.9 5.8 12.9 12.9v32.3z" fill="#2eb67d"/><path d="M77.6 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97h12.9z" fill="#ecb22e"/><path d="M77.6 90.5c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H77.6z" fill="#ecb22e"/></svg>`;
+  const prWinBtn = (i) => canAdmin() ? `<button class="pr-slack pr-win-btn" data-prwin="${i}" title="Send this hit to #tja-pr_wins on Slack">${SLACK_MARK}</button>` : "";
+  // Popup: a note box + "Send to PR Wins" → posts the hit (link + note) to #tja-pr_wins.
+  function openPrWinPopup(hit) {
+    const clientName = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name) || "";
+    const ov = document.createElement("div");
+    ov.className = "prwin-overlay";
+    ov.innerHTML =
+      `<div class="prwin-card">
+        <div class="prwin-title">Send to <span class="prwin-chan">#tja-pr_wins</span></div>
+        <div class="prwin-sub">${esc(hit.outlet || "")}${hit.date ? " · " + esc(hit.date) : ""}${hit.link ? " · link attached" : ""}</div>
+        <textarea class="prwin-text" placeholder="Add a note about this win (optional)…"></textarea>
+        <div class="prwin-err"></div>
+        <div class="prwin-actions">
+          <button type="button" class="pd-tool-btn prwin-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary prwin-send">📣 Send to PR Wins</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    ov.querySelector(".prwin-cancel").addEventListener("click", close);
+    ov.addEventListener("click", (ev) => { if (ev.target === ov) close(); });
+    document.addEventListener("keydown", function esckey(ev) { if (ev.key === "Escape") { close(); document.removeEventListener("keydown", esckey); } });
+    const ta = ov.querySelector(".prwin-text"); setTimeout(() => ta.focus(), 30);
+    ov.querySelector(".prwin-send").addEventListener("click", async () => {
+      const btn = ov.querySelector(".prwin-send"), err = ov.querySelector(".prwin-err");
+      btn.disabled = true; btn.textContent = "Sending…"; err.textContent = "";
+      const ok = await sendPrWin(hit, ta.value.trim(), clientName);
+      if (ok) { close(); if (typeof flashRefreshed === "function") flashRefreshed("📣 Posted to #tja-pr_wins"); }
+      else { err.textContent = "Couldn't post to Slack — try again."; btn.disabled = false; btn.textContent = "📣 Send to PR Wins"; }
+    });
+  }
+  async function sendPrWin(hit, text, clientName) {
+    try {
+      const cfg = window.SUPABASE_CONFIG || {};
+      const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
+      if (!base || !(window.SUPA && window.SUPA.enabled && window.SUPA.client)) return false;
+      const { data } = await window.SUPA.client.auth.getSession();
+      const token = data && data.session ? data.session.access_token : null;
+      if (!token) return false;
+      const r = await fetch(base + "/send-pr-win", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({
+          text, client: clientName, link: hit.link || "", outlet: hit.outlet || "",
+          date: hit.date || "", impressions: hit.impressions || "", adValue: hit.adValue || "",
+        }),
+      });
+      return r.ok;
+    } catch (e) { return false; }
+  }
   function prModule(e) {
     const list = e.prCoverage || [];
     const sheet = e.prSource === "sheet";   // team-maintained Google Sheet → read-only mirror
@@ -707,16 +759,8 @@ window.ExecSummary = (function () {
     const fmtNum = (n) => { const v = String(n == null ? "" : n).replace(/[^0-9.]/g, ""); return v ? Number(v).toLocaleString() : String(n || ""); };
 
     if (sheet) {
-      // admin-only, curated Slack send: the team picks which hits go to the wins channel
-      const slackOn = canAdmin() && window.SLACK_WINS && window.SLACK_WINS.enabled();
-      const sent = e.prSlackSent || {};
       const rows = list.map((p, i) => {
-        const wasSent = slackOn && sent[window.SLACK_WINS.keyFor(p)];
-        const slackBtn = slackOn
-          ? (wasSent
-              ? `<span class="pr-slack sent" title="Already posted to the wins channel">✓ Sent</span>`
-              : `<button class="pr-slack" data-prslack="${i}" title="Post this hit to the Slack wins channel">→ Slack</button>`)
-          : "";
+        const slackBtn = prWinBtn(i);   // send this hit to #tja-pr_wins
         return `
         <div class="pr-item">
           <div class="pr-main">
@@ -748,6 +792,7 @@ window.ExecSummary = (function () {
         </div>
         <div class="pr-stats">
           <span class="pr-metric" title="Estimated impressions">${ed(p.impressions, "prCoverage." + i + ".impressions")} est. impressions</span>
+          ${prWinBtn(i)}
         </div>
         ${listDel("prCoverage", i)}
       </div>`).join("");
@@ -1367,18 +1412,11 @@ window.ExecSummary = (function () {
         return;
       }
 
-      // curated PR-wins Slack send (admin): post ONE chosen hit via the proxy, remember it
-      const ps = e.target.closest("[data-prslack]");
-      if (ps && canAdmin() && window.SLACK_WINS && window.SLACK_WINS.enabled()) {
-        const hit = (eng.prCoverage || [])[+ps.dataset.prslack]; if (!hit) return;
-        ps.disabled = true; ps.textContent = "Sending…";
-        const clientName = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.name) || "Client";
-        window.SLACK_WINS.send(clientName, hit)
-          .then(() => {
-            (eng.prSlackSent || (eng.prSlackSent = {}))[window.SLACK_WINS.keyFor(hit)] = new Date().toISOString();
-            window.DASH.saveState(); rerender();
-          })
-          .catch(err => { window.TJA_UI.alert("Couldn't post to Slack: " + (err && err.message || err)); rerender(); });
+      // PR-win → #tja-pr_wins: open a note popup, then post the hit (link + note) via the bot.
+      const pw = e.target.closest("[data-prwin]");
+      if (pw && canAdmin()) {
+        const hit = (eng.prCoverage || [])[+pw.dataset.prwin]; if (!hit) return;
+        openPrWinPopup(hit);
         return;
       }
 
