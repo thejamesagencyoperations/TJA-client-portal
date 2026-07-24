@@ -20,7 +20,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
-import { postToSlack } from "../_shared/slack.ts";
+import { postToSlack, uploadFileToSlack } from "../_shared/slack.ts";
 
 const PORTAL_BASE_URL = "https://thejamesagencyoperations.github.io/TJA-client-portal";
 
@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (caller.role !== "client" || !caller.clientId || caller.clientId.startsWith("_"))
     return json(req, 403, { error: "clients only" });
 
-  let body: { docId?: string; docName?: string; versionLabel?: string; status?: string; comments?: number };
+  let body: { docId?: string; docName?: string; versionLabel?: string; status?: string; comments?: number; pdfBase64?: string; pdfName?: string };
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }
 
   const clientId = caller.clientId;                       // from the profile, never the body
@@ -72,9 +72,15 @@ Deno.serve(async (req) => {
   const docId = String(body.docId ?? "").trim();
   const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
   const emoji = body.status === "approved" ? "✅" : body.status === "changes" ? "📝" : "🔄";
-  const slackRes = await postToSlack(entry.integrations?.slackChannel,
-    `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`)
-    .catch(() => ({ ok: false }));
+  const slackText = `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`;
+  // If the client's browser sent the proof PDF, push it to Slack WITH the review message
+  // (one post: summary + attached PDF). Falls back to a text-only post if there's no PDF or
+  // the upload fails (e.g. the bot doesn't have files:write yet).
+  const pdfB64 = String(body.pdfBase64 || "");
+  const pdfName = String(body.pdfName || `${docName}.pdf`).replace(/[^\w.\-]+/g, "_");
+  let slackRes: { ok: boolean; skipped?: boolean; error?: string } = { ok: false };
+  if (pdfB64) slackRes = await uploadFileToSlack(entry.integrations?.slackChannel, slackText, pdfB64, pdfName).catch(() => ({ ok: false }));
+  if (!pdfB64 || !slackRes.ok) slackRes = await postToSlack(entry.integrations?.slackChannel, slackText).catch(() => ({ ok: false }));
   const slacked = !!(slackRes && slackRes.ok);
 
   // distribution address (auto-created per client) + any extra integrations recipients,

@@ -1065,15 +1065,6 @@ window.PresentDocs = (function () {
           by: getSession().name || "Client",
         });
       }
-      // …and email the team's distribution address for this client (fire-and-forget).
-      if (window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
-        try {
-          window.TJA_MAIL.sendReviewResponse({
-            docId: d.id, docName: d.name, versionLabel: v.label,
-            status: v.status || null, comments: (v.pins || []).length,
-          });
-        } catch (e) { console.warn("review-response email failed", e); }
-      }
     }
     saveCur(); renderGallery(); updateSignStatus(); updateMeta();
     // Flush the review to the shared row IMMEDIATELY (not just the debounced push) so the
@@ -1087,6 +1078,20 @@ window.PresentDocs = (function () {
     // change a submitted review. applyReviewLock hides Submit, pins "Review submitted",
     // and freezes the fields for this version.
     applyReviewLock();
+    // Notify the team of the client's review — with the deliverable's PDF attached to the
+    // Slack post. Generated AFTER the UI locks so the client never waits on it, then handed
+    // to send-review-notification (which posts the proof to the client's Slack channel).
+    if (v && d && getSession && getSession() && getSession().role === "client" && window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
+      let pdfBase64 = "";
+      try { pdfBase64 = await exportPDF(d, { returnBase64: true }); } catch (e) { /* PDF optional — text still posts */ }
+      try {
+        window.TJA_MAIL.sendReviewResponse({
+          docId: d.id, docName: d.name, versionLabel: v.label,
+          status: v.status || null, comments: (v.pins || []).length,
+          pdfBase64, pdfName: `${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}.pdf`,
+        });
+      } catch (e) { console.warn("review-response notify failed", e); }
+    }
   }
   function updateSignStatus() {
     const el = $("pdSignStatus"); if (!el) return;
@@ -1256,9 +1261,12 @@ window.PresentDocs = (function () {
       base.src = v.url || v.dataUrl;
     });
   }
-  async function exportPDF(d) {
+  // opts.returnBase64 → build the PDF and return its base64 (no download, no UI) so the
+  // review-submit flow can push it to Slack. Default = interactive download.
+  async function exportPDF(d, opts) {
     if (!d) return;
-    const btn = $("pdExport"); const old = btn ? btn.innerHTML : "";
+    const silent = !!(opts && opts.returnBase64);
+    const btn = silent ? null : $("pdExport"); const old = btn ? btn.innerHTML : "";
     try {
       if (btn) { btn.disabled = true; btn.textContent = "Generating…"; }
       const jsPDF = await loadJsPDF(); if (!jsPDF) throw new Error("no jsPDF");
@@ -1411,10 +1419,12 @@ window.PresentDocs = (function () {
       const pages = pdf.getNumberOfPages();
       for (let p = 1; p <= pages; p++) { pdf.setPage(p); drawFooter(p, pages); }
 
+      if (silent) return String(pdf.output("datauristring") || "").split(",")[1] || "";   // base64 only
       pdf.save(`${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}.pdf`);
     } catch (e) {
       console.warn("PDF export failed", e);
-      window.TJA_UI.alert("Sorry — couldn’t generate the PDF (the PDF library may have failed to load). Check your connection and try again.");
+      if (!silent) window.TJA_UI.alert("Sorry — couldn’t generate the PDF (the PDF library may have failed to load). Check your connection and try again.");
+      return "";
     } finally { if (btn) { btn.disabled = false; btn.innerHTML = old; } }
   }
 
