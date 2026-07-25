@@ -56,34 +56,48 @@ Deno.serve(async (req) => {
     return id;
   }
 
-  let snapshotted = 0, skipped = 0, failed = 0;
+  let snapshotted = 0, skipped = 0, failed = 0, remaining = 0;
   const errors: string[] = [];
+  // Deliverable proofs are stored INLINE as base64 while Drive storage is off, so a single
+  // client's rows can be tens of MB. Loading every client at once blew the worker's memory
+  // (WORKER_RESOURCE_LIMIT on the first live run) — so we stream ONE CLIENT AT A TIME and
+  // stop before the wall-clock limit, recording progress. The run is resumable: clients
+  // already snapshotted today are skipped, so repeated runs finish the set.
+  const DEADLINE_MS = 100_000;
+  const startedAt = Date.now();
 
   try {
-    /* ---------- 1. per-client snapshots ---------- */
-    const { data: rows } = await svc.from("app_state").select("client_id,scope,data,updated_at");
-    const byClient: Record<string, { scopes: Record<string, unknown>; newest: string }> = {};
-    for (const r of (rows || [])) {
-      const cid = String(r.client_id);
+    /* ---------- 1. per-client snapshots (streamed) ---------- */
+    // just the ids + stamps first — small enough to hold, unlike the data
+    const { data: idRows } = await svc.from("app_state").select("client_id,scope,updated_at");
+    const meta: Record<string, { newest: string; scopes: string[] }> = {};
+    for (const r of (idRows || [])) {
+      const cid = String(r.client_id), sc = String(r.scope);
       // '_registry' IS snapshotted (the roster is real data); other '_' workspaces are bookkeeping
       if (cid.startsWith("_") && cid !== "_registry") continue;
-      if (cid !== "_registry" && !SNAPSHOT_SCOPES.includes(String(r.scope))) continue;
-      const b = byClient[cid] || (byClient[cid] = { scopes: {}, newest: "" });
-      b.scopes[String(r.scope)] = r.data;
+      if (cid !== "_registry" && !SNAPSHOT_SCOPES.includes(sc)) continue;
+      const m = meta[cid] || (meta[cid] = { newest: "", scopes: [] });
+      m.scopes.push(sc);
       const u = String(r.updated_at || "");
-      if (u > b.newest) b.newest = u;
+      if (u > m.newest) m.newest = u;
     }
 
-    for (const [cid, b] of Object.entries(byClient)) {
+    for (const [cid, m] of Object.entries(meta)) {
       const last = st.lastSnapshot[cid] || {};
       // nothing changed since the last snapshot, or we already wrote one today → skip
-      if (last.date === today || (last.stamp && b.newest && last.stamp >= b.newest)) { skipped++; continue; }
+      if (last.date === today || (last.stamp && m.newest && last.stamp >= m.newest)) { skipped++; continue; }
+      if (Date.now() - startedAt > DEADLINE_MS) { remaining++; continue; }   // next run picks it up
       try {
-        const payload = enc.encode(JSON.stringify({ client: cid, takenAt: new Date().toISOString(), newestChange: b.newest, scopes: b.scopes }));
+        // fetch THIS client's data only, build the file, then let it go out of scope
+        const { data: mine } = await svc.from("app_state").select("scope,data")
+          .eq("client_id", cid).in("scope", cid === "_registry" ? ["clients"] : SNAPSHOT_SCOPES);
+        const scopes: Record<string, unknown> = {};
+        for (const r of (mine || [])) scopes[String(r.scope)] = r.data;
+        const payload = enc.encode(JSON.stringify({ client: cid, takenAt: new Date().toISOString(), newestChange: m.newest, scopes }));
         const gz = await gzipBytes(payload);
         const fid = await folder(`snapshots/${cid}`);
         await driveUploadBytes(token, fid, `${today}.json.gz`, gz, "application/gzip");
-        st.lastSnapshot[cid] = { date: today, stamp: b.newest };
+        st.lastSnapshot[cid] = { date: today, stamp: m.newest, bytes: gz.length };
         snapshotted++;
       } catch (e) { failed++; errors.push(`${cid}: ${String((e as Error).message || e).slice(0, 120)}`); }
     }
@@ -91,7 +105,10 @@ Deno.serve(async (req) => {
     /* ---------- 2. archive audit rows older than RETAIN_DAYS ---------- */
     const cutoff = new Date(Date.now() - RETAIN_DAYS * 24 * 3600 * 1000).toISOString();
     let archived = 0;
-    const { data: old } = await svc.from("audit_log").select("*").lt("ts", cutoff).order("ts", { ascending: true }).limit(5000);
+    // bounded like the snapshot loop — a huge backlog is drained over successive runs
+    const { data: old } = (Date.now() - startedAt > DEADLINE_MS)
+      ? { data: [] as any[] }
+      : await svc.from("audit_log").select("*").lt("ts", cutoff).order("ts", { ascending: true }).limit(2000);
     if (old && old.length) {
       // group by calendar month so each archive file is <YYYY-MM>.ndjson.gz
       const byMonth: Record<string, any[]> = {};
@@ -118,7 +135,8 @@ Deno.serve(async (req) => {
       { onConflict: "client_id,scope" },
     );
 
-    return json(req, 200, { ok: true, date: today, snapshotted, skipped, failed, archived, errors: errors.slice(0, 10) });
+    // `remaining` > 0 means the deadline stopped us — run again to finish (the cron will).
+    return json(req, 200, { ok: true, date: today, snapshotted, skipped, failed, remaining, archived, errors: errors.slice(0, 10) });
   } catch (e) {
     return json(req, 500, { error: String((e as Error).message || e).slice(0, 300), snapshotted, failed });
   }
