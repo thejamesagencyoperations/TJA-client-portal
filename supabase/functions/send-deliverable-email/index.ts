@@ -110,8 +110,12 @@ Deno.serve(async (req) => {
   // link syntax is <url|label>.
   const slackRes = await postToSlack(entry.integrations?.slackChannel,
     `📤 Sent *${nameLine}* to *${entry.name}* for review${due ? ` · feedback due ${due}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`)
-    .catch(() => ({ ok: false }));
+    .catch((e) => ({ ok: false, error: String((e as Error).message || e) }));
   const slacked = !!(slackRes && slackRes.ok);
+  // Surface WHY Slack didn't post (no channel / bot not in channel / not configured) instead of
+  // swallowing it — a silent skip here was undiagnosable.
+  const slackError = slacked ? "" : ((slackRes as any).skipped ? "not-configured-or-no-channel" : ((slackRes as any).error || "unknown"));
+  if (!slacked) console.error("deliverable-email slack", JSON.stringify({ channel: entry.integrations?.slackChannel || null, error: slackError }));
 
   // Email vs link. `mode` from the caller wins ('email' | 'link' | 'both'); otherwise obey
   // THIS CLIENT's deliverable-email preference (integrations.deliverableEmails, default on).
@@ -122,7 +126,7 @@ Deno.serve(async (req) => {
     : mode === "link" ? false
     : (entry.integrations?.deliverableEmails !== false);
   if (!wantEmail) {
-    return json(req, 200, { ok: true, emailed: false, link: REVIEW_URL, slacked });
+    return json(req, 200, { ok: true, emailed: false, link: REVIEW_URL, slacked, slackError });
   }
 
   /* ---- who gets the EMAIL ---- */
@@ -143,7 +147,7 @@ Deno.serve(async (req) => {
   if (!recipients.length) {
     // Slack may already have gone out — say so, so the UI doesn't imply nothing happened.
     return json(req, 409, {
-      slacked, link: REVIEW_URL,
+      slacked, slackError, link: REVIEW_URL,
       error: "No email address on file for this client. Invite them in the Admin Center, or add an address under Clients → Edit → Integrations.",
     });
   }
@@ -177,7 +181,7 @@ Deno.serve(async (req) => {
 
   try {
     const out = await sendViaResend(recipients, subject, html, text);
-    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length, slacked, emailed: true, link: REVIEW_URL });
+    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length, slacked, slackError, emailed: true, link: REVIEW_URL });
   } catch (e) {
     // Surface WHY. This used to return a bare "email send failed", which told the
     // admin nothing and made the thing undiagnosable from the UI — Resend's own

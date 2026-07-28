@@ -87,7 +87,12 @@ window.TJA_MAIL = (function () {
       const j = await r.json().catch(() => ({}));
       if (r.ok) {
         if (j.emailed) {
-          toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")" + (j.slacked ? " · posted to Slack" : ""));
+          // Surface Slack status too: "posted" on success, or a visible warning when it was
+          // attempted and failed (so a broken Slack channel isn't silent) — but stay quiet when
+          // Slack just isn't configured for this client (that's expected, not an error).
+          const slackNote = j.slacked ? " · posted to Slack"
+            : (j.slackError && j.slackError !== "not-configured-or-no-channel") ? " · ⚠ Slack not posted (" + j.slackError + ")" : "";
+          toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")" + slackNote);
         } else if (j.link) {
           // Email is toggled off — hand over the copyable link so nothing is silent.
           copyLinkPrompt("Email is off — send this deliverable link to the client" + (j.slacked ? " (also posted to Slack)" : ""), j.link);

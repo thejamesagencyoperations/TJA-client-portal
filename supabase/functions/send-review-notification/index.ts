@@ -78,10 +78,29 @@ Deno.serve(async (req) => {
   // the upload fails (e.g. the bot doesn't have files:write yet).
   const pdfB64 = String(body.pdfBase64 || "");
   const pdfName = String(body.pdfName || `${docName}.pdf`).replace(/[^\w.\-]+/g, "_");
-  let slackRes: { ok: boolean; skipped?: boolean; error?: string } = { ok: false };
-  if (pdfB64) slackRes = await uploadFileToSlack(entry.integrations?.slackChannel, slackText, pdfB64, pdfName).catch(() => ({ ok: false }));
-  if (!pdfB64 || !slackRes.ok) slackRes = await postToSlack(entry.integrations?.slackChannel, slackText).catch(() => ({ ok: false }));
+  const ch = entry.integrations?.slackChannel;
+  // Try the PDF upload first (message + attached proof in one post); fall back to a text-only
+  // post if there's no PDF or the upload fails. Capture the REAL error at each step instead of
+  // swallowing it — a silent Slack failure (no channel, bot not in channel, missing files:write
+  // scope) was impossible to diagnose because .catch(()=>({ok:false})) threw the reason away.
+  let uploadErr = "";
+  let slackRes: { ok: boolean; skipped?: boolean; error?: string } = { ok: false, skipped: true };
+  if (pdfB64) {
+    const up = await uploadFileToSlack(ch, slackText, pdfB64, pdfName)
+      .catch((e) => ({ ok: false, error: String((e as Error).message || e) }));
+    if (up.ok) slackRes = up; else uploadErr = up.error || "";
+  }
+  if (!slackRes.ok) slackRes = await postToSlack(ch, slackText)
+    .catch((e) => ({ ok: false, error: String((e as Error).message || e) }));
   const slacked = !!(slackRes && slackRes.ok);
+  const pdfAttached = !!pdfB64 && slacked && !uploadErr;
+  const slackError = slacked ? "" : (slackRes.skipped ? "not-configured-or-no-channel" : (slackRes.error || "unknown"));
+  if (!slacked || uploadErr) {
+    console.error("review-notification slack", JSON.stringify({
+      channel: ch || null, slacked, pdfAttached, uploadErr: uploadErr || null,
+      postErr: slackRes.error || null, skipped: !!slackRes.skipped,
+    }));
+  }
 
   // distribution address (auto-created per client) + any extra integrations recipients,
   // minus anyone a manager toggled OFF (integrations.notifyOff — default is everyone on).
@@ -93,8 +112,8 @@ Deno.serve(async (req) => {
   const uniq = [...new Set(recipients)].filter((e) => !notifyOff.has(e));
   // Team email obeys THIS CLIENT's deliverable-email preference (Slack already fired above,
   // so the team still hears about the review even with email off).
-  if (entry.integrations?.deliverableEmails === false) return json(req, 200, { ok: true, emailed: false, slacked });
-  if (!uniq.length) return json(req, 409, { slacked, error: "no distribution address for this client" });
+  if (entry.integrations?.deliverableEmails === false) return json(req, 200, { ok: true, emailed: false, slacked, slackError, pdfAttached });
+  if (!uniq.length) return json(req, 409, { slacked, slackError, pdfAttached, error: "no distribution address for this client" });
 
   const commentLine = nComments > 0
     ? `They left ${nComments} comment${nComments === 1 ? "" : "s"} on the proof.`
@@ -120,7 +139,7 @@ Deno.serve(async (req) => {
 
   try {
     const out = await sendViaResend(uniq, subject, html, text);
-    return json(req, 200, { ok: true, id: out.id, recipients: uniq.length, slacked });
+    return json(req, 200, { ok: true, id: out.id, recipients: uniq.length, slacked, slackError, pdfAttached });
   } catch (e) {
     console.error("review-notification send failed", e);
     return json(req, 502, { error: String((e as Error).message || e).slice(0, 220) });

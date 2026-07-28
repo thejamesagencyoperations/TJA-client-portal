@@ -461,6 +461,10 @@ window.PresentDocs = (function () {
      Files are processed first, then held here until the admin writes the subject + message that
      go out with them. Cancelling drops them — nothing is added to the gallery until Send. */
   let pendingUpload = null;
+  // When set, the upload brief dialog is in SEND mode for an already-staged draft/proposed
+  // round (not a fresh V1 upload) — the confirm button runs commitSend() instead of
+  // commitUpload(). This is what gives V2/V3 the same notes + feedback-due popup V1 gets.
+  let pendingSendDraftId = null;
   async function handleNewDeliverables(fileList) {
     const files = Array.from(fileList).filter(f => f.type.startsWith("image/"));
     if (!files.length) return;
@@ -504,6 +508,68 @@ window.PresentDocs = (function () {
   function closeUploadDialog() {
     const ov = $("pdUpOverlay"); if (ov) ov.style.display = "none";
     pendingUpload = null;
+    pendingSendDraftId = null;
+  }
+
+  /* ---------- send brief (V2, V3 … — releasing a staged/proposed round) ----------
+     A staged round (creative draft, or an admin/AM-PM "＋ New Version" proposal) is SENT from
+     its gallery card. Instead of firing straight out with an empty subject/message and no
+     feedback-due (the old behaviour — that's why V2 sends carried no deadline), we open the
+     same brief dialog V1 uses, pre-filled, so the sender adds notes + a feedback-due date,
+     then commitSend() writes them onto the version and completes the send. */
+  function openSendDialog(draftId) {
+    const d = draftItems.find(x => x.id === draftId);
+    if (!d) { sendDraft(draftId); return; }                  // nothing to brief on → old direct path
+    // Gate a proposed next round early (before the dialog) — same rule as sendDraft.
+    const parent = d.parentId ? items.find(x => x.id === d.parentId) : null;
+    if (parent && blockIfAwaitingReview(parent)) return;
+    const ov = $("pdUpOverlay");
+    if (!ov) { sendDraft(draftId); return; }                 // no dialog in the DOM → don't strand the send
+    pendingSendDraftId = draftId;
+    pendingUpload = null;
+    const v = d.versions[d.versions.length - 1];
+    const label = (v.label || "").replace(" (proposed)", "");
+    $("pdUpSub").textContent = `${d.name} · ${label}`;
+    if ($("pdUpTitle")) $("pdUpTitle").textContent = "Send to client";
+    if ($("pdUpSend")) $("pdUpSend").textContent = "📤 Send to client";
+    $("pdUpSubject").value = v.subject || d.name || "";
+    $("pdUpMsg").value = v.message || "";
+    if ($("pdUpSpecs")) $("pdUpSpecs").value = (parent && parent.specs) || d.specs || "";
+    $("pdUpDue").value = v.revisionsDue || "";
+    if ($("pdUpErr")) $("pdUpErr").style.display = "none";
+    applyUploadRequirements();
+    ov.style.display = "flex";
+    setTimeout(() => $("pdUpSubject").focus(), 0);
+  }
+  async function commitSend() {
+    const draftId = pendingSendDraftId;
+    const d = draftItems.find(x => x.id === draftId);
+    if (!d) { closeUploadDialog(); return; }
+    const subject = $("pdUpSubject") ? $("pdUpSubject").value.trim() : "";
+    const message = $("pdUpMsg") ? $("pdUpMsg").value.trim() : "";
+    const due = $("pdUpDue") ? $("pdUpDue").value : "";
+    const specsVal = $("pdUpSpecs") ? $("pdUpSpecs").value.trim() : "";
+    if ($("pdUpErr")) {
+      const r = uploadRules();
+      const missing = [];
+      if (!subject) missing.push("Subject");
+      if (r.specs && !specsVal) missing.push("Specifications");
+      if (r.due && !due) missing.push("Feedback due");
+      if (missing.length) {
+        const err = $("pdUpErr");
+        err.textContent = "Please fill in: " + missing.join(", ") + ".";
+        err.style.display = "";
+        return;
+      }
+    }
+    const v = d.versions[d.versions.length - 1];
+    v.subject = subject; v.message = message; v.revisionsDue = due;
+    // Specs live on the DELIVERABLE (parent for a proposed round, else the draft card itself).
+    const parent = d.parentId ? items.find(x => x.id === d.parentId) : null;
+    if (specsVal) { if (parent) parent.specs = specsVal; else d.specs = specsVal; }
+    pendingSendDraftId = null;
+    closeUploadDialog();
+    await sendDraft(draftId);
   }
   // Upload routing: an admin/AM-PM upload goes STRAIGHT to the client — so it is itself
   // a send, and announces (notification + email) via announceSend. A CREATIVE'S upload
@@ -1077,8 +1143,17 @@ window.PresentDocs = (function () {
     // agency sees the client's revisions the moment they land — and even if the client
     // closes the tab right after submitting.
     if (window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow && !(typeof isCreative === "function" && isCreative())) {
-      guardLive();
-      try { await window.SUPA.pushScopeNow(sess.client, "deliverables", items); } catch (e) { /* debounced push still queued as fallback */ }
+      // The review MUST reach the server the instant Submit is hit — NEVER deferred to when the
+      // client happens to close the page. A client who submits then forgets to exit would
+      // otherwise strand their feedback where the team never sees it. Await it and retry once on
+      // a transient failure; the debounced push saveCur() queued above remains as a last resort.
+      let flushed = false;
+      for (let attempt = 0; attempt < 2 && !flushed; attempt++) {
+        guardLive();
+        try { const r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items); flushed = !!(r && r.ok); }
+        catch (e) { flushed = false; }
+      }
+      if (!flushed) { try { console.warn("review flush failed — debounced push still queued"); save(); } catch (e) {} }
     }
     // Confirmation now STAYS (no 5s fade) and the rail locks — the client can't silently
     // change a submitted review. applyReviewLock hides Submit, pins "Review submitted",
@@ -1495,7 +1570,10 @@ window.PresentDocs = (function () {
   }
   function startLiveRefresh() {
     if (liveWired) return; liveWired = true;
-    setInterval(liveRefresh, 25000);
+    // Poll cadence is the FALLBACK when the Realtime socket misses a change (it's the reason a
+    // client's just-submitted review can lag on the staff gallery). 12s keeps staff current
+    // without hammering the API; the instant path is still app.js's Realtime nudge.
+    setInterval(liveRefresh, 12000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) liveRefresh(); });
     window.addEventListener("focus", liveRefresh);
   }
@@ -1528,7 +1606,7 @@ window.PresentDocs = (function () {
     $("pdUploadBtn").addEventListener("click", () => $("pdFile").click());
     $("pdFile").addEventListener("change", e => { handleNewDeliverables(e.target.files); e.target.value = ""; });
     $("pdUpCancel").addEventListener("click", closeUploadDialog);
-    $("pdUpSend").addEventListener("click", commitUpload);
+    $("pdUpSend").addEventListener("click", () => { if (pendingSendDraftId) commitSend(); else commitUpload(); });
     // Shared helper — a bare click listener closed this dialog while you were typing the
     // subject/message (drag-select out of a field fires click on the overlay).
     window.TJA_UI.backdropClose($("pdUpOverlay"), closeUploadDialog);
@@ -1541,7 +1619,7 @@ window.PresentDocs = (function () {
       const exp = e.target.closest("[data-export]");
       if (exp) { e.stopPropagation(); exportPDF(deliv(exp.dataset.export)); return; }
       const snd = e.target.closest("[data-send]");
-      if (snd) { e.stopPropagation(); snd.disabled = true; sendDraft(snd.dataset.send); return; }
+      if (snd) { e.stopPropagation(); openSendDialog(snd.dataset.send); return; }
       const del = e.target.closest("[data-del]");
       if (del) {
         e.stopPropagation();
