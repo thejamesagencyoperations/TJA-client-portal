@@ -108,13 +108,15 @@ window.TJA_MAIL = (function () {
         else toast(j.slacked
           ? "💬 Posted to Slack — but no client email address is on file, so no email went out (add one in the client's Integrations)."
           : "Sent to the portal — no notification email set for this client (add one in the client's Integrations).");
-        return { ok: false, noRecipients: true };
+        return Object.assign({ ok: false, noRecipients: true }, j);
       }
       if (r.status === 503) return { ok: false, skipped: true };   // email not configured yet — stay quiet
       // Show the REAL reason (the function passes Resend's message through) — "email failed"
       // with no cause made this undiagnosable from the UI.
       toast("Sent to the portal, but the email failed — " + (j.error || ("HTTP " + r.status)));
-      return { ok: false, error: j.error || r.status };
+      // spread j so reviewers still reaches announceSend — a failed email must not disable
+      // multi-reviewer tracking for the round
+      return Object.assign({ ok: false, error: j.error || r.status }, j);
     } catch (e) {
       toast("Sent to the portal, but the email failed (network) — you may want to notify the client directly.");
       return { ok: false, error: String(e) };

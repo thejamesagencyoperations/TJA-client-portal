@@ -202,6 +202,8 @@ Deno.serve(async (req) => {
     // messages are actually clear ("domain not verified", "you can only send to…"),
     // so passing them through turns a mystery into an instruction.
     console.error("send failed", e);
-    return json(req, 502, { error: String((e as Error).message || e).slice(0, 220) });
+    // reviewers still returned: the portal stamps expectedReviewers from this response, and a
+    // failed EMAIL must not silently disable multi-reviewer tracking for the round.
+    return json(req, 502, { error: String((e as Error).message || e).slice(0, 220), reviewers, slacked, slackError, link: REVIEW_URL });
   }
 });
