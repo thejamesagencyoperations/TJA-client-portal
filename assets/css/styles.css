@@ -667,6 +667,15 @@ body[data-role="client"] .staff-only { display: none !important; }
 .pd-peer-notes { margin-top: 4px; color: var(--text); white-space: pre-wrap; }
 /* staff-only escape hatch on an outstanding reviewer row */
 .pd-waive { float: right; margin-left: 8px; padding: 2px 9px; font-size: .62rem; }
+/* named reviewer checklist on the gallery card: "✓ Phoebe · ⏳ Cam" */
+.pd-card-reviewers { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 14px 10px; margin-top: -2px; }
+.pd-rev-chip { font-size: .64rem; font-weight: 800; letter-spacing: .02em; padding: 3px 8px;
+  border-radius: 999px; border: 1px solid var(--line); color: var(--text-dim); white-space: nowrap; }
+.pd-rev-chip.done { color: #2ba368; border-color: rgba(54,194,117,.45); background: rgba(54,194,117,.10); }
+.pd-rev-chip.wait { border-style: dashed; color: #b26a00; border-color: rgba(217,119,6,.45); background: rgba(217,119,6,.08); }
+.pd-rev-chip.all { color: #fff; background: #36c275; border-color: #36c275; }
+/* a wrapped two-line badge (e.g. "Revisions Needed" on a narrow card) must stay centered */
+.pd-card-foot .badge { text-align: center; }
 .pd-card-draft .badge.pending { background: rgba(217,119,6,.14); color: #d97706; }   /* amber ONLY on waiting-room cards — .badge.pending elsewhere is the gray "Pending Review" */
 /* Creative opening a SENT deliverable: look, don't review — the status/notes rail is
    the client's (and admin's) tool. Draft items stay fully editable for markup. */

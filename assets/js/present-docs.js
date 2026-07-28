@@ -58,8 +58,67 @@ window.PresentDocs = (function () {
     catch (e) { console.warn("Portal sandbox: storage full — keeping deliverables in memory only.", e); }
     // Creatives can't write the deliverables scope (RLS) — their only write is the
     // draft scope via saveDrafts(). Skipping the push avoids guaranteed-rejected calls.
-    if (window.SUPA && window.SUPA.enabled && !(typeof isCreative === "function" && isCreative()))
-      window.SUPA.pushScope(sess.client, "deliverables", items);
+    if (!(window.SUPA && window.SUPA.enabled) || (typeof isCreative === "function" && isCreative())) return;
+    // A CLIENT's edits (pins, notes, status) must never blind-push the whole document — a tab
+    // holding a pre-V2 copy doing that is exactly what wiped a just-sent V2 + a teammate's
+    // review on 2026-07-28. Clients go through the merged push; staff keep the direct path.
+    if (getSession && getSession() && getSession().role === "client") { scheduleClientMergedPush(); return; }
+    window.SUPA.pushScope(sess.client, "deliverables", items);
+  }
+  /* ---------- merge-on-write for client edits ----------
+     Graft THIS person's work onto the freshest server copy, then push the result:
+       • versions/cards follow the SERVER (a stale tab can no longer delete a V2 it never saw);
+       • my pins (authored by me, or legacy unauthored ones only I hold) win — add/edit/delete;
+       • teammates' pins survive untouched;
+       • my review entry rides along; the shared verdict re-aggregates;
+       • legacy single-reviewer versions keep local-wins on their review fields (old behavior).
+     Drawings (annotation) are one shared canvas, so the last writer wins there — that's the
+     one thing that can't be merged. */
+  function mergeMineInto(fresh, local) {
+    const me = myEmail();
+    const freshById = new Map(fresh.map(x => [x.id, x]));
+    local.forEach(ld => {
+      const fd = freshById.get(ld.id);
+      if (!fd) return;   // card the server doesn't have (deleted elsewhere) — server wins
+      (ld.versions || []).forEach(lv => {
+        if (!lv.vid) return;
+        const fv = (fd.versions || []).find(x => x.vid === lv.vid);
+        if (!fv) return;   // version the server doesn't have — server wins
+        const mineOwned = (p) => !p.byEmail || p.byEmail === me;
+        const byId = new Map((fv.pins || []).map(p => [p.id, p]));
+        (lv.pins || []).forEach(p => { if (mineOwned(p)) byId.set(p.id, p); });
+        (fv.pins || []).forEach(p => { if (mineOwned(p) && !(lv.pins || []).some(x => x.id === p.id)) byId.delete(p.id); });
+        fv.pins = [...byId.values()];
+        if (lv.reviews && lv.reviews[me]) fv.reviews = Object.assign({}, fv.reviews, { [me]: lv.reviews[me] });
+        if (lv.annotation !== undefined) fv.annotation = lv.annotation;
+        if (lv.signature && !fv.signature) { fv.signature = lv.signature; fv.signedBy = lv.signedBy; fv.signedDate = lv.signedDate; }
+        if (expectedOf(fv).length) {
+          fv.status = aggregateStatus(fv);
+        } else {
+          ["status", "clientNotes", "agencyNotes", "reviewedAt", "reviewedStatus"].forEach(k => {
+            if (lv[k] !== undefined) fv[k] = lv[k];
+          });
+        }
+      });
+    });
+    return fresh;
+  }
+  let clientPushTimer = null;
+  function scheduleClientMergedPush() {
+    clearTimeout(clientPushTimer);
+    clientPushTimer = setTimeout(mergedClientPush, 900);   // coalesce typing bursts
+  }
+  async function mergedClientPush() {
+    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow)) return;
+    try {
+      const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
+      if (Array.isArray(fresh) && fresh.length) {
+        items = mergeMineInto(fresh, items);
+        try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+      }
+    } catch (e) { /* pull failed — push local (previous behavior) rather than lose the edit */ }
+    guardLive();
+    try { await window.SUPA.pushScopeNow(sess.client, "deliverables", items); } catch (e) {}
   }
   const isStaffFn = () => (typeof isStaff === "function" ? isStaff() : true);
   function loadDrafts() {
@@ -342,6 +401,20 @@ window.PresentDocs = (function () {
     const t = new Date(); t.setHours(0, 0, 0, 0);
     return new Date(+m[1], +m[2] - 1, +m[3]) < t;
   }
+  // Named reviewer checklist on a gallery card (multi-reviewer versions): "✓ Phoebe · ⏳ Cam" —
+  // the at-a-glance answer to "is this round ready?", for staff AND for teammates. First names
+  // from the submitted review (else the email's local part). Hidden for single-reviewer cards.
+  function reviewerStrip(v) {
+    const exp = expectedOf(v);
+    if (exp.length < 2) return "";
+    const revs = reviewsOf(v);
+    const nm = (e) => { const r = revs[e]; return esc((((r && r.name) || e.split("@")[0]).trim().split(/\s+/)[0]) || e); };
+    const chips = exp.map(e => revs[e]
+      ? `<span class="pd-rev-chip done" title="${esc(e)} — ${esc(STATUS_WORD[revs[e].status] || revs[e].status || "responded")}">✓ ${nm(e)}</span>`
+      : `<span class="pd-rev-chip wait" title="${esc(e)} — hasn't reviewed yet">⏳ ${nm(e)}</span>`).join("");
+    const allIn = reviewComplete(v);
+    return `<div class="pd-card-reviewers${allIn ? " allin" : ""}">${chips}${allIn ? `<span class="pd-rev-chip all">All reviews in</span>` : ""}</div>`;
+  }
   // Feedback-due strip on a gallery card. Settled versions have nothing outstanding, so it hides.
   function dueLine(v) {
     if (!v || !v.revisionsDue || v.status === "approved") return "";
@@ -403,10 +476,9 @@ window.PresentDocs = (function () {
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
           <span class="pd-ver-tag">${esc(v.label)}</span>
           ${badge(v.status)}
-          ${(expectedOf(v).length > 1 && !reviewComplete(v))
-            ? `<span class="badge pending" title="Waiting on: ${esc(expectedOf(v).filter(e => !reviewsOf(v)[e]).join(", "))}">${expectedOf(v).filter(e => reviewsOf(v)[e]).length}/${expectedOf(v).length} reviewed</span>` : ""}
           ${v.sentAt ? `<span class="pd-sent-pill" title="Sent to the client${v.sentBy ? " by " + esc(v.sentBy) : ""}${v.sentAt ? " · " + esc(v.sentAt) : ""}">✓ Sent to client</span>` : ""}
         </div>
+        ${reviewerStrip(v)}
         ${dueLine(last)}
       </div>`;
     }).join("");
@@ -1772,6 +1844,31 @@ window.PresentDocs = (function () {
     setInterval(liveRefresh, 12000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) liveRefresh(); });
     window.addEventListener("focus", liveRefresh);
+    // IN-MODAL teammate sync (multi-reviewer): liveRefresh deliberately never touches an open
+    // review modal, which meant a client could sit in a proof and NEVER see a teammate's new
+    // comments until they closed it. This lighter poll merges remote work into the open modal
+    // every 10s — pins, reviews, the peer panel — pausing whenever this person is mid-draw,
+    // mid-signature, or typing, so nothing is yanked out from under them.
+    setInterval(async () => {
+      const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
+      if (!(getSession && getSession() && getSession().role === "client")) return;
+      const d = deliv(curId); const v = d && active(d);
+      if (!v || !expectedOf(v).length) return;
+      if (drawing || sigDrawing) return;
+      const ae = document.activeElement;
+      if (ae && (/^(input|textarea|select)$/i.test(ae.tagName || "") || ae.isContentEditable)) return;
+      if (nowMs() < suppressLiveUntil) return;
+      if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pullScope)) return;
+      try {
+        const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
+        if (!Array.isArray(fresh) || !fresh.length) return;
+        items = mergeMineInto(fresh, items);
+        try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+        const d2 = deliv(curId); const v2 = d2 && active(d2);
+        if (!v2) { closeModal(); return; }   // the open card was deleted elsewhere
+        renderPins(); renderPinList(); renderPeerReviews(v2); updateMeta();
+      } catch (e) { /* transient — next tick */ }
+    }, 10000);
   }
 
   function init() {
@@ -1908,11 +2005,22 @@ window.PresentDocs = (function () {
       $("pdPopupClose").addEventListener("click", hidePopup);
     }
 
-    // zoom controls + wheel-to-zoom + pan
+    // zoom controls + wheel + pan. ZOOM only on pinch / Ctrl(⌘)+scroll — hijacking EVERY wheel
+    // event meant a trackpad's ordinary two-finger scroll zoomed the proof mid-draw/comment
+    // ("the zoom function was getting in the way"). A plain scroll now pans when zoomed in and
+    // does nothing at 100%; the +/− buttons and pinch still zoom.
     $("pdWrap").addEventListener("wheel", e => {
-      e.preventDefault();
-      const r = $("pdWrap").getBoundingClientRect();
-      setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+      if (e.ctrlKey || e.metaKey) {            // pinch gestures arrive as ctrlKey wheel events
+        e.preventDefault();
+        const r = $("pdWrap").getBoundingClientRect();
+        setZoom(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+        return;
+      }
+      if (zoom > 1) {                          // scrolling while zoomed = panning, not zooming
+        e.preventDefault();
+        panX -= e.deltaX; panY -= e.deltaY;
+        clampPan(); applyZoom(); hidePopup();
+      }
     }, { passive: false });
     $("pdZoomIn").addEventListener("click", () => setZoom(zoom * 1.25));
     $("pdZoomOut").addEventListener("click", () => setZoom(zoom / 1.25));
