@@ -109,10 +109,12 @@ window.TJA_MAIL = (function () {
         return { ok: false, noRecipients: true };
       }
       if (r.status === 503) return { ok: false, skipped: true };   // email not configured yet — stay quiet
-      toast("Sent to the portal, but the email failed — you may want to notify the client directly.");
+      // Show the REAL reason (the function passes Resend's message through) — "email failed"
+      // with no cause made this undiagnosable from the UI.
+      toast("Sent to the portal, but the email failed — " + (j.error || ("HTTP " + r.status)));
       return { ok: false, error: j.error || r.status };
     } catch (e) {
-      toast("Sent to the portal, but the email failed — you may want to notify the client directly.");
+      toast("Sent to the portal, but the email failed (network) — you may want to notify the client directly.");
       return { ok: false, error: String(e) };
     }
   }
