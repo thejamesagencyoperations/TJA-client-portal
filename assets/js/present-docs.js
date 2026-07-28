@@ -116,6 +116,40 @@ window.PresentDocs = (function () {
   const active = (d) => d && d.versions[d.active];
   const $ = (id) => document.getElementById(id);
 
+  /* ---------- multi-reviewer support ----------
+     A version sent while the client has MULTIPLE logins carries:
+       v.expectedReviewers = [emails]   — stamped at send time (the client-role logins then;
+                                          a login invited mid-round isn't retroactively required)
+       v.reviews = { email: {name, email, status, notes, reviewedAt} } — each person's review
+     The round is COMPLETE (v.reviewedAt stamped, card settles, next round unblocks, the team
+     gets its ONE Slack/email ping) only when every expected reviewer has submitted. The shared
+     v.status always holds the WORST-WINS aggregate (revisions > changes > approved) so the
+     badge/PDF read correctly mid-round. Versions without expectedReviewers behave exactly as
+     before — first review completes them — so nothing old changes behavior. Only ONE signature
+     is required per round (Cameron 2026-07-28): the first approver signs, teammates just submit. */
+  const myEmail = () => String(sess.email || "").toLowerCase();
+  const myName = () => sess.name || sess.email || "Client";
+  const reviewsOf = (v) => (v && v.reviews) || {};
+  const expectedOf = (v) => (v && Array.isArray(v.expectedReviewers))
+    ? v.expectedReviewers.map(e => String(e).toLowerCase()) : [];
+  const myReviewOf = (v) => reviewsOf(v)[myEmail()] || null;
+  function reviewComplete(v) {
+    const exp = expectedOf(v);
+    if (exp.length) return exp.every(e => !!reviewsOf(v)[e]);
+    return !!(v && v.reviewedAt);
+  }
+  function aggregateStatus(v) {
+    const st = Object.values(reviewsOf(v)).map(r => r.status).filter(Boolean);
+    if (!st.length) return (v && v.status) || null;
+    if (st.indexOf("revisions") > -1) return "revisions";
+    if (st.indexOf("changes") > -1) return "changes";
+    return "approved";
+  }
+  // My not-yet-submitted verdict per version (vid-keyed). Deliberately NOT persisted/synced —
+  // in multi-reviewer mode a selection only becomes shared state on Submit, so teammates
+  // browsing the same proof don't see each other's half-made choices.
+  const pendingSel = {};
+
   /* ---------- page shell ---------- */
   function render() {
     return `
@@ -369,6 +403,8 @@ window.PresentDocs = (function () {
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
           <span class="pd-ver-tag">${esc(v.label)}</span>
           ${badge(v.status)}
+          ${(expectedOf(v).length > 1 && !reviewComplete(v))
+            ? `<span class="badge pending" title="Waiting on: ${esc(expectedOf(v).filter(e => !reviewsOf(v)[e]).join(", "))}">${expectedOf(v).filter(e => reviewsOf(v)[e]).length}/${expectedOf(v).length} reviewed</span>` : ""}
           ${v.sentAt ? `<span class="pd-sent-pill" title="Sent to the client${v.sentBy ? " by " + esc(v.sentBy) : ""}${v.sentAt ? " · " + esc(v.sentAt) : ""}">✓ Sent to client</span>` : ""}
         </div>
         ${dueLine(last)}
@@ -656,7 +692,17 @@ window.PresentDocs = (function () {
       try {
         window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docId: id, docName: name,
           versionLabel: version.label, subject: version.subject, message: version.message,
-          dueDate: version.revisionsDue });
+          dueDate: version.revisionsDue }).then((res) => {
+          // Stamp WHO must review this round — the client-role logins at send time (returned
+          // by send-deliverable-email regardless of whether the email itself went out). This
+          // switches the version to multi-reviewer tracking: complete only when everyone's in.
+          // No list back (offline, email disabled, old function) → legacy single-review behavior.
+          if (res && Array.isArray(res.reviewers) && res.reviewers.length) {
+            version.expectedReviewers = res.reviewers.map(e => String(e).toLowerCase());
+            version.reviews = version.reviews || {};
+            save(); renderGallery();
+          }
+        }).catch(() => {});
       } catch (e) { console.warn("deliverable email failed", e); }
     }
   }
@@ -847,6 +893,7 @@ window.PresentDocs = (function () {
       <div class="pd-comment ${p.resolved ? "resolved" : ""}" data-row="${p.id}">
         <div class="pd-comment-top">
           <span class="pd-pinnum">${i + 1}</span>
+          ${p.by ? `<span class="pd-pin-by" title="${esc(p.byEmail || "")}">${esc(p.by)}</span>` : ""}
           <div class="pd-comment-actions">
             <button class="pd-cbtn ok" data-resolve="${p.id}" title="${p.resolved ? "Reopen" : "Mark resolved"}">${p.resolved ? "↩" : "✓"}</button>
             <button class="pd-cbtn danger" data-pindel="${p.id}" title="Delete">✕</button>
@@ -857,7 +904,9 @@ window.PresentDocs = (function () {
   }
   function addPin(xFrac, yFrac) {
     const v = active(deliv(curId));
-    const p = { id: "p_" + Date.now() + "_" + (seq++), x: xFrac, y: yFrac, text: "", resolved: false };
+    // author-stamped so a multi-login client's comments are tellable apart
+    const p = { id: "p_" + Date.now() + "_" + (seq++), x: xFrac, y: yFrac, text: "", resolved: false,
+      by: myName(), byEmail: myEmail() };
     v.pins.push(p);
     history.push({ type: "pinAdd", id: p.id });
     saveCur(); renderPins(); renderPinList();
@@ -954,7 +1003,12 @@ window.PresentDocs = (function () {
     const d = deliv(curId); const v = active(d);
     history = []; hidePopup(); resetZoom(); closeSignaturePad(); updateSignStatus();
     $("pdTitle").textContent = d.name;
-    $("pdClientNotes").value = (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
+    const _clientView = typeof effectiveRole === "function" && effectiveRole() === "client";
+    // Multi-reviewer client: the notes box is MINE (my review entry), teammates' notes render
+    // read-only in the peer panel below. Everyone else keeps the legacy shared field.
+    $("pdClientNotes").value = (_clientView && expectedOf(v).length)
+      ? ((myReviewOf(v) || {}).notes || "")
+      : (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
     $("pdAgencyNotes").value = v.agencyNotes || "";
     $("pdRevDue").value = v.revisionsDue || "";
     // The feedback deadline is set by the AGENCY (at upload). A client sees it but must
@@ -967,7 +1021,12 @@ window.PresentDocs = (function () {
       $("pdBriefMsg").textContent = v.message || "";
     }
     updateMeta();
-    document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
+    renderPeerReviews(v);
+    // Which verdict lights up: my private/submitted one in multi-reviewer mode, else the shared.
+    const shownStatus = (_clientView && expectedOf(v).length)
+      ? (pendingSel[v.vid] != null ? pendingSel[v.vid] : ((myReviewOf(v) || {}).status || null))
+      : v.status;
+    document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === shownStatus));
     renderVersions();
     applyReviewLock();   // lock Agency Notes for clients + freeze the rail if this version is already reviewed
     const img = $("pdImg");
@@ -1015,7 +1074,10 @@ window.PresentDocs = (function () {
     m.classList.toggle("pd-clientview", clientView);
     const an = $("pdAgencyNotes"); if (an) an.readOnly = clientView;      // internal TJA notes — never client-authored
     const d = deliv(curId); const v = d ? active(d) : null;
-    const reviewed = !!(clientView && v && v.reviewedAt);                 // client already filed this version's review
+    // Locking is PER PERSON in multi-reviewer mode: MY submit freezes MY controls, teammates
+    // keep reviewing. Legacy versions (no expectedReviewers) lock on the single review as before.
+    const mineDone = !!(v && (expectedOf(v).length ? myReviewOf(v) : v.reviewedAt));
+    const reviewed = !!(clientView && mineDone);                          // this viewer already filed their review
     m.classList.toggle("pd-reviewed", reviewed);
     const cn = $("pdClientNotes"); if (cn) cn.readOnly = reviewed;
     if (reviewed) { const rd = $("pdRevDue"); if (rd) rd.disabled = true; }
@@ -1090,25 +1152,61 @@ window.PresentDocs = (function () {
     if (typeof effectiveRole === "function" && effectiveRole() !== "client") return;
     const d = deliv(curId); if (!d) return;
     const av = active(d);
+    const multi = !!expectedOf(av).length;
+    // My verdict: private pendingSel in multi-reviewer mode, the shared field otherwise.
+    const sel = multi
+      ? (pendingSel[av.vid] != null ? pendingSel[av.vid] : ((myReviewOf(av) || {}).status || null))
+      : av.status;
     // A review must carry a verdict — otherwise the card would sit on "Pending Review"
     // forever even though they submitted. Require one of the three responses.
-    if (!av.status) {
+    if (!sel) {
       if (window.TJA_UI) window.TJA_UI.alert(
         "Please choose a response — Approve, Approve with changes, or Revisions needed — before submitting your review.",
         { title: "Choose a response" });
       return;
     }
-    av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
+    if (multi) {
+      // My notes live in MY review entry (written in finishSubmit) — the shared clientNotes
+      // stays untouched so one teammate can't overwrite another's feedback.
+    } else {
+      av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
+    }
     persistCanvas();
-    // an approval needs a signature first
-    if ((av.status === "approved" || av.status === "changes") && !av.signature) { openSignaturePad(); return; }
+    // an approval needs a signature — ONE per round: the first approver signs, teammates don't
+    if ((sel === "approved" || sel === "changes") && !av.signature) { openSignaturePad(); return; }
     finishSubmit();
   }
   const STATUS_WORD = { approved: "Approved", changes: "Approved w/ changes", revisions: "Revisions needed" };
+  /* Who's reviewed / who's outstanding — rendered under the notes for BOTH sides: teammates
+     see each other's verdicts + notes; staff see exactly who they're still waiting on. Hidden
+     entirely for legacy single-reviewer versions. */
+  function renderPeerReviews(v) {
+    let box = $("pdPeerReviews");
+    if (!box) {
+      const anchor = $("pdClientNotes"); if (!anchor) return;
+      box = document.createElement("div"); box.id = "pdPeerReviews"; box.className = "pd-peer-reviews";
+      anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    }
+    const exp = expectedOf(v), revs = reviewsOf(v);
+    if (!exp.length) { box.style.display = "none"; box.innerHTML = ""; return; }
+    const me = myEmail();
+    const rows = exp.map(e => {
+      const r = revs[e];
+      const who = (r && (r.name || r.email)) || e;
+      const you = e === me ? " (you)" : "";
+      if (!r) return `<div class="pd-peer-row waiting">⏳ <b>${esc(who)}${you}</b> — hasn't reviewed yet</div>`;
+      return `<div class="pd-peer-row done">✓ <b>${esc(who)}${you}</b> — ${esc(STATUS_WORD[r.status] || r.status || "Responded")}${r.reviewedAt ? ` · ${esc(r.reviewedAt)}` : ""}${r.notes ? `<div class="pd-peer-notes">${esc(r.notes)}</div>` : ""}</div>`;
+    }).join("");
+    const done = exp.filter(e => revs[e]).length;
+    box.innerHTML = `<div class="pd-review-label" style="margin-top:10px">Reviews (${done}/${exp.length})</div>${rows}`;
+    box.style.display = "";
+  }
   function updateMeta() {
     const d = deliv(curId); if (!d) return; const v = active(d);
     const rev = v.reviewedAt ? ` · reviewed ${v.reviewedAt}${v.reviewedStatus ? " (" + (STATUS_WORD[v.reviewedStatus] || v.reviewedStatus) + ")" : ""}` : "";
-    $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"}${rev} · ${d.versions.length} version(s)`;
+    const exp = expectedOf(v);
+    const prog = exp.length > 1 ? ` · ${exp.filter(e => reviewsOf(v)[e]).length}/${exp.length} reviews in` : "";
+    $("pdMeta").textContent = `${v.label} · uploaded ${v.uploaded || "—"}${rev}${prog} · ${d.versions.length} version(s)`;
     // small specs line so the client sees the artwork's specifications at a glance
     const sl = $("pdSpecsLine");
     if (sl) { sl.style.display = d.specs ? "" : "none"; sl.textContent = d.specs ? "Specs: " + d.specs : ""; }
@@ -1116,29 +1214,81 @@ window.PresentDocs = (function () {
   async function finishSubmit() {
     const d = deliv(curId);
     const v = active(d);
+    const clientView = typeof effectiveRole === "function" && effectiveRole() === "client";
+    const multi = !!(v && expectedOf(v).length);
+    // The verdict being submitted: MY private selection in multi-reviewer mode, else the
+    // shared field (legacy single-reviewer path — unchanged behavior).
+    const sel = multi && clientView
+      ? (pendingSel[v.vid] != null ? pendingSel[v.vid] : ((myReviewOf(v) || {}).status || null))
+      : (v && v.status);
     // Final client-facing confirm on any APPROVAL (approved / approved w/ changes) —
     // the same "Mistakes Cost Money" terms, acknowledged at the moment of sign-off
     // (Cameron, 2026-07-20). Covers both submit paths: direct submit with an existing
     // signature, and straight out of the signature pad.
-    if (v && (v.status === "approved" || v.status === "changes")
-        && typeof effectiveRole === "function" && effectiveRole() === "client" && window.TJA_UI) {
+    if (v && (sel === "approved" || sel === "changes") && clientView && window.TJA_UI) {
       const ok = await window.TJA_UI.confirm(
         PDF_DISCLAIMER + "\n\nSubmit your approval?",
         { title: "Confirm approval", okText: "Submit approval" });
       if (!ok) return;
     }
-    if (v) { v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; }   // stamp date+time of this review submit
-    // Notify the TJA team when a CLIENT submits a review (not when an admin does).
-    if (v && d && getSession && getSession() && getSession().role === "client") {
+    // Preview-as-client on a multi-reviewer round: record NOTHING — a staff-keyed entry in the
+    // reviews map would pollute the aggregate verdict and confuse the who's-left strip.
+    const realClient = !!(getSession && getSession() && getSession().role === "client");
+    if (multi && clientView && !realClient) {
+      flashDocsToast("Preview mode — reviews on this deliverable are only recorded from a real client login.");
+      return;
+    }
+    let completeNow = true;
+    if (multi && clientView && v) {
+      // Stamp MY review into the per-reviewer map. The shared completion fields only move
+      // when EVERYONE expected has responded — one teammate can't settle a round alone.
+      v.reviews = Object.assign({}, v.reviews);
+      v.reviews[myEmail()] = { name: myName(), email: myEmail(), status: sel || null,
+        notes: $("pdClientNotes") ? $("pdClientNotes").value : "", reviewedAt: stamp() };
+      delete pendingSel[v.vid];
+      v.status = aggregateStatus(v);           // worst-wins verdict for the badge/PDF
+      completeNow = reviewComplete(v);
+      if (completeNow) { v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; }
+    } else if (v) {
+      v.reviewedAt = stamp(); v.reviewedStatus = v.status || null;   // stamp date+time of this review submit
+    }
+    // Notify the TJA team when a CLIENT submits a review (not when an admin does) — and in
+    // multi-reviewer mode only when the LAST teammate lands (Cameron: one ping, not one each).
+    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow) {
       if (window.TJA_NOTIFY) {
         window.TJA_NOTIFY.record({
           type: "review", docId: d.id, docName: d.name, versionLabel: v.label,
           status: v.status || null, comments: (v.pins || []).length,
-          by: getSession().name || "Client",
+          by: multi ? "All reviewers in" : (getSession().name || "Client"),
         });
       }
     }
     saveCur(); renderGallery(); updateSignStatus(); updateMeta();
+    // Merge-then-flush: graft MY review (and any pins I added) onto the FRESHEST server copy
+    // before pushing, so two teammates submitting near-simultaneously can't clobber each
+    // other — the deliverables scope has no CAS, the last writer wins wholesale.
+    if (multi && clientView && v && window.SUPA && window.SUPA.enabled && window.SUPA.pullScope) {
+      try {
+        const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
+        if (Array.isArray(fresh) && fresh.length) {
+          const fd = fresh.find(x => x.id === d.id);
+          const fv = fd && (fd.versions || []).find(x => x.vid === v.vid);
+          if (fv) {
+            fv.reviews = Object.assign({}, fv.reviews, { [myEmail()]: v.reviews[myEmail()] });
+            const have = new Set((fv.pins || []).map(p => p.id));
+            (v.pins || []).forEach(p => { if (!have.has(p.id)) { fv.pins = fv.pins || []; fv.pins.push(p); } });
+            if (v.annotation && !fv.annotation) fv.annotation = v.annotation;
+            if (v.signature && !fv.signature) { fv.signature = v.signature; fv.signedBy = v.signedBy; fv.signedDate = v.signedDate; }
+            fv.status = aggregateStatus(fv);
+            completeNow = reviewComplete(fv);
+            if (completeNow) { fv.reviewedAt = fv.reviewedAt || stamp(); fv.reviewedStatus = fv.status || null; }
+            items = fresh;
+            try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+            renderGallery();
+          }
+        }
+      } catch (e) { /* pull failed — push the local copy; my review still lands */ }
+    }
     // Flush the review to the shared row IMMEDIATELY (not just the debounced push) so the
     // agency sees the client's revisions the moment they land — and even if the client
     // closes the tab right after submitting.
@@ -1159,25 +1309,35 @@ window.PresentDocs = (function () {
     // change a submitted review. applyReviewLock hides Submit, pins "Review submitted",
     // and freezes the fields for this version.
     applyReviewLock();
-    // on the record — who reviewed what, with their verdict
+    // on the record — who reviewed what, with THEIR verdict (each submit is audited, even
+    // though the team notification below waits for the full round)
     try {
       if (v && d && window.SUPA && window.SUPA.auditEvent) {
-        const verdict = STATUS_WORD[v.status] || v.status || "responded";
+        const verdict = STATUS_WORD[sel || v.status] || sel || v.status || "responded";
         window.SUPA.auditEvent(sess.client, "deliverable.reviewed",
           `reviewed ${d.name}${v.label ? " " + v.label : ""} — ${verdict}`, { scope: "deliverables" });
       }
     } catch (e) {}
-    // Notify the team of the client's review — with the deliverable's PDF attached to the
-    // Slack post. Generated AFTER the UI locks so the client never waits on it, then handed
-    // to send-review-notification (which posts the proof to the client's Slack channel).
-    if (v && d && getSession && getSession() && getSession().role === "client" && window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
+    // Notify the team — with the deliverable's PDF attached to the Slack post. Fires ONLY when
+    // the round is COMPLETE (every expected reviewer in): one ping per round, not one per person
+    // (Cameron 2026-07-28). Generated AFTER the UI locks so the client never waits on it.
+    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow
+        && window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
+      // items may have been replaced by the merge above — resolve the CURRENT objects
+      const curD = deliv(curId) || d;
+      const curV = ((curD.versions || []).find(x => x.vid === v.vid)) || v;
+      const vIdx = (curD.versions || []).findIndex(x => x.vid === v.vid);
+      if (vIdx > -1) curD.active = vIdx;   // exportPDF renders active(d) — pin it to THIS round
       let pdfBase64 = "";
-      try { pdfBase64 = await exportPDF(d, { returnBase64: true }); } catch (e) { /* PDF optional — text still posts */ }
+      try { pdfBase64 = await exportPDF(curD, { returnBase64: true }); } catch (e) { /* PDF optional — text still posts */ }
+      const reviewerLine = expectedOf(curV).length > 1
+        ? Object.values(reviewsOf(curV)).map(r => `${r.name || r.email}: ${STATUS_WORD[r.status] || r.status || "responded"}`).join(" · ")
+        : "";
       try {
         window.TJA_MAIL.sendReviewResponse({
-          docId: d.id, docName: d.name, versionLabel: v.label,
-          status: v.status || null, comments: (v.pins || []).length,
-          pdfBase64, pdfName: `${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}.pdf`,
+          docId: curD.id, docName: curD.name, versionLabel: curV.label,
+          status: curV.status || null, comments: (curV.pins || []).length, reviewerLine,
+          pdfBase64, pdfName: `${(curD.name || "deliverable").replace(/[^\w-]+/g, "_")}-${curV.label}.pdf`,
         });
       } catch (e) { console.warn("review-response notify failed", e); }
     }
@@ -1495,7 +1655,7 @@ window.PresentDocs = (function () {
       if (pins.length) {
         setF("Inter", "bold", 9, INK); pdf.text(`COMMENTS (${pins.length})`, M, y, { charSpace: 0.4 }); y += 14;
         pins.forEach((p, i) => {
-          const lines = pdf.splitTextToSize(`${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
+          const lines = pdf.splitTextToSize(`${p.by ? p.by + ": " : ""}${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
           if (y + lines.length * 11.5 > bottom()) newPage();
           pdf.setFillColor(...(p.resolved ? [54, 194, 117] : ORANGE));
           pdf.circle(M + 6, y - 3, 6, "F");
@@ -1558,10 +1718,13 @@ window.PresentDocs = (function () {
         window.SUPA.hasPendingWrite(sess.client, "deliverables_draft"))) return;
     liveBusy = true;
     try {
-      const sent = await window.SUPA.pullScope(sess.client, "deliverables");
+      // 12s budget: deliverable rows carry inline base64 proofs (several MB) — the default
+      // 3.5s pull timeout regularly failed silently and left this page rendering a STALE
+      // local copy (the "client review / waiting-room item not showing up" delays).
+      const sent = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
       if (Array.isArray(sent)) { items = sent; try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
       if (isStaffFn()) {
-        const dr = await window.SUPA.pullScope(sess.client, "deliverables_draft");
+        const dr = await window.SUPA.pullScope(sess.client, "deliverables_draft", 12000);
         if (Array.isArray(dr)) { draftItems = dr; try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {} }
       }
       renderGallery();
@@ -1655,7 +1818,17 @@ window.PresentDocs = (function () {
     $("pdStatus").addEventListener("click", e => {
       const opt = e.target.closest(".pd-status-opt"); if (!opt) return;
       const v = active(deliv(curId)); if (!v) return;
-      v.status = (v.status === opt.dataset.val) ? null : opt.dataset.val;
+      const val = opt.dataset.val;
+      // Multi-reviewer client: the choice is PRIVATE until Submit (pendingSel), so a teammate
+      // looking at the same proof never sees a half-made verdict — and one person clicking
+      // around can't repaint the shared card status for everyone.
+      if (expectedOf(v).length && typeof effectiveRole === "function" && effectiveRole() === "client") {
+        const cur = pendingSel[v.vid] != null ? pendingSel[v.vid] : ((myReviewOf(v) || {}).status || null);
+        pendingSel[v.vid] = (cur === val) ? null : val;
+        document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === pendingSel[v.vid]));
+        return;
+      }
+      v.status = (v.status === val) ? null : val;
       document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
       saveCur();
     });

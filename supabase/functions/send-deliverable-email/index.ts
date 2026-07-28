@@ -118,6 +118,27 @@ Deno.serve(async (req) => {
   const slackError = slacked ? "" : ((slackRes as any).skipped ? "not-configured-or-no-channel" : ((slackRes as any).error || "unknown"));
   if (!slacked) console.error("deliverable-email slack", JSON.stringify({ channel: entry.integrations?.slackChannel || null, error: slackError }));
 
+  /* ---- who gets the EMAIL / who must REVIEW ----
+     Computed BEFORE the email on/off branch because `reviewers` (this workspace's client-role
+     logins) is returned on EVERY outcome: the portal stamps it onto the sent version as
+     expectedReviewers, which drives multi-reviewer completion tracking — a round only settles
+     when every login has reviewed. notifyOff does NOT remove someone from reviewers (they may
+     mute email yet still owe a review); it only trims the email recipients. */
+  const svc = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const { data: profs } = await svc.from("profiles")
+    .select("email").eq("client_id", clientId).eq("role", "client");
+  const fromLogins = (profs ?? []).map((p: any) => p.email).filter(Boolean);
+  const reviewers = [...new Set(fromLogins.map((e: string) => String(e).trim().toLowerCase()))];
+  const extra = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
+  // Per-person opt-out (integrations.notifyOff) — logins a manager toggled OFF so
+  // dashboard-only users aren't flooded. Everyone is ON by default (absent = notified).
+  const notifyOff = new Set((entry.integrations?.notifyOff ?? []).map((e: string) => String(e).trim().toLowerCase()));
+  const recipients = [...new Set([...fromLogins, ...extra].map((e) => String(e).trim().toLowerCase()))]
+    .filter((e) => !notifyOff.has(e));
+
   // Email vs link. `mode` from the caller wins ('email' | 'link' | 'both'); otherwise obey
   // THIS CLIENT's deliverable-email preference (integrations.deliverableEmails, default on).
   // When email is off we skip it entirely and hand the deep link back to be copied — nothing
@@ -127,28 +148,13 @@ Deno.serve(async (req) => {
     : mode === "link" ? false
     : (entry.integrations?.deliverableEmails !== false);
   if (!wantEmail) {
-    return json(req, 200, { ok: true, emailed: false, link: REVIEW_URL, slacked, slackError });
+    return json(req, 200, { ok: true, emailed: false, link: REVIEW_URL, slacked, slackError, reviewers });
   }
-
-  /* ---- who gets the EMAIL ---- */
-  const svc = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-  const { data: profs } = await svc.from("profiles")
-    .select("email").eq("client_id", clientId).eq("role", "client");
-  const fromLogins = (profs ?? []).map((p: any) => p.email).filter(Boolean);
-  const extra = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
-  // Per-person opt-out (integrations.notifyOff) — logins a manager toggled OFF so
-  // dashboard-only users aren't flooded. Everyone is ON by default (absent = notified).
-  const notifyOff = new Set((entry.integrations?.notifyOff ?? []).map((e: string) => String(e).trim().toLowerCase()));
-  const recipients = [...new Set([...fromLogins, ...extra].map((e) => String(e).trim().toLowerCase()))]
-    .filter((e) => !notifyOff.has(e));
 
   if (!recipients.length) {
     // Slack may already have gone out — say so, so the UI doesn't imply nothing happened.
     return json(req, 409, {
-      slacked, slackError, link: REVIEW_URL,
+      slacked, slackError, link: REVIEW_URL, reviewers,
       error: "No email address on file for this client. Invite them in the Admin Center, or add an address under Clients → Edit → Integrations.",
     });
   }
@@ -182,7 +188,7 @@ Deno.serve(async (req) => {
 
   try {
     const out = await sendViaResend(recipients, subject, html, text);
-    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length, slacked, slackError, emailed: true, link: REVIEW_URL });
+    return json(req, 200, { ok: true, id: out.id, recipients: recipients.length, reviewers, slacked, slackError, emailed: true, link: REVIEW_URL });
   } catch (e) {
     // Surface WHY. This used to return a bare "email send failed", which told the
     // admin nothing and made the thing undiagnosable from the UI — Resend's own

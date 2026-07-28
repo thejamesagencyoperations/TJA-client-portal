@@ -62,6 +62,15 @@ function persistState() {
 // the merged state (adopt it) plus the list of fields we BOTH changed. Edits to different fields
 // are already saved for everyone; for a genuine same-field clash we keep their version on the
 // record but surface the user's own entry with a one-click "Keep mine" so nothing typed is lost.
+// Passive tabs must not nag: MACHINE writes race the guarded push constantly (plan-refresh fires
+// when a client opens their portal, snapshot/assign crons, boot self-heals recomputing burn/plan
+// fields) — none of those involve anything the human at THIS keyboard typed. If they haven't
+// touched the page in 30s, the "conflict" is machine-vs-machine: adopt silently, no banner.
+let lastUserInputAt = 0;
+try {
+  document.addEventListener("pointerdown", () => { lastUserInputAt = Date.now(); }, true);
+  document.addEventListener("keydown", () => { lastUserInputAt = Date.now(); }, true);
+} catch (e) {}
 function onDashboardConflict(merged, conflicts) {
   if (!merged || !merged.engagements) return;
   STATE = migrate(merged);
@@ -69,8 +78,9 @@ function onDashboardConflict(merged, conflicts) {
   try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) {}
   applyEngagement();
   repaintAll();
-  if (conflicts === null) showConflictBanner(null);          // couldn't merge (rare) — old lossy message
-  else if (conflicts.length) showConflictBanner(conflicts);  // same-field clash — offer "Keep mine"
+  const idle = Date.now() - lastUserInputAt > 30000;   // no recent human input → nothing of theirs to lose
+  if (conflicts === null) { if (idle) flashRefreshed("↻ Updated with a teammate's changes"); else showConflictBanner(null); }
+  else if (conflicts.length) { if (idle) flashRefreshed("↻ Updated with a teammate's changes"); else showConflictBanner(conflicts); }
   else flashRefreshed("↻ Merged a teammate's changes — your edits were kept");   // clean merge, nothing lost
 }
 // Humanise a STATE path ("engagements.retainer.northStar" → "Goal") for the conflict notice.

@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=331" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=331">
+<link rel="icon" href="assets/img/favicon.ico?v=332" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=332">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=331">
+<link rel="stylesheet" href="assets/css/styles.css?v=332">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -85,6 +85,14 @@
         </select></label>
       <label class="cl-field" id="tmNameField"><span>Full name <em class="cl-hint">— must match their manager tag exactly</em></span>
         <input type="text" id="tmName" placeholder="e.g. Alex Duggan"></label>
+      <!-- Client invites capture a real first + last name (required) — it labels their
+           comments/reviews in Present Docs and their row in the Admin Center. -->
+      <div class="cl-field" id="tmClientNameFields" style="display:none"><span>Their name <em>*</em></span>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="tmFirstName" placeholder="First name" style="flex:1;min-width:0">
+          <input type="text" id="tmLastName" placeholder="Last name" style="flex:1;min-width:0">
+        </div>
+      </div>
       <label class="cl-field" id="tmClientField" style="display:none"><span>Client workspace <em>*</em></span>
         <select id="tmClient"></select></label>
       <!-- notification choices at invite time (clients only) — lets you suppress the signup
@@ -201,12 +209,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=331"></script>
-<script src="assets/js/version-check.js?v=331"></script>
-<script src="assets/js/supabase-sync.js?v=331"></script>
-<script src="assets/js/ui.js?v=331"></script>
-<script src="assets/js/auth.js?v=331"></script>
-<script src="assets/js/chrome-menu.js?v=331"></script>
+<script src="assets/js/supabase-config.js?v=332"></script>
+<script src="assets/js/version-check.js?v=332"></script>
+<script src="assets/js/supabase-sync.js?v=332"></script>
+<script src="assets/js/ui.js?v=332"></script>
+<script src="assets/js/auth.js?v=332"></script>
+<script src="assets/js/chrome-menu.js?v=332"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -216,9 +224,9 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=331"></script>
-<script src="assets/js/client-template.js?v=331"></script>
-<script src="assets/js/client-store.js?v=331"></script>
+<script src="assets/js/clients.js?v=332"></script>
+<script src="assets/js/client-template.js?v=332"></script>
+<script src="assets/js/client-store.js?v=332"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -598,6 +606,7 @@
     const invite = isInviteRole(role);
     $("tmClientField").style.display = invite ? "" : "none";
     $("tmNameField").style.display = invite ? "none" : "";
+    $("tmClientNameFields").style.display = invite ? "" : "none";
     $("tmPwField").style.display = invite ? "none" : "";
     $("tmInviteNote").style.display = invite ? "" : "none";
     $("tmInvitePrefs").style.display = invite ? "" : "none";
@@ -646,10 +655,18 @@
     e.preventDefault();
     const role = $("tmRole").value;
     const invite = isInviteRole(role);
+    // Client invites carry a required first + last name — it labels their reviews/comments in
+    // Present Docs (multi-reviewer) and their Admin Center row. Staff keep the single field.
+    const clientName2 = invite
+      ? ($("tmFirstName").value.trim() + " " + $("tmLastName").value.trim()).trim()
+      : "";
     const payload = { action: invite ? "invite" : "create", role,
       email: $("tmEmail").value.trim().toLowerCase(), password: $("tmPassword").value,
-      name: $("tmName").value.trim(), clientId: invite ? $("tmClient").value : "" };
+      name: invite ? clientName2 : $("tmName").value.trim(), clientId: invite ? $("tmClient").value : "" };
     if (invite && !payload.clientId) { $("tmErr").textContent = "Pick which client workspace this login is for."; return; }
+    if (invite && (!$("tmFirstName").value.trim() || !$("tmLastName").value.trim())) {
+      $("tmErr").textContent = "Enter their first and last name."; return;
+    }
     if (invite) {
       // Honor the signup-email toggle for THIS invite (mode: link = no email, copy instead).
       const signupOn = $("tmNewSignupEmails").checked;

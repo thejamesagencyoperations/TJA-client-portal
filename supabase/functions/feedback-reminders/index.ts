@@ -75,18 +75,26 @@ Deno.serve(async (req) => {
     const items = Array.isArray(row.data) ? row.data : [];
 
     // which of this client's deliverables need a nudge today (latest version only)
-    const due: Array<{ docId: string; docName: string; label: string; dueDate: string; milestone: string; key: string }> = [];
+    const due: Array<{ docId: string; docName: string; label: string; dueDate: string; milestone: string; key: string; pending: string[] | null }> = [];
     for (const d of items) {
       const versions = Array.isArray(d.versions) ? d.versions : [];
       const v = versions[versions.length - 1];
       if (!v || v.state === "pending_approval") continue;   // not yet sent to the client
-      if (v.reviewedAt || v.status) continue;               // already reviewed / has a verdict
+      // Multi-reviewer rounds (expectedReviewers stamped at send): the round is outstanding
+      // until EVERY expected login has a review — and only the ones still missing get nudged.
+      // Legacy versions keep the old whole-version check.
+      const exp: string[] = Array.isArray(v.expectedReviewers)
+        ? v.expectedReviewers.map((e: string) => String(e).toLowerCase()) : [];
+      const revs: Record<string, unknown> =
+        (v.reviews && typeof v.reviews === "object" && !Array.isArray(v.reviews)) ? v.reviews : {};
+      const pending = exp.length ? exp.filter((e) => !revs[e]) : null;
+      if (pending ? !pending.length : (v.reviewedAt || v.status)) continue;   // fully reviewed
       const dueDate = String(v.revisionsDue || "");
       const milestone = dueDate === today ? "due" : dueDate === in3 ? "due3" : "";
       if (!milestone) continue;
       const key = `${clientId}:${d.id}:${v.vid || v.label}:${milestone}`;
       if (sent[key]) { skippedAlready++; continue; }
-      due.push({ docId: d.id, docName: String(d.name || "your deliverable"), label: String(v.label || ""), dueDate, milestone, key });
+      due.push({ docId: d.id, docName: String(d.name || "your deliverable"), label: String(v.label || ""), dueDate, milestone, key, pending });
     }
     if (!due.length) continue;
     candidates += due.length;
@@ -125,8 +133,12 @@ Deno.serve(async (req) => {
         `\nReview it in your portal: ${url}`,
         `\n— The James Agency`,
       ].join("\n");
+      // Multi-reviewer: nudge ONLY the logins that haven't submitted yet — people who already
+      // reviewed stop hearing about it. Legacy versions nudge the full recipient list.
+      const to = item.pending ? recipients.filter((r) => item.pending!.includes(r)) : recipients;
+      if (!to.length) { noEmail++; continue; }
       try {
-        await sendViaResend(recipients, subject, html, text);
+        await sendViaResend(to, subject, html, text);
         sent[item.key] = Date.now();
         remindersSent++;
       } catch (_e) { /* leave unmarked; next daily run retries (the milestone day may pass) */ }

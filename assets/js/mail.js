@@ -99,7 +99,9 @@ window.TJA_MAIL = (function () {
         } else {
           toast("Sent to the portal.");
         }
-        return { ok: true };
+        // Hand the whole response back — announceSend stamps version.expectedReviewers from
+        // j.reviewers (the client-role logins at send time) to drive multi-reviewer tracking.
+        return Object.assign({ ok: true }, j);
       }
       if (r.status === 409) {
         if (j.link) copyLinkPrompt("No client email on file — copy the deliverable link to send it yourself" + (j.slacked ? " (posted to Slack)" : ""), j.link);

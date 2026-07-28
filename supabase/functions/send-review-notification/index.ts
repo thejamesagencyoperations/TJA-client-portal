@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (caller.role !== "client" || !caller.clientId || caller.clientId.startsWith("_"))
     return json(req, 403, { error: "clients only" });
 
-  let body: { docId?: string; docName?: string; versionLabel?: string; status?: string; comments?: number; pdfBase64?: string; pdfName?: string };
+  let body: { docId?: string; docName?: string; versionLabel?: string; status?: string; comments?: number; pdfBase64?: string; pdfName?: string; reviewerLine?: string };
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }
 
   const clientId = caller.clientId;                       // from the profile, never the body
@@ -72,7 +72,10 @@ Deno.serve(async (req) => {
   const docId = String(body.docId ?? "").trim();
   const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
   const emoji = body.status === "approved" ? "✅" : body.status === "changes" ? "📝" : "🔄";
-  const slackText = `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`;
+  // Multi-reviewer rounds pass a per-person breakdown ("Jane: Approved · Sam: Revisions…") —
+  // the ping itself fires once, when the LAST reviewer submits (gated client-side).
+  const reviewerLine = String(body.reviewerLine ?? "").slice(0, 400);
+  const slackText = `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}${reviewerLine ? `\n${reviewerLine}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`;
   // If the client's browser sent the proof PDF, push it to Slack WITH the review message
   // (one post: summary + attached PDF). Falls back to a text-only post if there's no PDF or
   // the upload fails (e.g. the bot doesn't have files:write yet).
@@ -131,6 +134,7 @@ Deno.serve(async (req) => {
     heading: `${clientName} responded to their proof`,
     bodyHtml:
       `<p style="margin:0 0 14px">They&rsquo;ve reviewed &ldquo;<b>${nameLine}</b>&rdquo; in the portal.</p>` +
+      (reviewerLine ? `<p style="margin:0 0 14px;color:#666;font-size:13px">${reviewerLine}</p>` : "") +
       `<p style="margin:0 0 14px">${commentLine}</p>`,
     metaRows: [["Client", clientName], ["Response", statusLabel]],
     ctaText: "Open it in the portal",

@@ -62,12 +62,16 @@ window.SUPA = (function () {
     ]);
   }
 
-  async function pullScope(clientId, scope) {
+  // timeoutMs: optional — deliverables rows carry inline base64 proofs and can run to several
+  // MB, where the default 3.5s regularly times out on slower connections and the caller
+  // silently keeps a STALE local copy (reviews/waiting-room items "not showing up"). Callers
+  // pulling fat scopes should pass a larger budget.
+  async function pullScope(clientId, scope, timeoutMs) {
     if (!client) return null;
     await ready;   // ensure the token is freshly ES256-signed before any query
     try {
       const q = client.from("app_state").select("data").eq("client_id", clientId).eq("scope", scope).maybeSingle();
-      const r = await withTimeout(q, 3500, scope);
+      const r = await withTimeout(q, timeoutMs || 3500, scope);
       if (r && r.__timeout) { console.warn("SUPA pull timeout", scope); return null; }
       const { data, error } = r;
       if (error) { console.warn("SUPA pull", scope, error.message); return null; }
