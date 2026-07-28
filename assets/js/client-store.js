@@ -91,7 +91,31 @@ window.TJA_STORE = (function () {
   }
   function writeAdded(arr) {
     try { localStorage.setItem(LS_KEY, JSON.stringify(arr)); } catch (e) { console.warn("client store full", e); }
-    if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(REG_CLIENT, REG_SCOPE, arr);
+    if (window.SUPA && window.SUPA.enabled) pushRosterMerged(arr);
+  }
+  /* Merge-before-push for the roster. The registry's per-client `integrations` map is written
+     by SERVER-SIDE actors too (Slack channel links, per-client prefs from other admins'
+     browsers) — and this push used to be a blind whole-roster upsert, so any tab holding a
+     roster hydrated BEFORE those writes clobbered them wholesale (2026-07-28: every client's
+     slackChannel wiped at once). Now: pull the server copy first and per-KEY merge each
+     client's integrations — a key this tab has (even set to "" — a deliberate clear) wins;
+     keys this tab never knew about survive. List membership stays last-write-wins (deletes
+     must stick). If the pull fails we push as before — a delayed clobber beats a lost edit. */
+  async function pushRosterMerged(arr) {
+    let merged = arr;
+    try {
+      const remote = await window.SUPA.pullScope(REG_CLIENT, REG_SCOPE, 12000);
+      if (Array.isArray(remote) && remote.length) {
+        const remoteById = new Map(remote.map(c => [c.id, c]));
+        merged = arr.map(c => {
+          const r = remoteById.get(c.id);
+          if (!r || (!r.integrations && !c.integrations)) return c;
+          return Object.assign({}, c, { integrations: Object.assign({}, r.integrations, c.integrations) });
+        });
+        try { localStorage.setItem(LS_KEY, JSON.stringify(merged)); } catch (e) {}
+      }
+    } catch (e) { /* pull failed — push local as-is (previous behavior) */ }
+    window.SUPA.pushScope(REG_CLIENT, REG_SCOPE, merged);
   }
 
   // built-in seed clients (cannot be deleted) flagged so the UI can hide destructive controls

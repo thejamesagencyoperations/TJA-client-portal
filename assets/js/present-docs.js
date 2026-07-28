@@ -1190,16 +1190,49 @@ window.PresentDocs = (function () {
     const exp = expectedOf(v), revs = reviewsOf(v);
     if (!exp.length) { box.style.display = "none"; box.innerHTML = ""; return; }
     const me = myEmail();
+    // Staff who can edit this client may WAIVE an outstanding reviewer — the escape hatch for
+    // a login that was removed or is never going to respond, so a round can't stick forever.
+    const canWaive = (typeof effectiveRole === "function" && effectiveRole() !== "client")
+      && (typeof canEdit === "function" ? canEdit() : false);
     const rows = exp.map(e => {
       const r = revs[e];
       const who = (r && (r.name || r.email)) || e;
       const you = e === me ? " (you)" : "";
-      if (!r) return `<div class="pd-peer-row waiting">⏳ <b>${esc(who)}${you}</b> — hasn't reviewed yet</div>`;
+      if (!r) return `<div class="pd-peer-row waiting">⏳ <b>${esc(who)}${you}</b> — hasn't reviewed yet${canWaive ? `<button class="pd-tool-btn pd-waive" data-waive="${esc(e)}" title="Complete this round without their review">Waive</button>` : ""}</div>`;
       return `<div class="pd-peer-row done">✓ <b>${esc(who)}${you}</b> — ${esc(STATUS_WORD[r.status] || r.status || "Responded")}${r.reviewedAt ? ` · ${esc(r.reviewedAt)}` : ""}${r.notes ? `<div class="pd-peer-notes">${esc(r.notes)}</div>` : ""}</div>`;
     }).join("");
     const done = exp.filter(e => revs[e]).length;
     box.innerHTML = `<div class="pd-review-label" style="margin-top:10px">Reviews (${done}/${exp.length})</div>${rows}`;
     box.style.display = "";
+    if (!box._wired) {
+      box._wired = true;
+      box.addEventListener("click", (ev) => { const b = ev.target.closest("[data-waive]"); if (b) waiveReviewer(b.dataset.waive); });
+    }
+  }
+  async function waiveReviewer(email) {
+    const d = deliv(curId); const v = d && active(d); if (!v) return;
+    if (!(typeof canEdit === "function" ? canEdit() : false)) return;
+    const em = String(email || "").toLowerCase();
+    const remaining = expectedOf(v).filter(x => x !== em);
+    // Never waive the round into a reviewer-less pending limbo: with no reviews at all it
+    // would sit "Pending" forever with nobody expected to act.
+    if (!remaining.length && !Object.keys(reviewsOf(v)).length) {
+      if (window.TJA_UI) window.TJA_UI.alert("At least one reviewer is required — this round has no reviews yet. Delete the version instead if it shouldn't be reviewed.", { title: "Can't waive the last reviewer" });
+      return;
+    }
+    if (window.TJA_UI) {
+      const ok = await window.TJA_UI.confirm(`Waive ${em}?\n\nThe round will complete without their review${remaining.length ? "" : " (all remaining reviews are in)"}.`, { title: "Waive reviewer", okText: "Waive" });
+      if (!ok) return;
+    }
+    v.expectedReviewers = remaining;
+    if (reviewComplete(v) || !remaining.length) {
+      v.status = aggregateStatus(v);
+      v.reviewedAt = v.reviewedAt || stamp();
+      v.reviewedStatus = v.status || null;
+    }
+    try { if (window.SUPA && window.SUPA.auditEvent) window.SUPA.auditEvent(sess.client, "deliverable.reviewer_waived", `waived ${em}'s review on ${d.name}${v.label ? " " + v.label : ""}`, { scope: "deliverables" }); } catch (e) {}
+    await saveNow();
+    renderPeerReviews(v); updateMeta(); renderGallery();
   }
   function updateMeta() {
     const d = deliv(curId); if (!d) return; const v = active(d);
