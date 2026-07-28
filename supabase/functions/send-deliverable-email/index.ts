@@ -68,10 +68,11 @@ Deno.serve(async (req) => {
 
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
-  // Whoever can RELEASE a deliverable can trigger its email/Slack. That's admin + manager
-  // (canSendDocs()=canEdit() in the UI) — NOT creatives (they only upload to the waiting
-  // room) or clients. Gating on admin-only silently 403'd every manager send. */
-  if (caller.role !== "admin" && caller.role !== "manager") return json(req, 403, { error: "staff (admin/manager) only" });
+  // Whoever can RELEASE a deliverable can trigger its email/Slack. As of 2026-07-28 that's
+  // admin + manager + CREATIVE (creatives may now send their own waiting-room uploads to the
+  // client as a separate step). Still NOT clients or paid-media. Gating on admin-only silently
+  // 403'd every manager send; the same trap would 403 creative sends.
+  if (!["admin", "manager", "creative"].includes(caller.role)) return json(req, 403, { error: "staff (admin/manager/creative) only" });
 
   let body: { clientId?: string; docName?: string; versionLabel?: string; subject?: string; message?: string; dueDate?: string };
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }

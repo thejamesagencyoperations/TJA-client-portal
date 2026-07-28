@@ -265,11 +265,14 @@ function canEdit() {
 const ROLE_LABELS = { admin: "Admin", manager: "AM/PM", creative: "Creative", media: "Paid Media", client: "Client" };
 function roleLabel(r) { return ROLE_LABELS[r || effectiveRole()] || "Client"; }
 // Present Docs. Upload = any staff (admin/manager → straight to the client,
-// creative → into the waiting room). Releasing a draft = whoever can edit, i.e.
-// the AM/PM whose job it is — never the creative who uploaded it.
+// creative → into the waiting room). Releasing a draft to the client = whoever can edit
+// (admin / the AM/PM whose client it is) AND, as of 2026-07-28, the CREATIVE too — creatives
+// keep uploading to the waiting room, but may now also hit "Send to client" themselves as a
+// separate step (Cameron's call). Requires RLS to let creatives write the 'deliverables'
+// scope (schema-v14) + send-deliverable-email to accept the creative role.
 // Paid-media is staff but explicitly NOT an uploader — they only triage media
 // requests. Excluding isMedia() here keeps Present Docs fully view-only for them.
 // Upload = admin (any client) or creative (any client, into the waiting room) or an AM/PM but
 // ONLY on their own clients. Paid-media never uploads. Managers on someone else's client can't.
 function canUploadDocs() { return !isPreviewing() && isStaff() && !isMedia() && (!isManager() || ownsCurrentClient()); }
-function canSendDocs() { return canEdit(); }
+function canSendDocs() { return canEdit() || (isCreative() && !isPreviewing()); }
