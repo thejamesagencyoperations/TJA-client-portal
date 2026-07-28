@@ -1322,7 +1322,16 @@ window.PresentDocs = (function () {
     const sl = $("pdSpecsLine");
     if (sl) { sl.style.display = d.specs ? "" : "none"; sl.textContent = d.specs ? "Specs: " + d.specs : ""; }
   }
+  // In-flight guard: a double-click on Submit (the revisions path has no confirm dialog to
+  // slow it down) ran the entire pipeline twice — two saves, two Slack pings, two emails for
+  // the same review (seen live 2026-07-28, duplicate pings at 3:24 PM). One submit at a time.
+  let submitBusy = false;
   async function finishSubmit() {
+    if (submitBusy) return;
+    submitBusy = true;
+    try { await finishSubmitInner(); } finally { submitBusy = false; }
+  }
+  async function finishSubmitInner() {
     const d = deliv(curId);
     const v = active(d);
     const clientView = typeof effectiveRole === "function" && effectiveRole() === "client";
@@ -1349,6 +1358,9 @@ window.PresentDocs = (function () {
       flashDocsToast("Preview mode — reviews on this deliverable are only recorded from a real client login.");
       return;
     }
+    // If the round was ALREADY complete before this submit (a stale tab re-submitting, or a
+    // second login on a legacy single-review doc), the team was already pinged — never again.
+    const wasComplete = !!(v && (multi ? reviewComplete(v) : v.reviewedAt));
     let completeNow = true;
     if (multi && clientView && v) {
       // Stamp MY review into the per-reviewer map. The shared completion fields only move
@@ -1365,7 +1377,7 @@ window.PresentDocs = (function () {
     }
     // Notify the TJA team when a CLIENT submits a review (not when an admin does) — and in
     // multi-reviewer mode only when the LAST teammate lands (Cameron: one ping, not one each).
-    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow) {
+    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow && !wasComplete) {
       if (window.TJA_NOTIFY) {
         window.TJA_NOTIFY.record({
           type: "review", docId: d.id, docName: d.name, versionLabel: v.label,
@@ -1432,7 +1444,7 @@ window.PresentDocs = (function () {
     // Notify the team — with the deliverable's PDF attached to the Slack post. Fires ONLY when
     // the round is COMPLETE (every expected reviewer in): one ping per round, not one per person
     // (Cameron 2026-07-28). Generated AFTER the UI locks so the client never waits on it.
-    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow
+    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow && !wasComplete
         && window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
       // items may have been replaced by the merge above — resolve the CURRENT objects
       const curD = deliv(curId) || d;
