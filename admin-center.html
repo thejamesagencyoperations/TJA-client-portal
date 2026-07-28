@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=327" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=327">
+<link rel="icon" href="assets/img/favicon.ico?v=329" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=329">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=327">
+<link rel="stylesheet" href="assets/css/styles.css?v=329">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -201,12 +201,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=327"></script>
-<script src="assets/js/version-check.js?v=327"></script>
-<script src="assets/js/supabase-sync.js?v=327"></script>
-<script src="assets/js/ui.js?v=327"></script>
-<script src="assets/js/auth.js?v=327"></script>
-<script src="assets/js/chrome-menu.js?v=327"></script>
+<script src="assets/js/supabase-config.js?v=329"></script>
+<script src="assets/js/version-check.js?v=329"></script>
+<script src="assets/js/supabase-sync.js?v=329"></script>
+<script src="assets/js/ui.js?v=329"></script>
+<script src="assets/js/auth.js?v=329"></script>
+<script src="assets/js/chrome-menu.js?v=329"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -216,9 +216,9 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=327"></script>
-<script src="assets/js/client-template.js?v=327"></script>
-<script src="assets/js/client-store.js?v=327"></script>
+<script src="assets/js/clients.js?v=329"></script>
+<script src="assets/js/client-template.js?v=329"></script>
+<script src="assets/js/client-store.js?v=329"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -405,6 +405,19 @@
       ids.map(id => `<option value="${esc(id)}"${id === cur ? " selected" : ""}>${esc(clientName(id))}</option>`).join("");
   }
 
+  // An invite / signup link lives 24h (see the invite email + manage-users). Past that the
+  // "waiting on them" badge flips to an expired (red) state so it's obvious a fresh resend is
+  // needed. inviteSentAt is stamped by the backend on every (re)invite; createdAt is the
+  // fallback for logins minted before that field existed.
+  const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+  function inviteExpired(u) {
+    if (!u.invitedPending) return false;
+    const issued = u.inviteSentAt || u.createdAt;
+    if (!issued) return false;
+    const t = new Date(issued).getTime();
+    return Number.isFinite(t) && (Date.now() - t) > INVITE_TTL_MS;
+  }
+
   function render() {
     const body = $("tmBody");
     const rows = users.filter(matches).sort((a, b) =>
@@ -424,7 +437,9 @@
         </select>`}</td>
         <td style="color:var(--text-dim)">${esc(clientName(u.clientId))}</td>
         <td style="color:var(--text-dim)">${u.invitedPending
-          ? `<span class="tm-pending">Invited — not accepted</span>`
+          ? (inviteExpired(u)
+              ? `<span class="tm-pending tm-expired">Invited — link expired</span>`
+              : `<span class="tm-pending">Invited — not accepted</span>`)
           : esc(when(u.lastSignIn))}</td>
         <td style="text-align:right;white-space:nowrap">
           ${(!AMPM && u.role !== "client" && u.name)
@@ -437,7 +452,7 @@
           ${u.role === "client"
             // Clients never receive a password from us — resending the invite is the
             // only correct recovery, whether they lost the link or it expired.
-            ? `<button class="btn btn-ghost btn-sm" data-reinvite="${esc(u.id)}">${u.invitedPending ? "Resend invite" : "Send reset link"}</button>`
+            ? `<button class="btn btn-ghost btn-sm${u.invitedPending && inviteExpired(u) ? " tm-reinvite-expired" : ""}" data-reinvite="${esc(u.id)}">${u.invitedPending ? "Resend invite" : "Send reset link"}</button>`
             : (AMPM ? "" : `<button class="btn btn-ghost btn-sm" data-pw="${esc(u.id)}">Reset password</button>`)}
           ${(u.isYou || AMPM) ? "" : `<button class="btn btn-ghost btn-sm tm-del" data-del="${esc(u.id)}">Remove</button>`}
         </td>

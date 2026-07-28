@@ -205,7 +205,7 @@ Deno.serve(async (req) => {
        those), never staff accounts. */
     if (action === "list") {
       const users = await allAuthUsers(svc);
-      const { data: profs } = await svc.from("profiles").select("id,email,role,client_id");
+      const { data: profs } = await svc.from("profiles").select("id,email,role,client_id,invite_sent_at");
       const byId: Record<string, any> = {};
       (profs || []).forEach((p: any) => byId[p.id] = p);
       const rows = users
@@ -220,6 +220,10 @@ Deno.serve(async (req) => {
           clientId: byId[u.id]?.client_id || u.user_metadata?.client_id || "",
           lastSignIn: u.last_sign_in_at || null,
           createdAt: u.created_at,
+          // when the current invite/signup link was last issued — stamped by us on every
+          // (re)invite, so the Admin Center can flag a link older than 24h as expired.
+          // Falls back to GoTrue's invited_at for logins created before this was tracked.
+          inviteSentAt: byId[u.id]?.invite_sent_at || u.invited_at || null,
           isYou: u.id === caller.userId,
           // "invited but hasn't accepted": GoTrue stamps invited_at, and
           // last_sign_in_at stays null until they actually set a password and land.
@@ -283,8 +287,10 @@ Deno.serve(async (req) => {
 
       // profile written BEFORE the email goes out: if this failed afterwards they'd
       // hold a working link into a workspace the database never granted them.
+      // invite_sent_at resets the 24h expiry clock on every (re)invite — the Admin Center
+      // reads it to flag a stale link as expired (and turn its Resend button red).
       const { error: pe } = await svc.from("profiles")
-        .upsert({ id: userId, email, role, client_id: clientId }, { onConflict: "id" });
+        .upsert({ id: userId, email, role, client_id: clientId, invite_sent_at: new Date().toISOString() }, { onConflict: "id" });
       if (pe) return json(req, 400, { error: pe.message });
 
       // Email vs link. `mode` from the caller wins ('email' | 'link' | 'both'); with no
