@@ -1820,9 +1820,18 @@ window.PresentDocs = (function () {
       if (del) {
         e.stopPropagation();
         const id = del.dataset.del;
+        const gone = (draftItems.find(x => x.id === id) || items.find(x => x.id === id) || {}).name || "a deliverable";
+        // The ✕ sits right on the card — an accidental click must not silently remove a
+        // deliverable mid-review. Confirm first (history/snapshots keep it recoverable, but
+        // the client-facing gallery changes instantly).
+        if (window.TJA_UI) {
+          const sure = await window.TJA_UI.confirm(
+            `Delete “${gone}”?\n\nIt disappears from the gallery for everyone (including the client) right away.`,
+            { title: "Delete deliverable", okText: "Delete" });
+          if (!sure) return;
+        }
         // Remove locally + repaint immediately, then flush the removal to the server RIGHT AWAY
         // (guardLive keeps a stray pull from re-adding it — the "deletes, pops back" bug).
-        const gone = (draftItems.find(x => x.id === id) || items.find(x => x.id === id) || {}).name || "a deliverable";
         if (draftItems.some(x => x.id === id)) { draftItems = draftItems.filter(x => x.id !== id); renderGallery(); await saveDraftsNow(); }
         else { items = items.filter(x => x.id !== id); renderGallery(); await saveNow(); }
         // deletions are the events people most need to trace back
