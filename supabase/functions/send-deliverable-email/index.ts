@@ -131,7 +131,14 @@ Deno.serve(async (req) => {
   const { data: profs } = await svc.from("profiles")
     .select("email").eq("client_id", clientId).eq("role", "client");
   const fromLogins = (profs ?? []).map((p: any) => p.email).filter(Boolean);
-  const reviewers = [...new Set(fromLogins.map((e: string) => String(e).trim().toLowerCase()))];
+  const allLogins = [...new Set(fromLogins.map((e: string) => String(e).trim().toLowerCase()))];
+  // Required approvers = every client login MINUS integrations.approvalOff (the Admin Center
+  // per-login toggle). Optional people still review/comment; the round just doesn't wait for
+  // them. Floor: a round can never require nobody — if the toggles would empty the list
+  // (stale data, all logins removed), every login is required again.
+  const approvalOff = new Set((entry.integrations?.approvalOff ?? []).map((e: string) => String(e).trim().toLowerCase()));
+  let reviewers = allLogins.filter((e) => !approvalOff.has(e));
+  if (!reviewers.length) reviewers = allLogins;
   const extra = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
   // Per-person opt-out (integrations.notifyOff) — logins a manager toggled OFF so
   // dashboard-only users aren't flooded. Everyone is ON by default (absent = notified).

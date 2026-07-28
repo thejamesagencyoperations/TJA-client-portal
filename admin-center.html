@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=335" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=335">
+<link rel="icon" href="assets/img/favicon.ico?v=336" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=336">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=335">
+<link rel="stylesheet" href="assets/css/styles.css?v=336">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -186,6 +186,12 @@
         <div class="tm-set-txt"><b>Signup / invite emails</b><span>Email this client their set-password link. Off = the invite still creates the login and you copy the signup link to send them yourself.</span></div>
         <label class="tm-switch"><input type="checkbox" id="prefSignupEmails"><span class="tm-slider-ui"></span></label>
       </div>
+      <!-- Required approvers: which of this client's logins must review a Present Doc before
+           the round completes (and the ONE Slack ping fires). At least one stays on. -->
+      <div class="tm-set-row" style="flex-direction:column;align-items:stretch">
+        <div class="tm-set-txt"><b>Required approvers (Present Docs)</b><span>A deliverable round completes — and the team's one Slack/email ping fires — only after every person toggled ON has submitted their review. Off = they can still comment and review, but the round doesn't wait for them. At least one person must stay on.</span></div>
+        <div id="prefApproverList" style="margin-top:8px"></div>
+      </div>
     </div>
     <div class="cl-err" id="tmPrefsErr" style="min-height:0"></div>
     <div class="cl-actions">
@@ -209,12 +215,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=335"></script>
-<script src="assets/js/version-check.js?v=335"></script>
-<script src="assets/js/supabase-sync.js?v=335"></script>
-<script src="assets/js/ui.js?v=335"></script>
-<script src="assets/js/auth.js?v=335"></script>
-<script src="assets/js/chrome-menu.js?v=335"></script>
+<script src="assets/js/supabase-config.js?v=336"></script>
+<script src="assets/js/version-check.js?v=336"></script>
+<script src="assets/js/supabase-sync.js?v=336"></script>
+<script src="assets/js/ui.js?v=336"></script>
+<script src="assets/js/auth.js?v=336"></script>
+<script src="assets/js/chrome-menu.js?v=336"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -224,9 +230,9 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=335"></script>
-<script src="assets/js/client-template.js?v=335"></script>
-<script src="assets/js/client-store.js?v=335"></script>
+<script src="assets/js/clients.js?v=336"></script>
+<script src="assets/js/client-template.js?v=336"></script>
+<script src="assets/js/client-store.js?v=336"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -266,7 +272,45 @@
     } catch (e) { ig = ((window.TJA_STORE.get(clientId) || {}).integrations) || {}; }
     $("prefDeliverableEmails").checked = ig.deliverableEmails !== false;   // default ON
     $("prefSignupEmails").checked = ig.signupEmails !== false;
+    renderApprovers(clientId, ig);
     $("tmPrefsOverlay").style.display = "flex";
+  }
+  /* ---- Required approvers (Present Docs) ----
+     One toggle per client login. ON (default) = the round waits for their review; OFF =
+     optional reviewer. Stored INVERTED as integrations.approvalOff (absent = everyone
+     required), so new logins are automatically required with no bookkeeping. The last ON
+     toggle can't be turned off — a round must always have at least one required approver
+     (send-deliverable-email enforces the same floor server-side). */
+  async function renderApprovers(clientId, ig) {
+    const box = $("prefApproverList"); if (!box) return;
+    box.innerHTML = `<div style="color:var(--text-faint);font-size:.75rem">Loading logins…</div>`;
+    const off = new Set((ig.approvalOff || []).map(e => String(e).trim().toLowerCase()));
+    const r = await call({ action: "client-logins", clientId });
+    if (r.error || !Array.isArray(r.logins) || !r.logins.length) {
+      box.innerHTML = `<div style="color:var(--text-faint);font-size:.75rem">${r.error ? "Couldn't load this client's logins." : "No client logins yet — invite one first."}</div>`;
+      return;
+    }
+    box.innerHTML = r.logins.map(l => `
+      <div class="tm-set-row" style="border-top:none;padding:7px 0">
+        <div class="tm-set-txt"><b>${esc(l.name || l.email)}</b>${l.name ? `<span>${esc(l.email)}</span>` : ""}</div>
+        <label class="tm-switch"><input type="checkbox" data-approver="${esc(l.email)}" ${off.has(String(l.email).toLowerCase()) ? "" : "checked"}><span class="tm-slider-ui"></span></label>
+      </div>`).join("");
+    if (!box._wired) {
+      box._wired = true;
+      box.addEventListener("change", async (e) => {
+        const cb = e.target.closest("[data-approver]"); if (!cb) return;
+        const boxes = [...box.querySelectorAll("[data-approver]")];
+        if (!boxes.some(b => b.checked)) {
+          cb.checked = true;   // refuse to turn off the last required approver
+          $("tmPrefsErr").textContent = "At least one person must be a required approver.";
+          return;
+        }
+        const approvalOff = boxes.filter(b => !b.checked).map(b => String(b.dataset.approver).toLowerCase());
+        $("tmPrefsErr").textContent = "Saving…";
+        try { await writeClientPrefs(prefsClient, { approvalOff }); $("tmPrefsErr").textContent = "Saved ✓"; }
+        catch (err) { $("tmPrefsErr").textContent = "Couldn't save — " + (err.message || err); }
+      });
+    }
   }
   // server-first read-modify-write of ONE client's integrations prefs (never clobber the roster)
   async function writeClientPrefs(clientId, prefs) {

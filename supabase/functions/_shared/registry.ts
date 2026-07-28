@@ -10,6 +10,7 @@ export type Integrations = {
   emailRecipients?: string[];
   domains?: string[];
   notifyOff?: string[];        // client-login emails toggled OFF (default: everyone notified)
+  approvalOff?: string[];      // client logins NOT required to review Present Docs (default: everyone required)
   deliverableEmails?: boolean;  // per-client: email on deliverable send + review (default true)
   signupEmails?: boolean;       // per-client: email the client their signup/invite link (default true)
 };

@@ -1273,8 +1273,14 @@ window.PresentDocs = (function () {
       if (!r) return `<div class="pd-peer-row waiting">⏳ <b>${esc(who)}${you}</b> — hasn't reviewed yet${canWaive ? `<button class="pd-tool-btn pd-waive" data-waive="${esc(e)}" title="Complete this round without their review">Waive</button>` : ""}</div>`;
       return `<div class="pd-peer-row done">✓ <b>${esc(who)}${you}</b> — ${esc(STATUS_WORD[r.status] || r.status || "Responded")}${r.reviewedAt ? ` · ${esc(r.reviewedAt)}` : ""}${r.notes ? `<div class="pd-peer-notes">${esc(r.notes)}</div>` : ""}</div>`;
     }).join("");
+    // Optional reviewers (toggled off in the Admin Center) who reviewed anyway — their
+    // feedback shows, it just never gates the round.
+    const extras = Object.keys(revs).filter(e => exp.indexOf(e) === -1).map(e => {
+      const r = revs[e];
+      return `<div class="pd-peer-row done">✓ <b>${esc(r.name || e)}${e === me ? " (you)" : ""}</b> <em style="font-style:normal;color:var(--text-faint)">(optional)</em> — ${esc(STATUS_WORD[r.status] || r.status || "Responded")}${r.notes ? `<div class="pd-peer-notes">${esc(r.notes)}</div>` : ""}</div>`;
+    }).join("");
     const done = exp.filter(e => revs[e]).length;
-    box.innerHTML = `<div class="pd-review-label" style="margin-top:10px">Reviews (${done}/${exp.length})</div>${rows}`;
+    box.innerHTML = `<div class="pd-review-label" style="margin-top:10px">Reviews (${done}/${exp.length} required)</div>${rows}${extras}`;
     box.style.display = "";
     if (!box._wired) {
       box._wired = true;
