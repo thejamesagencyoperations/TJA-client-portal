@@ -1688,6 +1688,12 @@ button.date-pill:not(.is-set) { background: rgba(255,120,0,.16); color: var(--or
 .ms-check.done { background: var(--good); border-color: var(--good); }
 .ms-check.done::after { opacity: 1; }
 .ms-check:disabled { cursor: default; }
+/* Same control, sized for the tighter to-do tile rows. */
+.ms-check--sm { width: 16px; height: 16px; border-width: 1.6px; margin-top: 2px; }
+.ms-check--sm::after { font-size: .56rem; }
+/* Completed to-do — crossed off, matching a done milestone. */
+.tile-item.done .ed-host,
+.tile-item.done .ed-host .ed { color: var(--text-dim); text-decoration: line-through; }
 .ms-body { flex: 1; min-width: 0; }
 .ms-item.done .tl-label { color: var(--text-dim); text-decoration: line-through; }
 .ms-del {

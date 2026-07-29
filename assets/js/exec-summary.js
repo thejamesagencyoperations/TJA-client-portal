@@ -622,6 +622,12 @@ window.ExecSummary = (function () {
       return (window.CLIENT_LOGOS && name) ? window.CLIENT_LOGOS.logoColorFor(name) : null;
     } catch (e) { return null; }
   }
+  /* Tick-to-complete on a to-do — the same control (and the same strikethrough) as a
+     milestone, just sized for the tighter tile row. Admin-only toggle, exactly like
+     milestones: the client sees what's done, staff decide it. */
+  function todoCheck(t, i) {
+    return `<button class="ms-check ms-check--sm ${t.done ? "done" : ""}" ${canAdmin() ? `data-todotoggle="${i}"` : "disabled"} title="${t.done ? "Mark not done" : "Mark done"}"></button>`;
+  }
   function todosModule(e) {
     const cc = e.todoClientColor || logoAccent() || "#6aa6ff";   // TJA = always orange; Client = logo colour (admin can override)
     const tag = (t, i) => {
@@ -629,7 +635,8 @@ window.ExecSummary = (function () {
       return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>`;
     };
     const rows = (e.todos || []).map((t, i) => `
-      <div class="tile-item">
+      <div class="tile-item${t.done ? " done" : ""}">
+        ${todoCheck(t, i)}
         ${tag(t, i)}
         <span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text")}</span>
         ${listDel("todos", i)}
@@ -666,7 +673,7 @@ window.ExecSummary = (function () {
       return `<span class="owner-tag ${owners(o)} ${canAdmin() ? "admin-edit" : ""}" ${attr}="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(o)}</span>`;
     };
     const todoRows = (e.todos || []).map((t, i) => `
-      <div class="tile-item" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
+      <div class="tile-item${t.done ? " done" : ""}" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${todoCheck(t, i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
     // Dependencies get the SAME client-visibility toggle as Project Plan phases (Cameron):
     // an eye button flips d.internal; an internal dependency is hidden from the client view.
     const clientViewDep = (typeof effectiveRole === "function") && effectiveRole() === "client";
@@ -1139,7 +1146,7 @@ window.ExecSummary = (function () {
     serviceLines: () => ({ name: "New service line", allocationPct: 0, status: "not-started" }),
     // the only default that cares about engagement type — retainers call these Sprint Goals
     milestones: (e) => ({ label: (e && e.type !== "project") ? "New sprint goal" : "New milestone", date: "", done: false, sprint: 1 }),
-    todos: () => ({ text: "New to-do", owner: "Client" }),
+    todos: () => ({ text: "New to-do", owner: "Client", done: false }),
     dependencies: () => ({ text: "New dependency", owner: "TJA" }),
     kpis: () => ({ label: "New KPI", target: "", current: "" }),
     prCoverage: () => ({ outlet: "Outlet", headline: "Headline", date: "", impressions: "" }),
@@ -1460,6 +1467,8 @@ window.ExecSummary = (function () {
 
       const ms = e.target.closest("[data-mstoggle]");
       if (ms && canAdmin()) { const m = eng.milestones[+ms.dataset.mstoggle]; m.done = !m.done; window.DASH.saveState(); rerender(); return; }
+      const td = e.target.closest("[data-todotoggle]");
+      if (td && canAdmin()) { const t = eng.todos[+td.dataset.todotoggle]; if (t) { t.done = !t.done; window.DASH.saveState(); rerender(); } return; }
 
       const mom = e.target.closest("[data-mom]");
       if (mom) {
