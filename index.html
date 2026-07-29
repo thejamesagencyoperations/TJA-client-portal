@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA Client Portal — Sign In</title>
-<link rel="icon" href="assets/img/favicon.ico?v=339" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=339">
+<link rel="icon" href="assets/img/favicon.ico?v=340" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=340">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=339">
+<link rel="stylesheet" href="assets/css/styles.css?v=340">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -51,14 +51,14 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=339"></script>
-<script src="assets/js/version-check.js?v=339"></script>
-<script src="assets/js/supabase-sync.js?v=339"></script>
-<script src="assets/js/auth.js?v=339"></script>
+<script src="assets/js/supabase-config.js?v=340"></script>
+<script src="assets/js/version-check.js?v=340"></script>
+<script src="assets/js/supabase-sync.js?v=340"></script>
+<script src="assets/js/auth.js?v=340"></script>
 <!-- client roster on the login page so per-client logins resolve to their own workspace -->
-<script src="assets/js/clients.js?v=339"></script>
-<script src="assets/js/client-template.js?v=339"></script>
-<script src="assets/js/client-store.js?v=339"></script>
+<script src="assets/js/clients.js?v=340"></script>
+<script src="assets/js/client-template.js?v=340"></script>
+<script src="assets/js/client-store.js?v=340"></script>
 <script>
   // Deep-link from the deliverable email (?open=docs&doc=<id>): stash the target page
   // (and optional specific deliverable) so app.js opens it after login. Same keys the
@@ -77,8 +77,13 @@
 
   // If already signed in, skip the login form. restoreSession() also rebuilds the
   // per-tab session from a persisted Supabase login (new tab ≠ re-type password).
-  if (getSession()) window.location.replace(landing());
-  else restoreSession().then(ok => { if (ok) window.location.replace(landing()); });
+  // EXCEPT on a session-guard landing (?auth=…): auto-restoring would instantly morph this
+  // tab into whichever account owns the browser now and hide the explanation — the person
+  // should read why they landed here and sign in deliberately.
+  if (!new URLSearchParams(location.search).get("auth")) {
+    if (getSession()) window.location.replace(landing());
+    else restoreSession().then(ok => { if (ok) window.location.replace(landing()); });
+  }
 
   document.getElementById("loginForm").addEventListener("submit", async function (e) {
     e.preventDefault();
@@ -91,6 +96,19 @@
     if (okLogin) window.location.replace(landing());
     else document.getElementById("loginError").classList.add("show");
   });
+
+  /* Session-guard landings: the keepalive heartbeat (supabase-sync.js) bounces a tab here the
+     moment its auth session dies or is taken over by a different login in this browser —
+     explain WHY instead of presenting a bare login form. */
+  (function () {
+    const why = new URLSearchParams(location.search).get("auth");
+    if (!why) return;
+    const note = document.getElementById("loginNote");
+    note.className = "login-note warn show";
+    note.textContent = why === "switched"
+      ? "You signed into a different account in another tab — a browser can only hold one login at a time, so this tab was signed out. Use a separate browser profile (or a private window) to run two logins side-by-side."
+      : "Your session expired, so you were signed out to keep things from failing silently. Sign back in to continue.";
+  })();
 
   /* Forgot password — emails a reset link to the account's OWN address (always, regardless
      of their notification preference; recovery isn't a notification). We show the same

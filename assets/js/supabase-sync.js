@@ -16,16 +16,68 @@ window.SUPA = (function () {
     catch (e) { console.warn("Supabase init failed:", e); }
   }
 
-  // The project migrated its JWT signing keys HS256 → ES256. A token minted before that and
-  // still sitting in this browser's storage is UNVERIFIABLE by the server now ("unrecognized
-  // JWT kid <nil> for algorithm ES256"), so the first request after a cold load fails until a
-  // manual refresh — the exact "it works when I reload" error. Proactively swap the stored
-  // token for a freshly ES256-signed one on boot, and gate data calls on it so nothing races
-  // ahead with the stale token. Non-fatal: no session / offline just resolves.
-  let ready = client
-    ? client.auth.refreshSession().then(() => {}).catch(() => {})
-    : Promise.resolve();
+  // Boot check for the stored token. This USED to be an unconditional refreshSession() (the
+  // HS256→ES256 migration fix) — but force-rotating the refresh token on EVERY page load,
+  // across multiple tabs, after laptop sleep, is precisely how Supabase's refresh-token
+  // reuse-detection ends up revoking the whole session family: the recurring "ghost session"
+  // (logged-in-looking UI, dead auth, silent failures). Now we refresh ONLY when needed:
+  // a legacy pre-ES256 token (no kid in the header) or one expiring within 2 minutes.
+  // getSession() itself already refreshes an outright-expired token.
+  const b64json = (part) => { try { return JSON.parse(atob(String(part || "").replace(/-/g, "+").replace(/_/g, "/"))); } catch (e) { return {}; } };
+  let ready = client ? (async () => {
+    try {
+      const { data } = await client.auth.getSession();
+      const s = data && data.session;
+      if (!s) return;
+      const [h, p] = String(s.access_token || "").split(".");
+      const legacy = !b64json(h).kid;                                    // pre-ES256 token
+      const nearExpiry = ((b64json(p).exp || 0) * 1000 - Date.now()) < 120000;
+      if (legacy || nearExpiry) await client.auth.refreshSession();
+    } catch (e) {}
+  })() : Promise.resolve();
   async function refreshSession() { if (!client) return; try { await client.auth.refreshSession(); } catch (e) {} }
+
+  /* ---------- session keepalive + ghost-session bounce ----------
+     Ghost sessions (the UI looks signed in, the token behind it is dead) kept silently
+     breaking sends/pulls. Two causes: missed refreshes (sleep/throttled tabs) and — the big
+     one when testing — signing into a DIFFERENT account in another tab of the same browser,
+     which overwrites this origin's ONE Supabase session while every other tab's per-tab
+     portal session lives on. This heartbeat (5 min + tab focus/visibility) makes the state
+     honest: refresh if the token is close to expiry; if the auth session is DEAD or belongs
+     to a DIFFERENT user than this tab, sign the tab out cleanly and land on the login page
+     with a reason — never a dead-looking UI that fails silently. */
+  function portalSession() {
+    try { return JSON.parse(sessionStorage.getItem("tja_portal_session") || "null"); } catch (e) { return null; }
+  }
+  let bounced = false;
+  async function sessionHeartbeat() {
+    if (!client || bounced) return;
+    const ps = portalSession();
+    if (!ps || !ps.email) return;                                        // not signed in here — nothing to guard
+    if (/index\.html$|\/$/.test(location.pathname)) return;              // never bounce the login page itself
+    try {
+      let { data } = await client.auth.getSession();
+      let s = data && data.session;
+      if (!s) { await refreshSession(); s = ((await client.auth.getSession()).data || {}).session; }
+      const tokenEmail = s ? String((s.user && s.user.email) || "").toLowerCase() : "";
+      if (s && tokenEmail === String(ps.email).toLowerCase()) {
+        // healthy — top up early if the access token is within 5 minutes of expiring
+        const exp = (b64json(String(s.access_token || "").split(".")[1]).exp || 0) * 1000;
+        if (exp && exp - Date.now() < 300000) await refreshSession();
+        return;
+      }
+      bounced = true;
+      const reason = s ? "switched" : "expired";                          // another login took the browser vs token died
+      try { sessionStorage.removeItem("tja_portal_session"); sessionStorage.removeItem("tja_preview_client"); } catch (e) {}
+      location.replace("index.html?auth=" + reason);
+    } catch (e) { /* offline — check again next tick, never bounce on a network blip */ }
+  }
+  if (client) {
+    setInterval(sessionHeartbeat, 5 * 60 * 1000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) sessionHeartbeat(); });
+    window.addEventListener("focus", sessionHeartbeat);
+    setTimeout(sessionHeartbeat, 4000);                                   // one early check after boot settles
+  }
 
   async function signIn(email, password) {
     if (!client) return { ok: false, error: "supabase-not-configured" };
