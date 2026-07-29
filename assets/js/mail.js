@@ -24,8 +24,21 @@ window.TJA_MAIL = (function () {
   async function accessToken() {
     try {
       const { data } = await window.SUPA.client.auth.getSession();
-      return data && data.session ? data.session.access_token : null;
+      if (data && data.session) return data.session.access_token;
+      // Ghost session: the UI looks signed in but the Supabase token has expired — this used
+      // to silently skip every notification (no Slack, no email, no reviewer stamp, no toast;
+      // bit us live 2026-07-28). Try one refresh before giving up.
+      if (window.SUPA.refreshSession) {
+        try { await window.SUPA.refreshSession(); } catch (e) {}
+        const r2 = await window.SUPA.client.auth.getSession();
+        if (r2.data && r2.data.session) return r2.data.session.access_token;
+      }
+      return null;
     } catch (e) { return null; }
+  }
+  // The no-token skip must never be silent for the person doing the send.
+  function staleSessionToast() {
+    toast("⚠ Notifications NOT sent — your login session has gone stale. Sign out and back in, then resend.");
   }
 
   function toast(msg) {
@@ -77,7 +90,7 @@ window.TJA_MAIL = (function () {
   async function sendDeliverable(payload) {
     if (!enabled()) return { ok: false, skipped: true };
     const token = await accessToken();
-    if (!token) return { ok: false, skipped: true };   // no real Supabase session (sandbox login)
+    if (!token) { staleSessionToast(); return { ok: false, skipped: true, staleSession: true }; }
     try {
       const r = await fetch(fnBase() + "/send-deliverable-email", {
         method: "POST",

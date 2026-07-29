@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Notification Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=338" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=338">
+<link rel="icon" href="assets/img/favicon.ico?v=339" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=339">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=338">
+<link rel="stylesheet" href="assets/css/styles.css?v=339">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -50,6 +50,7 @@
           <label class="nc-filter-wrap">Manager
             <select id="ncAmFilter" class="nc-filter"><option value="">All</option></select>
           </label>
+          <button class="btn btn-ghost btn-sm" id="ncFoldAll">Collapse all</button>
           <button class="btn btn-ghost btn-sm" id="ncMarkAll">Mark all read</button>
         </div>
       </div>
@@ -85,11 +86,11 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=338"></script>
-<script src="assets/js/version-check.js?v=338"></script>
-<script src="assets/js/supabase-sync.js?v=338"></script>
-<script src="assets/js/auth.js?v=338"></script>
-<script src="assets/js/chrome-menu.js?v=338"></script>
+<script src="assets/js/supabase-config.js?v=339"></script>
+<script src="assets/js/version-check.js?v=339"></script>
+<script src="assets/js/supabase-sync.js?v=339"></script>
+<script src="assets/js/auth.js?v=339"></script>
+<script src="assets/js/chrome-menu.js?v=339"></script>
 <script>
   requireAuth();
   // Admin-only. Creatives bounce to the PICKER — they have no client workspace,
@@ -98,10 +99,10 @@
   if (typeof isAdminOrManager === "function" && !isAdminOrManager())
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=338"></script>
-<script src="assets/js/client-template.js?v=338"></script>
-<script src="assets/js/client-store.js?v=338"></script>
-<script src="assets/js/notifications.js?v=338"></script>
+<script src="assets/js/clients.js?v=339"></script>
+<script src="assets/js/client-template.js?v=339"></script>
+<script src="assets/js/client-store.js?v=339"></script>
+<script src="assets/js/notifications.js?v=339"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -154,6 +155,26 @@
   const mgrLabel = (cid) => { const m = mgrsOf(cid); return m.length ? m.join(" · ") : "Unassigned"; };
   let amFilter = "";
 
+  // Collapsed client groups — persisted per browser so the page stays how you folded it.
+  const FOLD_KEY = "tja_nc_collapsed";
+  let collapsed = new Set();
+  try { collapsed = new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || "[]")); } catch (e) {}
+  const saveFolds = () => { try { localStorage.setItem(FOLD_KEY, JSON.stringify([...collapsed])); } catch (e) {} };
+  function toggleFold(cid, force) {
+    const fold = force !== undefined ? force : !collapsed.has(cid);
+    if (fold) collapsed.add(cid); else collapsed.delete(cid);
+    saveFolds();
+    const card = document.querySelector(`.nc-card[data-cid="${CSS.escape(cid)}"]`);
+    if (card) card.classList.toggle("collapsed", fold);
+    updateFoldAllLabel();
+  }
+  const shownCids = () => [...document.querySelectorAll(".nc-card[data-cid]")].map(c => c.dataset.cid);
+  function updateFoldAllLabel() {
+    const btn = $("ncFoldAll"); if (!btn) return;
+    const cids = shownCids();
+    btn.textContent = (cids.length && cids.every(c => collapsed.has(c))) ? "Expand all" : "Collapse all";
+  }
+
   // build the manager dropdown from every manager tagged on a client that has activity
   function fillAmFilter(clientIds) {
     const sel = $("ncAmFilter"); if (!sel) return;
@@ -188,9 +209,10 @@
       if (!matchesFilter(cid)) return;
       shownClients++;
       const unread = g.events.filter(e => !e.read).length;
-      html += `<div class="nc-card">
-        <div class="nc-card-head">
-          <span class="nc-card-client">${esc(g.name)}<span class="nc-card-am">${esc(mgrLabel(cid))}</span></span>
+      const folded = collapsed.has(cid);
+      html += `<div class="nc-card${folded ? " collapsed" : ""}" data-cid="${esc(cid)}">
+        <div class="nc-card-head nc-foldable" data-fold="${esc(cid)}">
+          <span class="nc-card-client"><button class="nc-fold" title="${folded ? "Expand" : "Collapse"}">▾</button>${esc(g.name)}<span class="nc-card-am">${esc(mgrLabel(cid))}</span><span class="nc-card-count">${g.events.length} update${g.events.length === 1 ? "" : "s"}</span></span>
           <span class="nc-card-right">${unread ? `<span class="notif-badge">${unread} new</span>` : ""}
             <button class="nc-open" data-open="${esc(cid)}">Open Present Docs →</button></span>
         </div>
@@ -206,12 +228,22 @@
       html += `</div></div>`;
     });
     $("ncReviews").innerHTML = html || `<div class="nc-empty">No activity for <b>${esc(amFilter)}</b>'s clients.</div>`;
+    updateFoldAllLabel();
   }
 
   $("ncAmFilter").addEventListener("change", (e) => { amFilter = e.target.value; renderReviews(); });
   $("ncReviews").addEventListener("click", (e) => {
+    // "Open Present Docs" and the event rows carry data-open — they win. Any other click on
+    // a card head (the chevron or the head itself) folds/unfolds that client's group.
     const o = e.target.closest("[data-open]");
-    if (o) { N.markClientRead(o.dataset.open); N.openClientDocs(o.dataset.open, o.dataset.doc); }
+    if (o) { N.markClientRead(o.dataset.open); N.openClientDocs(o.dataset.open, o.dataset.doc); return; }
+    const f = e.target.closest("[data-fold]");
+    if (f) toggleFold(f.dataset.fold);
+  });
+  $("ncFoldAll").addEventListener("click", () => {
+    const cids = shownCids();
+    const allFolded = cids.length && cids.every(c => collapsed.has(c));
+    cids.forEach(c => toggleFold(c, !allFolded));
   });
   $("ncMarkAll").addEventListener("click", async () => {
     // OPTIMISTIC: strip the unread styling + badges instantly, then persist in the background —
