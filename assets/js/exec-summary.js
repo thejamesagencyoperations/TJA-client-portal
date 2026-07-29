@@ -217,8 +217,11 @@ window.ExecSummary = (function () {
   function planCompletionPct(e) {
     const p = e.projectPlanSheet;
     if (!(p && p.groups && p.groups.length)) return null;
-    const m = p.meta || {};
-    if (m.condition && m.condition.pct != null) return m.condition.pct;
+    // The sheet's OWN stated number wins, verbatim — no maths (Cameron 2026-07-29). Counting
+    // completed tasks is only the fallback for a plan that states no percentage at all.
+    const stated = (window.CLIENT_PR_SHEETS && window.CLIENT_PR_SHEETS.planStatedPct)
+      ? window.CLIENT_PR_SHEETS.planStatedPct(p) : null;
+    if (stated != null) return stated;
     let done = 0, total = 0;
     p.groups.forEach(g => (g.tasks || []).forEach(t => { total++; if (t.status === "complete") done++; }));
     return total ? Math.round(done / total * 100) : 0;

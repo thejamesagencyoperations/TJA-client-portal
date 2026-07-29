@@ -280,8 +280,10 @@ function projectPct(p) {
   // via planCompletionPct) — so the All-Projects folder % matches the project's own % (Cameron).
   const ps = p.projectPlanSheet;
   if (ps && Array.isArray(ps.groups) && ps.groups.length) {
-    const m = ps.meta || {};
-    if (m.condition && m.condition.pct != null) return m.condition.pct;
+    // Same rule as the project's own view: the sheet's stated % verbatim, else count tasks.
+    const stated = (window.CLIENT_PR_SHEETS && window.CLIENT_PR_SHEETS.planStatedPct)
+      ? window.CLIENT_PR_SHEETS.planStatedPct(ps) : null;
+    if (stated != null) return stated;
     let done = 0, total = 0;
     ps.groups.forEach(g => (g.tasks || []).forEach(t => { total++; if (t.status === "complete") done++; }));
     return total ? Math.round(done / total * 100) : 0;
@@ -660,7 +662,12 @@ function renderPlanSheet(e, admin) {
   const taskHidden = (g, t) => clientView && (internal[planGroupKey(g)] || internal[planTaskKey(t)]);
   let done = 0, total = 0;
   p.groups.forEach(g => g.tasks.forEach(t => { if (taskHidden(g, t)) return; total++; if (t.status === "complete") done++; }));
-  const pct = (m.condition && m.condition.pct != null) ? m.condition.pct : (total ? Math.round(done / total * 100) : 0);
+  // Headline % on the plan page: the sheet's stated number verbatim (Cameron 2026-07-29).
+  // The done/total count above still drives the per-phase "x/y complete" chips; only this
+  // top-line figure defers to the sheet. Fallback = the visible-task count, as before.
+  const statedPct = (window.CLIENT_PR_SHEETS && window.CLIENT_PR_SHEETS.planStatedPct)
+    ? window.CLIENT_PR_SHEETS.planStatedPct(p) : null;
+  const pct = (statedPct != null) ? statedPct : (total ? Math.round(done / total * 100) : 0);
   const lvl = (m.condition && m.condition.level) || "green";
   const body = p.groups.map(g => {
     const gInt = !!internal[planGroupKey(g)];

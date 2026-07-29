@@ -112,9 +112,21 @@ window.CLIENT_PR_SHEETS = (function () {
 
   // → { meta:{title,outcome,deliverables,weeks,startDate,endDate,condition:{level,pct}},
   //     groups:[{num,name,tasks:[{num,task,who,dep,start,end,pct,notes,status}]}] } | null
+  /* The percentage the SHEET ITSELF states, taken verbatim — never recomputed (Cameron
+     2026-07-29: "just port in the number the google sheet project plan has in it").
+     Order: an explicit % on the "Project condition:" row wins (a PM setting it deliberately),
+     else the "Burn to Date/Projected Burn:" figure (e.g. "30/100%" → 30). Returns null when
+     the sheet states neither, and only then does the caller fall back to counting tasks. */
+  function planStatedPct(plan) {
+    const m = (plan && plan.meta) || {};
+    if (m.condition && m.condition.pct != null) return m.condition.pct;
+    if (m.burn && m.burn.pct != null) return m.burn.pct;
+    return null;
+  }
   function parseProjectPlan(text) {
     const rows = parseRows(text);
-    const meta = { title: "", outcome: "", deliverables: "", weeks: "", startDate: "", endDate: "", condition: { level: "green", pct: null } };
+    const meta = { title: "", outcome: "", deliverables: "", weeks: "", startDate: "", endDate: "",
+      condition: { level: "green", pct: null }, burn: { raw: "", pct: null } };
     let headerIdx = -1;
     for (let i = 0; i < rows.length; i++) {
       const a = (rows[i][0] || "").trim(), c = (rows[i][2] || "").trim();
@@ -129,6 +141,13 @@ window.CLIENT_PR_SHEETS = (function () {
         const lvl = planAfterColon(a).toLowerCase();
         meta.condition.level = /red/.test(lvl) ? "red" : (/(amber|yellow)/.test(lvl) ? "amber" : "green");
         meta.condition.pct = planPct(c);
+      }
+      // "Burn to Date/Projected Burn:  30/100%" — the plan's own headline number. Take the
+      // figure before the slash, as written. KEEP IN SYNC with plan.ts.
+      else if (/^burn to date/i.test(a)) {
+        const raw = c || planAfterColon(a);
+        meta.burn.raw = raw;
+        meta.burn.pct = planPct(String(raw).split("/")[0]);
       }
     }
     if (headerIdx < 0) return null;
@@ -155,5 +174,5 @@ window.CLIENT_PR_SHEETS = (function () {
     return { meta, groups };
   }
 
-  return { SHEETS, forClient, csvUrl, parseSheetUrl, parseRows, parseHits, hitCount, parseProjectPlan };
+  return { SHEETS, forClient, csvUrl, parseSheetUrl, parseRows, parseHits, hitCount, parseProjectPlan, planStatedPct };
 })();

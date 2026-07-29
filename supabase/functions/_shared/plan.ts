@@ -76,12 +76,14 @@ export function csvToRows(text: string): string[][] {
 export type PlanTask = { num: string; task: string; who: string; dep: string; start: string; end: string; pct: number | null; notes: string; status: string };
 export type PlanGroup = { num: string; name: string; tasks: PlanTask[] };
 export type ParsedPlan = {
-  meta: { title: string; outcome: string; deliverables: string; weeks: string; startDate: string; endDate: string; condition: { level: string; pct: number | null } };
+  meta: { title: string; outcome: string; deliverables: string; weeks: string; startDate: string; endDate: string; condition: { level: string; pct: number | null }; burn: { raw: string; pct: number | null } };
   groups: PlanGroup[];
 };
 
 export function parseProjectPlanRows(rows: unknown[][]): ParsedPlan | null {
-  const meta = { title: "", outcome: "", deliverables: "", weeks: "", startDate: "", endDate: "", condition: { level: "green", pct: null as number | null } };
+  const meta = { title: "", outcome: "", deliverables: "", weeks: "", startDate: "", endDate: "",
+    condition: { level: "green", pct: null as number | null },
+    burn: { raw: "", pct: null as number | null } };
   let headerIdx = -1;
   for (let i = 0; i < rows.length; i++) {
     const a = cell(rows[i], 0), c = cell(rows[i], 2);
@@ -96,6 +98,14 @@ export function parseProjectPlanRows(rows: unknown[][]): ParsedPlan | null {
       const lvl = afterColon(a).toLowerCase();
       meta.condition.level = /red/.test(lvl) ? "red" : (/(amber|yellow)/.test(lvl) ? "amber" : "green");
       meta.condition.pct = pctOf(c);
+    }
+    // "Burn to Date/Projected Burn:  30/100%" — the plan's own headline number, surfaced as the
+    // project's progress % verbatim (Cameron 2026-07-29: never recompute it). Take the figure
+    // before the slash. KEEP IN SYNC with client-pr-sheets.js parseProjectPlan.
+    else if (/^burn to date/i.test(a)) {
+      const raw = c || afterColon(a);
+      meta.burn.raw = raw;
+      meta.burn.pct = pctOf(String(raw).split("/")[0]);
     }
   }
   if (headerIdx < 0) return null;
