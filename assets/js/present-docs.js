@@ -63,7 +63,9 @@ window.PresentDocs = (function () {
     // holding a pre-V2 copy doing that is exactly what wiped a just-sent V2 + a teammate's
     // review on 2026-07-28. Clients go through the merged push; staff keep the direct path.
     if (getSession && getSession() && getSession().role === "client") { scheduleClientMergedPush(); return; }
-    window.SUPA.pushScope(sess.client, "deliverables", items);
+    // STAFF: also never blind-push. A stale staff tab used to revert a client's just-submitted
+    // review (and any version it hadn't seen) wholesale — the same wipe from the other side.
+    scheduleStaffMergedPush();
   }
   /* ---------- merge-on-write for client edits ----------
      Graft THIS person's work onto the freshest server copy, then push the result:
@@ -103,6 +105,123 @@ window.PresentDocs = (function () {
     });
     return fresh;
   }
+  /* ---------- STAFF writes: 3-way merge against a base snapshot ----------
+     Staff can't use the client's "graft mine onto the server" merge, because staff legitimately
+     change STRUCTURE — they add cards (upload), add versions (send V2), and DELETE cards. A
+     server-wins-on-structure merge would silently undo those. So staff writes do a real 3-way
+     merge with a common ancestor (`baseItems` = the server state we last saw), the same shape as
+     the dashboard scope's merge in supabase-sync.js:
+       • cards keyed by d.id, versions by v.vid, pins by p.id — adds and deletes are detected per
+         side against the base, so a staff delete sticks and a remote V2 survives;
+       • fields: if I changed it since base → mine wins, else theirs. A genuine same-field clash
+         resolves to THEIRS for client-owned review fields — losing a client's review is
+         catastrophic, losing a re-typed label is trivial.
+     With no base yet (page just opened, nothing pulled) we fall back to CONSERVATIVE mode:
+     union everything, honor no deletions, never drop a review. */
+  const CLIENT_OWNED = ["reviews", "status", "reviewedAt", "reviewedStatus", "clientNotes",
+    "signature", "signedBy", "signedDate", "annotation"];
+  // jsonb does NOT preserve object key order, so a plain JSON.stringify reports false changes on
+  // anything round-tripped through the server. Sort keys before comparing. (Same trap that made
+  // plan-refresh rewrite every run — see supabase-sync.js stableStr.)
+  function stableStr(v) {
+    const walk = (x) => {
+      if (x === null || typeof x !== "object") return x;
+      if (Array.isArray(x)) return x.map(walk);
+      return Object.keys(x).sort().reduce((o, k) => { o[k] = walk(x[k]); return o; }, {});
+    };
+    try { return JSON.stringify(walk(v)); } catch (e) { return String(v); }
+  }
+  const same = (a, b) => stableStr(a) === stableStr(b);
+  const cloneJ = (o) => (o === undefined ? undefined : JSON.parse(JSON.stringify(o)));
+  let baseItems = null;                                  // server state we last saw (merge ancestor)
+  const setBase = (v) => { baseItems = cloneJ(v) || null; };
+
+  // Merge one keyed collection (cards / versions / pins), honoring adds + deletes on both sides.
+  function mergeById(base, mine, theirs, key, mergeOne) {
+    const idx = (arr) => new Map((arr || []).map(x => [x[key], x]));
+    const B = idx(base), M = idx(mine), T = idx(theirs);
+    const out = [];
+    const seen = new Set();
+    // Walk THEIRS first so remote ordering is the spine, then append anything I added.
+    (theirs || []).forEach(t => {
+      const id = t[key]; seen.add(id);
+      if (B.has(id) && !M.has(id)) return;               // I deleted it → stays deleted
+      const m = M.get(id);
+      out.push(m ? mergeOne(B.get(id), m, t) : t);
+    });
+    (mine || []).forEach(m => {
+      const id = m[key];
+      if (seen.has(id)) return;
+      if (B.has(id)) return;                             // they deleted it → respect that
+      out.push(m);                                       // I added it → keep
+    });
+    return out;
+  }
+  function mergeVersion(base, mine, theirs) {
+    const b = base || {}, out = Object.assign({}, theirs);
+    const keys = new Set([...Object.keys(mine || {}), ...Object.keys(theirs || {})]);
+    keys.forEach(k => {
+      if (k === "pins" || k === "reviews") return;       // handled below
+      const iChanged = !same(mine[k], b[k]);
+      const theyChanged = !same(theirs[k], b[k]);
+      if (iChanged && theyChanged) { if (!CLIENT_OWNED.includes(k)) out[k] = mine[k]; return; }
+      if (iChanged) out[k] = mine[k];
+    });
+    // reviews: an email-keyed map, each entry written only by its owner → union, server wins ties
+    out.reviews = Object.assign({}, mine.reviews, theirs.reviews);
+    if (!Object.keys(out.reviews).length) delete out.reviews;
+    out.pins = mergeById(b.pins, mine.pins, theirs.pins, "id",
+      (pb, pm, pt) => (same(pm, pb) ? pt : pm));
+    return out;
+  }
+  function mergeCard(base, mine, theirs) {
+    const b = base || {}, out = Object.assign({}, theirs);
+    Object.keys(mine || {}).forEach(k => {
+      if (k === "versions") return;
+      if (!same(mine[k], b[k]) && same(theirs[k], b[k])) out[k] = mine[k];   // only I changed it
+      else if (!same(mine[k], b[k]) && !same(theirs[k], b[k])) out[k] = mine[k];  // clash → staff field
+    });
+    out.versions = mergeById(b.versions, mine.versions, theirs.versions, "vid", mergeVersion);
+    return out;
+  }
+  function mergeStaff(base, mine, theirs) {
+    if (!base) {
+      // CONSERVATIVE: no ancestor, so we cannot tell a delete from a never-seen item. Union by
+      // id and keep every review — better to resurrect one card than to lose a client's work.
+      const T = new Map((theirs || []).map(d => [d.id, d]));
+      const out = (theirs || []).map(t => {
+        const m = (mine || []).find(x => x.id === t.id);
+        return m ? mergeCard(t, m, t) : t;               // base:=theirs → mine wins only where it differs
+      });
+      (mine || []).forEach(m => { if (!T.has(m.id)) out.push(m); });
+      return out;
+    }
+    return mergeById(base, mine, theirs, "id", mergeCard);
+  }
+  // Pull fresh → merge → push. Used for every staff write to the deliverables scope.
+  async function staffMergedPush() {
+    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow)) return { ok: false };
+    let merged = items;
+    try {
+      const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
+      if (Array.isArray(fresh)) {
+        merged = mergeStaff(baseItems, items, fresh);
+        items = merged;
+        try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+      }
+    } catch (e) { /* pull failed — push what we have rather than lose the edit */ }
+    guardLive();
+    let r = { ok: false };
+    try { r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items); } catch (e) {}
+    if (r && r.ok) setBase(items);                       // this is now the known server state
+    return r;
+  }
+  let staffPushTimer = null;
+  function scheduleStaffMergedPush() {
+    clearTimeout(staffPushTimer);
+    staffPushTimer = setTimeout(() => { staffMergedPush().then(() => renderGallery()); }, 900);
+  }
+
   let clientPushTimer = null;
   function scheduleClientMergedPush() {
     clearTimeout(clientPushTimer);
@@ -140,13 +259,14 @@ window.PresentDocs = (function () {
   function nowMs() { try { return Date.now(); } catch (e) { return 0; } }
   // Immediate (awaited) writes — used for mutations that must hit the server before any pull,
   // so the change can't bounce back. Fall back to the debounced save if pushScopeNow is absent.
+  // Awaited immediate write (delete, send, waive — anything whose ordering matters). Goes through
+  // the SAME 3-way merge as the debounced path, so an ordered write can't clobber either.
   async function saveNow() {
     guardLive();
     try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
-    if (window.SUPA && window.SUPA.enabled && !(typeof isCreative === "function" && isCreative())) {
-      if (window.SUPA.pushScopeNow) { try { await window.SUPA.pushScopeNow(sess.client, "deliverables", items); return; } catch (e) {} }
-      window.SUPA.pushScope(sess.client, "deliverables", items);
-    }
+    if (!(window.SUPA && window.SUPA.enabled) || (typeof isCreative === "function" && isCreative())) return { ok: true };
+    clearTimeout(staffPushTimer);                        // fold any queued debounce into this write
+    return await staffMergedPush();
   }
   async function saveDraftsNow() {
     guardLive();
@@ -852,10 +972,11 @@ window.PresentDocs = (function () {
       items.unshift(draft);
       revert = () => { items.shift(); draft.versions.forEach(v => { v.state = "pending_approval"; }); };
     }
-    // 1. the client-visible write — this is the one that must not fail silently
+    // 1. the client-visible write — this is the one that must not fail silently. Merged, not
+    // blind: releasing a draft must not revert a review a client filed while it sat staged.
     guardLive();
     if (window.SUPA && window.SUPA.enabled) {
-      const r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items);
+      const r = await staffMergedPush();
       if (!r.ok) {
         revert();
         window.TJA_UI.alert("Send failed (" + (r.error || "network") + ") — the deliverable is still in the waiting room.");
@@ -1834,7 +1955,12 @@ window.PresentDocs = (function () {
     if (nowMs() < suppressLiveUntil) return;                        // just mutated — don't re-pull stale
     if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pullScope)) return;
     const g = $("pdGallery"); if (!g) return;                       // docs page not mounted
-    const m = $("pdModal"); if (m && m.classList.contains("open")) return;   // reviewing — don't yank state
+    // Reviewing: don't yank the gallery out from under an open proof — but DO merge remote work
+    // into it (see syncOpenModal). This used to `return`, which threw away the Realtime push and
+    // left teammates' comments invisible until the modal was closed. Now the instant path
+    // reaches the open modal too, so comments appear as they're made.
+    const m = $("pdModal");
+    if (m && m.classList.contains("open")) { liveBusy = true; try { await syncOpenModal(); } finally { liveBusy = false; } return; }
     const up = $("pdUpOverlay"); if (up && up.style.display !== "none") return;
     if (window.SUPA.hasPendingWrite &&
        (window.SUPA.hasPendingWrite(sess.client, "deliverables") ||
@@ -1845,7 +1971,9 @@ window.PresentDocs = (function () {
       // 3.5s pull timeout regularly failed silently and left this page rendering a STALE
       // local copy (the "client review / waiting-room item not showing up" delays).
       const sent = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
-      if (Array.isArray(sent)) { items = sent; try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
+      // Adopting the server copy makes it the new merge ancestor for staff writes — without this
+      // the 3-way merge would keep comparing against a stale base and mis-read remote additions.
+      if (Array.isArray(sent)) { items = sent; setBase(sent); try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
       if (isStaffFn()) {
         const dr = await window.SUPA.pullScope(sess.client, "deliverables_draft", 12000);
         if (Array.isArray(dr)) { draftItems = dr; try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {} }
@@ -1862,31 +1990,29 @@ window.PresentDocs = (function () {
     setInterval(liveRefresh, 12000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) liveRefresh(); });
     window.addEventListener("focus", liveRefresh);
-    // IN-MODAL teammate sync (multi-reviewer): liveRefresh deliberately never touches an open
-    // review modal, which meant a client could sit in a proof and NEVER see a teammate's new
-    // comments until they closed it. This lighter poll merges remote work into the open modal
-    // every 10s — pins, reviews, the peer panel — pausing whenever this person is mid-draw,
-    // mid-signature, or typing, so nothing is yanked out from under them.
-    setInterval(async () => {
-      const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
-      if (!(getSession && getSession() && getSession().role === "client")) return;
-      const d = deliv(curId); const v = d && active(d);
-      if (!v || !expectedOf(v).length) return;
-      if (drawing || sigDrawing) return;
-      const ae = document.activeElement;
-      if (ae && (/^(input|textarea|select)$/i.test(ae.tagName || "") || ae.isContentEditable)) return;
-      if (nowMs() < suppressLiveUntil) return;
-      if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pullScope)) return;
-      try {
-        const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
-        if (!Array.isArray(fresh) || !fresh.length) return;
-        items = mergeMineInto(fresh, items);
-        try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
-        const d2 = deliv(curId); const v2 = d2 && active(d2);
-        if (!v2) { closeModal(); return; }   // the open card was deleted elsewhere
-        renderPins(); renderPinList(); renderPeerReviews(v2); updateMeta();
-      } catch (e) { /* transient — next tick */ }
-    }, 10000);
+  }
+  /* Merge remote work INTO the open review modal — teammates' pins/comments and their submitted
+     reviews appear while you're still in the proof. Driven by the Realtime push (instant, via
+     liveRefresh) with the 12s poll as the fallback. Pauses while this person is mid-draw,
+     mid-signature or typing so nothing is yanked out from under them; their own work is grafted
+     back on by mergeMineInto, so an in-flight markup is never lost. */
+  async function syncOpenModal() {
+    if (!(getSession && getSession() && getSession().role === "client")) return;
+    const d = deliv(curId); const v = d && active(d);
+    if (!v || !expectedOf(v).length) return;              // single-reviewer round: nothing to sync
+    if (drawing || sigDrawing) return;
+    const ae = document.activeElement;
+    if (ae && (/^(input|textarea|select)$/i.test(ae.tagName || "") || ae.isContentEditable)) return;
+    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pullScope)) return;
+    try {
+      const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
+      if (!Array.isArray(fresh) || !fresh.length) return;
+      items = mergeMineInto(fresh, items);
+      try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+      const d2 = deliv(curId); const v2 = d2 && active(d2);
+      if (!v2) { closeModal(); return; }                   // the open card was deleted elsewhere
+      renderPins(); renderPinList(); renderPeerReviews(v2); updateMeta();
+    } catch (e) { /* transient — next tick */ }
   }
 
   function init() {

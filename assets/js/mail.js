@@ -40,6 +40,21 @@ window.TJA_MAIL = (function () {
   function staleSessionToast() {
     toast("⚠ Notifications NOT sent — your login session has gone stale. Sign out and back in, then resend.");
   }
+  /* Slack outcome, spelled out on EVERY send (Cameron 2026-07-29). There is deliberately no
+     SLACK_DEFAULT_CHANNEL fallback any more, so "this client has no channel mapped" is a real
+     thing the sender needs to see — it used to be swallowed. Plain English, not error codes. */
+  function slackNote(j) {
+    if (j.slacked) return " · 💬 posted to Slack";
+    const why = String(j.slackError || "");
+    if (!why) return " · ⚠ not posted to Slack";
+    if (why === "not-configured-or-no-channel")
+      return " · ⚠ NOT posted to Slack — no channel mapped for this client (set it in Clients → Edit → Integrations)";
+    if (/not_in_channel/.test(why))
+      return " · ⚠ NOT posted to Slack — the bot isn't in that channel (/invite @tja_client_dashboard_)";
+    if (/channel_not_found/.test(why))
+      return " · ⚠ NOT posted to Slack — that channel doesn't exist (check the name in Integrations)";
+    return " · ⚠ NOT posted to Slack (" + why + ")";
+  }
 
   function toast(msg) {
     let t = document.getElementById("tjaMailToast");
@@ -100,15 +115,13 @@ window.TJA_MAIL = (function () {
       const j = await r.json().catch(() => ({}));
       if (r.ok) {
         if (j.emailed) {
-          // Surface Slack status too: "posted" on success, or a visible warning when it was
-          // attempted and failed (so a broken Slack channel isn't silent) — but stay quiet when
-          // Slack just isn't configured for this client (that's expected, not an error).
-          const slackNote = j.slacked ? " · posted to Slack"
-            : (j.slackError && j.slackError !== "not-configured-or-no-channel") ? " · ⚠ Slack not posted (" + j.slackError + ")" : "";
-          toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")" + slackNote);
+          // ALWAYS say whether Slack posted (Cameron 2026-07-29: there is no fallback channel —
+          // if it didn't reach Slack the sender must be told at send time, every time). The
+          // no-channel case is the most important one to surface, not the one to hide.
+          toast("📧 Emailed the client (" + (j.recipients || 1) + " recipient" + (j.recipients === 1 ? "" : "s") + ")" + slackNote(j));
         } else if (j.link) {
           // Email is toggled off — hand over the copyable link so nothing is silent.
-          copyLinkPrompt("Email is off — send this deliverable link to the client" + (j.slacked ? " (also posted to Slack)" : ""), j.link);
+          copyLinkPrompt("Email is off — send this deliverable link to the client." + slackNote(j), j.link);
         } else {
           toast("Sent to the portal.");
         }
@@ -117,10 +130,8 @@ window.TJA_MAIL = (function () {
         return Object.assign({ ok: true }, j);
       }
       if (r.status === 409) {
-        if (j.link) copyLinkPrompt("No client email on file — copy the deliverable link to send it yourself" + (j.slacked ? " (posted to Slack)" : ""), j.link);
-        else toast(j.slacked
-          ? "💬 Posted to Slack — but no client email address is on file, so no email went out (add one in the client's Integrations)."
-          : "Sent to the portal — no notification email set for this client (add one in the client's Integrations).");
+        if (j.link) copyLinkPrompt("No client email on file — copy the deliverable link to send it yourself." + slackNote(j), j.link);
+        else toast("Sent to the portal, but NO client email address is on file (add one in the client's Integrations)." + slackNote(j));
         return Object.assign({ ok: false, noRecipients: true }, j);
       }
       if (r.status === 503) return { ok: false, skipped: true };   // email not configured yet — stay quiet
