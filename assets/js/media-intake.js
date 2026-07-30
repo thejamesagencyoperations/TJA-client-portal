@@ -10,6 +10,9 @@ window.MediaIntake = (function () {
   const sess = () => ((typeof getSession === "function" && getSession()) || {});
   const clientId = () => sess().client;
   const isStaff = () => (typeof window.isStaff === "function") ? window.isStaff() : false;
+  // Triaging a request (the status dropdown) is an EDIT — it must never reach the view-only
+  // staff tiers. "team" reads this page like everyone else but changes nothing.
+  const canTriage = () => isStaff() && !(typeof window.isTeam === "function" && window.isTeam());
   // The paid-media team triages requests (status), they don't submit them — so they
   // get the management list only, no "New creative submission" form.
   const isMedia = () => (typeof window.isMedia === "function") ? window.isMedia() : false;
@@ -72,7 +75,7 @@ window.MediaIntake = (function () {
       return `<div class="mi-sub-asset"><span class="mi-sub-aname">${esc(a.name || "Asset " + (i + 1))}</span>${file}${link}${bits.length ? `<span class="mi-sub-meta">${bits.join(" · ")}</span>` : ""}</div>`;
     }).join("");
     const st = STATUS[s.status] || "New";
-    const statusCtl = isStaff()
+    const statusCtl = canTriage()
       ? `<select class="mi-status-sel" data-status="${esc(s.id)}">${STATUS_ORDER.map((k) => `<option value="${k}"${s.status === k ? " selected" : ""}>${STATUS[k]}</option>`).join("")}</select>`
       : `<span class="mi-status is-${esc(s.status || "new")}">${esc(st)}</span>`;
     return `<div class="card mi-sub">
@@ -89,9 +92,11 @@ window.MediaIntake = (function () {
     const listHtml = submissions.length ? submissions.map(submissionCard).join("") : `<div class="placeholder-note" style="margin-top:10px">No requests submitted yet.</div>`;
     const staff = isStaff();
     const media = isMedia();
-    // Paid-media team: management view only (triage the incoming requests). Everyone
+    // Paid-media: management view only (triage the incoming requests). "team" is view-only
+    // too — submitting a request is a write, so they get the list without the form. Everyone
     // else who can reach this page (clients, admin/manager/creative) gets the form too.
-    const form = media ? "" : `
+    const viewOnly = media || (typeof window.isViewOnlyStaff === "function" && window.isViewOnlyStaff());
+    const form = viewOnly ? "" : `
     <div class="card mi-form-card">
       <div class="mi-form-title">New creative submission</div>
       <div id="miAssets">${assetBlock(1)}</div>
@@ -149,7 +154,7 @@ window.MediaIntake = (function () {
     // staff status change
     page.addEventListener("change", async (e) => {
       const sel = e.target.closest("[data-status]");
-      if (sel && isStaff()) {
+      if (sel && canTriage()) {
         sel.disabled = true;
         try {
           const t = await token();

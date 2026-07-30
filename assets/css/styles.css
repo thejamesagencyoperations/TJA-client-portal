@@ -339,7 +339,8 @@ a { color: inherit; text-decoration: none; }
    shows every admin control, because the selector below only matches "client". */
 body[data-role="client"] .admin-only,
 body[data-role="creative"] .admin-only,
-body[data-role="media"] .admin-only { display: none !important; }
+body[data-role="media"] .admin-only,
+body[data-role="team"] .admin-only { display: none !important; }
 /* An AM/PM on a client that isn't theirs is view-only — hide the edit controls that are normally
    visible to managers (e.g. Files remove). Set by applyRole() (mgr-viewonly). */
 body.mgr-viewonly .admin-only { display: none !important; }

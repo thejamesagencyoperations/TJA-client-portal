@@ -10,6 +10,9 @@
      • creative → opens ANY client read-only and uploads Present Docs into
                   the waiting room (never straight to the client — an admin
                   or manager sends). No other edit rights.
+     • media    → paid-media team. Reads every client; their ONE power is triaging
+                  Media Creative Asset Requests.
+     • team     → general TJA staff. Reads every client, edits NOTHING anywhere.
      • client   → read-only on data tabs; may upload Files + review Present Docs
 
    The admin/manager split is enforced in RLS, not just here: a manager's JWT
@@ -105,7 +108,8 @@ function resolveIdentity(email, profile, meta) {
     // name — it also drives the Clients-page default filter), else a role default.
     const fallback = profile.role === "admin" ? "TJA Team"
       : profile.role === "creative" ? "TJA Creative"
-      : profile.role === "media" ? "TJA Paid Media" : "Client";
+      : profile.role === "media" ? "TJA Paid Media"
+      : profile.role === "team" ? "TJA Team" : "Client";
     return { email: em, client: profile.client_id,
              name: (meta && meta.name) || fallback, role: profile.role || "client" };
   }
@@ -214,6 +218,15 @@ function isCreative() { return role() === "creative"; }
 // on all client work — their ONE edit power is triaging Media Creative Asset
 // Requests (status). They never upload docs, never send, never edit dashboards.
 function isMedia() { return role() === "media"; }
+// TEAM — general TJA staff (2026-07-29). Read-only across every client: they reach the picker
+// and can open any client's dashboard, Present Docs, files and plans, but hold NO edit power
+// anywhere. Enforced in RLS (no write policy at all, schema-v15), in the capability helpers
+// below, and in the role-gated CSS — not merely by hiding buttons.
+function isTeam() { return role() === "team"; }
+// Staff who are strictly VIEW-ONLY on client work. Paid-media has exactly one power (triaging
+// media requests, granted explicitly where it applies); team has none. Anything that grants an
+// edit/upload/submit capability to "staff" must exclude this set.
+function isViewOnlyStaff() { return isMedia() || isTeam(); }
 // Runs the client work: the agency account + the AM/PMs. Gates the bell,
 // Notification Center, WMJ sync, tile actions, dashboard writes.
 function isAdminOrManager() { return isAdmin() || isManager(); }
@@ -221,7 +234,7 @@ function isAdminOrManager() { return isAdmin() || isManager(); }
 // includes paid-media: they must reach the picker and read every client. Powers
 // that must NOT extend to them (doc upload) test canUploadDocs(), which excludes
 // media explicitly — do not assume isStaff() means "can edit or upload".
-function isStaff() { return isAdminOrManager() || isCreative() || isMedia(); }
+function isStaff() { return isAdminOrManager() || isCreative() || isMedia() || isTeam(); }
 
 // Staff toggle: preview the client experience without logging out. For a creative
 // this IS the client view — drafts and the upload button vanish, exactly what
@@ -262,7 +275,7 @@ function canEdit() {
 // What a role is CALLED in the UI. One definition — the topbar pill exists on two
 // separate pages and they were already drifting (a manager read "Admin" on one and
 // "Creative" on the other, because both just tested `isAdmin() ? … : …`).
-const ROLE_LABELS = { admin: "Admin", manager: "AM/PM", creative: "Creative", media: "Paid Media", client: "Client" };
+const ROLE_LABELS = { admin: "Admin", manager: "AM/PM", creative: "Creative", media: "Paid Media", team: "Team", client: "Client" };
 function roleLabel(r) { return ROLE_LABELS[r || effectiveRole()] || "Client"; }
 // Present Docs. Upload = any staff (admin/manager → straight to the client,
 // creative → into the waiting room). Releasing a draft to the client = whoever can edit
@@ -274,5 +287,5 @@ function roleLabel(r) { return ROLE_LABELS[r || effectiveRole()] || "Client"; }
 // requests. Excluding isMedia() here keeps Present Docs fully view-only for them.
 // Upload = admin (any client) or creative (any client, into the waiting room) or an AM/PM but
 // ONLY on their own clients. Paid-media never uploads. Managers on someone else's client can't.
-function canUploadDocs() { return !isPreviewing() && isStaff() && !isMedia() && (!isManager() || ownsCurrentClient()); }
+function canUploadDocs() { return !isPreviewing() && isStaff() && !isViewOnlyStaff() && (!isManager() || ownsCurrentClient()); }
 function canSendDocs() { return canEdit() || (isCreative() && !isPreviewing()); }

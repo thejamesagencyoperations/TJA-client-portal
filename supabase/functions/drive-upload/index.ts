@@ -56,6 +56,9 @@ Deno.serve(async (req) => {
 
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
+  // 'team' is a VIEW-ONLY staff tier — uploading is a write, and this runs as the Drive
+  // service account (nothing else would stop it). They read files like everyone else.
+  if (caller.role === "team") return json(req, 403, { error: "view-only account" });
 
   let form: FormData;
   try { form = await req.formData(); } catch { return json(req, 400, { error: "multipart form-data required" }); }

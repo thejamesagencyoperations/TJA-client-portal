@@ -54,6 +54,10 @@ Deno.serve(async (req) => {
 
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
+  // 'team' is a VIEW-ONLY staff tier. Both actions below (submit / status) are writes performed
+  // with the SERVICE ROLE, so RLS cannot stop them — the block has to live here. Team still
+  // READS media requests normally: the UI pulls the media_intake scope directly under RLS.
+  if (caller.role === "team") return json(req, 403, { error: "view-only account" });
 
   let body: { action?: string; clientId?: string; note?: string; assets?: Asset[]; submissionId?: string; status?: string };
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }

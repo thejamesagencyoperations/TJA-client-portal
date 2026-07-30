@@ -867,7 +867,9 @@ function applyRole() {
   // the role) — an AM/PM had no way back to the picker once inside a client.
   // Paid-media ("media") is staff too — they open client after client from the picker,
   // so they need the "All clients" way back or they're stranded inside the first one.
-  const staffRole = effRole === "admin" || effRole === "manager" || effRole === "creative" || effRole === "media";
+  // "team" (general view-only staff) belongs here for the same reason as media: they open one
+  // client after another from the picker and would be stranded inside the first one.
+  const staffRole = effRole === "admin" || effRole === "manager" || effRole === "creative" || effRole === "media" || effRole === "team";
   const cb = el("#clientsBack");
   if (cb) {
     cb.style.display = staffRole ? "" : "none";
@@ -877,7 +879,9 @@ function applyRole() {
   // Paid-media gets no role controls: no undo (they can't edit) and the Client-view
   // preview is meaningless for them (isMedia() reads the real role, so it wouldn't even
   // change their media-page view). Leave the slot empty rather than show a dead toggle.
-  if (typeof isStaff === "function" && isStaff() && !(typeof isMedia === "function" && isMedia())) {
+  // …and none for "team" either: no undo (they can't edit) and no client-view toggle (their
+  // view is already read-only), so the slot stays empty rather than showing dead controls.
+  if (typeof isStaff === "function" && isStaff() && !(typeof isViewOnlyStaff === "function" && isViewOnlyStaff())) {
     const prev = isPreviewing();
     const admin = isAdminOrManager();
     const pillBase = (typeof roleLabel === "function") ? roleLabel(getSession() && getSession().role) : "Admin";

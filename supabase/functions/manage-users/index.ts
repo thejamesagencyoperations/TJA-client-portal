@@ -45,12 +45,16 @@ function auditActor(caller: { email?: string; role?: string }, clientId: string,
 // 'media' = paid-media team. Staff-tier (own no client workspace) but view-only on
 // client work — enforced in RLS (no write policy) + client-side. schema-v10 widens
 // the profiles role CHECK to accept it; creating one before that migration 500s.
-const ROLES = ["admin", "manager", "creative", "media", "client"];
+// 'team' = general TJA staff (2026-07-29). Reads every client, writes NOTHING — like 'media'
+// it owns no client workspace and has no RLS write policy at all (schema-v15 widens the
+// profiles role CHECK + the read policy only). Creating one before that migration 500s.
+const ROLES = ["admin", "manager", "creative", "media", "team", "client"];
 const ADMIN_WORKSPACE = "_admin";
 const CREATIVE_WORKSPACE = "_creative";
 // AM/PMs own no client workspace either — same sentinel idea as admin/creative.
 const MANAGER_WORKSPACE = "_manager";
 const MEDIA_WORKSPACE = "_media";
+const TEAM_WORKSPACE = "_team";
 
 // The only place the portal's own URL exists in this function (mirrors the email fn).
 // On a custom domain, change this + the CORS list + Supabase's Site URL.
@@ -84,6 +88,7 @@ function workspaceFor(role: string, clientId: string) {
   if (role === "manager") return MANAGER_WORKSPACE;
   if (role === "creative") return CREATIVE_WORKSPACE;
   if (role === "media") return MEDIA_WORKSPACE;
+  if (role === "team") return TEAM_WORKSPACE;
   return (clientId || "").trim();
 }
 
