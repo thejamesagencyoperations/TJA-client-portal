@@ -70,7 +70,11 @@ Deno.serve(async (req) => {
   // Slack fires INDEPENDENTLY of email — a client with no distribution address must not
   // suppress the team's Slack ping. Await it so the 409 below can report it landed.
   const docId = String(body.docId ?? "").trim();
-  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
+  // `client` matters: this link is followed by STAFF from Slack/the team inbox, and a staff
+  // session isn't pinned to a client — without it they land on the client picker and the
+  // deliverable is lost. index.html switches a STAFF session to this workspace and opens the doc
+  // (a client login ignores the param; RLS pins them to their own workspace regardless).
+  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}&client=${encodeURIComponent(clientId)}`;
   const emoji = body.status === "approved" ? "✅" : body.status === "changes" ? "📝" : "🔄";
   // Multi-reviewer rounds pass a per-person breakdown ("Jane: Approved · Sam: Revisions…") —
   // the ping itself fires once, when the LAST reviewer submits (gated client-side).

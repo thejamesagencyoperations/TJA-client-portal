@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA Client Portal — Sign In</title>
-<link rel="icon" href="assets/img/favicon.ico?v=346" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=346">
+<link rel="icon" href="assets/img/favicon.ico?v=347" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=347">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=346">
+<link rel="stylesheet" href="assets/css/styles.css?v=347">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -51,14 +51,14 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=346"></script>
-<script src="assets/js/version-check.js?v=346"></script>
-<script src="assets/js/supabase-sync.js?v=346"></script>
-<script src="assets/js/auth.js?v=346"></script>
+<script src="assets/js/supabase-config.js?v=347"></script>
+<script src="assets/js/version-check.js?v=347"></script>
+<script src="assets/js/supabase-sync.js?v=347"></script>
+<script src="assets/js/auth.js?v=347"></script>
 <!-- client roster on the login page so per-client logins resolve to their own workspace -->
-<script src="assets/js/clients.js?v=346"></script>
-<script src="assets/js/client-template.js?v=346"></script>
-<script src="assets/js/client-store.js?v=346"></script>
+<script src="assets/js/clients.js?v=347"></script>
+<script src="assets/js/client-template.js?v=347"></script>
+<script src="assets/js/client-store.js?v=347"></script>
 <script>
   // Deep-link from the deliverable email (?open=docs&doc=<id>): stash the target page
   // (and optional specific deliverable) so app.js opens it after login. Same keys the
@@ -70,10 +70,33 @@
     if (openTo) sessionStorage.setItem("tja_open_page", openTo);
     const openDoc = qp.get("doc");
     if (openDoc) sessionStorage.setItem("tja_open_doc", openDoc);
+    // WHICH client the deliverable belongs to. Slack/email links are followed by STAFF, whose
+    // session isn't pinned to a client — without this they landed on the picker and the link was
+    // lost (only dashboard.html consumes tja_open_page/doc). See landing() below.
+    const openClient = qp.get("client");
+    if (openClient) sessionStorage.setItem("tja_open_client", openClient);
   } catch (e) {}
 
-  // Staff (admin + creative) land on the client picker; clients go straight to their workspace.
-  const landing = () => (typeof isStaff === "function" && isStaff()) ? "clients.html" : "dashboard.html";
+  /* Where to send someone after sign-in. Normally: staff → the client picker, client → their own
+     workspace. EXCEPTION — a deep link that names a client (?client=…): a STAFF viewer goes
+     straight to that client's dashboard so the deliverable actually opens. Gated on isStaff():
+     a client login must never be able to switch workspace from a URL (RLS would refuse the reads
+     anyway, but don't even try). */
+  const landing = () => {
+    const staff = (typeof isStaff === "function") && isStaff();
+    try {
+      const want = sessionStorage.getItem("tja_open_client");
+      if (want && staff) {
+        const s = JSON.parse(sessionStorage.getItem("tja_portal_session") || "{}");
+        s.client = want;
+        sessionStorage.setItem("tja_portal_session", JSON.stringify(s));
+        sessionStorage.removeItem("tja_open_client");
+        return "dashboard.html";
+      }
+      if (want && !staff) sessionStorage.removeItem("tja_open_client");
+    } catch (e) {}
+    return staff ? "clients.html" : "dashboard.html";
+  };
 
   // If already signed in, skip the login form. restoreSession() also rebuilds the
   // per-tab session from a persisted Supabase login (new tab ≠ re-type password).

@@ -652,8 +652,11 @@ window.PresentDocs = (function () {
   // Shareable deep link to a deliverable — same shape the email/Slack use
   // (<portal>/?open=docs&doc=<id>), resolved against the current portal URL.
   function deliverableLink(id) {
-    try { return new URL("./?open=docs&doc=" + encodeURIComponent(id), location.href).href; }
-    catch (e) { return location.origin + "/?open=docs&doc=" + encodeURIComponent(id); }
+    // carries the client too, so a STAFF colleague opening the link lands on this client's
+    // dashboard rather than the picker (a client login ignores the param)
+    const q = "./?open=docs&doc=" + encodeURIComponent(id) + "&client=" + encodeURIComponent(sess.client);
+    try { return new URL(q, location.href).href; }
+    catch (e) { return location.origin + "/" + q.replace("./", ""); }
   }
   // small transient toast (shared by copy-link + version-staged confirmations)
   function flashDocsToast(msg, ms) {
@@ -771,7 +774,9 @@ window.PresentDocs = (function () {
     $("pdKwLook").value = (prev && prev.look || []).join("\n");
     $("pdKwTone").value = (prev && prev.tone || []).join("\n");
     $("pdKwAud").value = (prev && prev.audience || []).join("\n");
-    $("pdKwSubject").value = parent ? (parent.name || "Brand Keywords") : "Brand Keywords";
+    // Default subject: "<Client> - Selected Keywords" (Cameron 2026-07-30). A NEW ROUND keeps the
+    // parent's name so V1/V2 of the same exercise stay named consistently.
+    $("pdKwSubject").value = parent ? (parent.name || defaultKwSubject()) : defaultKwSubject();
     $("pdKwMsg").value = "";
     $("pdKwDue").value = "";
     if ($("pdKwErr")) $("pdKwErr").style.display = "none";
@@ -799,6 +804,10 @@ window.PresentDocs = (function () {
   function clientDisplayName() {
     try { const c = window.TJA_STORE && window.TJA_STORE.get(sess.client); return (c && c.name) || ""; } catch (e) { return ""; }
   }
+  const defaultKwSubject = () => {
+    const n = clientDisplayName();
+    return (n ? n + " - " : "") + "Selected Keywords";
+  };
   async function commitKeywords() {
     const data = kwData();
     const subject = $("pdKwSubject").value.trim();

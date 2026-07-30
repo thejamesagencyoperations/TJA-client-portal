@@ -103,7 +103,9 @@ Deno.serve(async (req) => {
   // Deep-link straight to this deliverable (?open=docs&doc=<id>). Shared by the email CTA
   // AND the Slack message — staff following the Slack link land on the same deliverable.
   const docId = String(body.docId ?? "").trim();
-  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}`;
+  // `client` lets a STAFF follower (the Slack post, the copy-link) land on the right client's
+  // dashboard instead of the picker; a client login ignores it (RLS pins them to their own).
+  const REVIEW_URL = `${PORTAL_BASE_URL}/?open=docs${docId ? `&doc=${encodeURIComponent(docId)}` : ""}&client=${encodeURIComponent(clientId)}`;
 
   // Slack fires INDEPENDENTLY of email — a client with no email address on file must
   // NOT suppress the team's Slack ping (separate channels). Await it so we can report
