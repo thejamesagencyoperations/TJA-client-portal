@@ -494,14 +494,16 @@ window.PresentDocs = (function () {
       <div class="pd-up-card pd-kw-card">
         <div class="pd-sign-title" id="pdKwTitle">Brand Keywords</div>
         <div class="pd-sign-sub">Type the keywords for each column — one per line. They're set onto the Brand Keywords slide, which becomes the proof the client reviews and signs.</div>
+        <!-- Column order is LOOK → TONE → AUDIENCE, matching the template artwork exactly. -->
         <div class="pd-kw-cols">
-          <label class="pd-kw-col"><span class="pd-review-label">LOOK</span>
+          <label class="pd-kw-col"><span class="pd-review-label">LOOK <span class="pd-kw-n" id="pdKwLookN"></span></span>
             <textarea id="pdKwLook" class="pd-kw-ta" placeholder="Tasteful&#10;Fresh&#10;Bold"></textarea></label>
-          <label class="pd-kw-col"><span class="pd-review-label">TONE</span>
+          <label class="pd-kw-col"><span class="pd-review-label">TONE <span class="pd-kw-n" id="pdKwToneN"></span></span>
             <textarea id="pdKwTone" class="pd-kw-ta" placeholder="Playful&#10;Punchy&#10;Memorable"></textarea></label>
-          <label class="pd-kw-col"><span class="pd-review-label">AUDIENCE</span>
+          <label class="pd-kw-col"><span class="pd-review-label">AUDIENCE <span class="pd-kw-n" id="pdKwAudN"></span></span>
             <textarea id="pdKwAud" class="pd-kw-ta" placeholder="Foodie&#10;Adventurous&#10;Trendy"></textarea></label>
         </div>
+        <div class="pd-kw-hint">Type or paste one keyword per line — pasted lists (commas, bullets, numbering, spreadsheet columns) are cleaned up automatically.</div>
         <div class="pd-kw-preview" id="pdKwPreview"><span class="pd-kw-phint">A live preview appears here</span></div>
         <label class="pd-review-label" for="pdKwSubject">Subject <span class="pd-up-hint">— required</span></label>
         <input type="text" id="pdKwSubject" class="pd-up-subject" placeholder="e.g. Brand Keywords — round 1">
@@ -734,7 +736,28 @@ window.PresentDocs = (function () {
      round can be pre-filled and re-rendered instead of retyped. Columns are fixed LOOK / TONE /
      AUDIENCE (Cameron 2026-07-30). Client-side this is an APPROVE-ONLY deliverable, identical to
      every other proof. */
-  const kwLines = (id) => ($(id) ? $(id).value.split("\n").map(s => s.trim()).filter(Boolean) : []);
+  /* Parse one column's textarea into keywords. Deliberately forgiving about PASTE: the team
+     copies these lists out of Docs / Word / Slides / a spreadsheet, so accept newlines, tabs,
+     semicolons AND commas as separators, and strip bullet glyphs or "1." numbering that come
+     along for the ride. Keywords are single words or short phrases in the template, so treating
+     a comma as a separator is the right trade-off for paste-ability. */
+  function kwLines(id) {
+    const raw = $(id) ? $(id).value : "";
+    return raw
+      .split(/[\n\r\t;,]+/)
+      .map(s => s.replace(/^\s*(?:[-–—•*·▪]|\d+[.)])\s*/, "").trim())
+      .filter(Boolean);
+  }
+  // live "n / max" per column so the cap is visible before it bites
+  function kwCounts() {
+    const cap = (window.TJA_KEYWORD_SLIDE && window.TJA_KEYWORD_SLIDE.MAX_ITEMS) || 7;
+    [["pdKwLook", "pdKwLookN"], ["pdKwTone", "pdKwToneN"], ["pdKwAud", "pdKwAudN"]].forEach(([ta, out]) => {
+      const el = $(out); if (!el) return;
+      const n = kwLines(ta).length;
+      el.textContent = n ? `${n} / ${cap}` : "";
+      el.classList.toggle("over", n > cap);
+    });
+  }
   const kwData = () => ({ look: kwLines("pdKwLook"), tone: kwLines("pdKwTone"), audience: kwLines("pdKwAud") });
   let kwEditParentId = null;      // set when building a NEW ROUND of an existing keyword deliverable
   let kwPreviewTimer = null;
@@ -758,7 +781,7 @@ window.PresentDocs = (function () {
     if ($("pdKwTitle")) $("pdKwTitle").textContent = parent ? "Brand Keywords — new round" : "Brand Keywords";
     if ($("pdKwSend")) $("pdKwSend").textContent = uploadsToDraft() ? "Add to waiting room" : "📤 Send to client";
     ov.style.display = "flex";
-    kwPreview();
+    kwCounts(); kwPreview();
     setTimeout(() => $("pdKwLook").focus(), 0);
   }
   function closeKeywordDialog() { const ov = $("pdKwOverlay"); if (ov) ov.style.display = "none"; kwEditParentId = null; }
@@ -2193,7 +2216,13 @@ window.PresentDocs = (function () {
     if ($("pdKwBtn")) $("pdKwBtn").addEventListener("click", () => openKeywordDialog(null));
     if ($("pdKwCancel")) $("pdKwCancel").addEventListener("click", closeKeywordDialog);
     if ($("pdKwSend")) $("pdKwSend").addEventListener("click", commitKeywords);
-    ["pdKwLook", "pdKwTone", "pdKwAud"].forEach(id => { const el = $(id); if (el) el.addEventListener("input", kwPreview); });
+    // `input` covers typing AND paste (and cut/undo); `paste` fires one tick early, so re-run
+    // after the browser has inserted the text so the preview + counts reflect it.
+    ["pdKwLook", "pdKwTone", "pdKwAud"].forEach(id => {
+      const el = $(id); if (!el) return;
+      el.addEventListener("input", () => { kwCounts(); kwPreview(); });
+      el.addEventListener("paste", () => setTimeout(() => { kwCounts(); kwPreview(); }, 0));
+    });
     if ($("pdKwOverlay")) window.TJA_UI.backdropClose($("pdKwOverlay"), closeKeywordDialog);
     // A new round of a KEYWORD deliverable edits the words — it never asks for a file.
     $("pdResubmit").addEventListener("click", () => {

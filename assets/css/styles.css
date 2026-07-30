@@ -681,6 +681,9 @@ body[data-role="client"] .staff-only { display: none !important; }
   background: #0a0a0a; display: grid; place-items: center; margin-bottom: 10px; }
 .pd-kw-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .pd-kw-phint { color: var(--text-faint); font-size: .74rem; }
+.pd-kw-n { font-weight: 700; font-size: .62rem; color: var(--text-faint); margin-left: 4px; }
+.pd-kw-n.over { color: var(--bad); }
+.pd-kw-hint { color: var(--text-faint); font-size: .72rem; line-height: 1.5; margin: -4px 0 10px; }
 @media (max-width: 720px) { .pd-kw-cols { grid-template-columns: 1fr; } }
 
 /* named reviewer checklist on the gallery card: "✓ Phoebe · ⏳ Cam" */
