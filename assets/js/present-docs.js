@@ -2417,7 +2417,12 @@ window.PresentDocs = (function () {
     if (!id) return;
     const t = tries || 0;
     if (!deliv(id) || !$("pdModal")) {
-      if (t < 40) setTimeout(() => openDoc(id, t + 1), 150);
+      // Wait out the PULL, not just the paint. Following a Slack/email link into a client this
+      // tab hasn't opened means nothing is cached locally, so the deliverable only exists once
+      // the deliverables scope arrives — and that pull is allowed 12s (the rows carry inline
+      // proofs). The old 6s ceiling gave up first and left the deliverable unopened on an
+      // otherwise correct page. 140 x 150ms ≈ 21s covers the pull plus a retry.
+      if (t < 140) setTimeout(() => openDoc(id, t + 1), 150);
       return;
     }
     openModal(id);
