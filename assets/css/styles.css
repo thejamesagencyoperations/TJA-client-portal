@@ -668,6 +668,21 @@ body[data-role="client"] .staff-only { display: none !important; }
 .pd-peer-notes { margin-top: 4px; color: var(--text); white-space: pre-wrap; }
 /* staff-only escape hatch on an outstanding reviewer row */
 .pd-waive { float: right; margin-left: 8px; padding: 2px 9px; font-size: .62rem; }
+/* ---- Keyword-exercise builder (generated Brand Keywords deliverable) ---- */
+.btn-kw { margin-left: 8px; }
+.pd-kw-card { max-width: 760px; }
+.pd-kw-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 6px 0 10px; }
+.pd-kw-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pd-kw-ta { min-height: 116px; resize: vertical; font-family: inherit; font-size: .82rem; line-height: 1.55;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--input); color: var(--text); }
+.pd-kw-ta:focus { outline: none; border-color: var(--orange); }
+/* live preview of the actual slide, 16:9 like the artwork */
+.pd-kw-preview { aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  background: #0a0a0a; display: grid; place-items: center; margin-bottom: 10px; }
+.pd-kw-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pd-kw-phint { color: var(--text-faint); font-size: .74rem; }
+@media (max-width: 720px) { .pd-kw-cols { grid-template-columns: 1fr; } }
+
 /* named reviewer checklist on the gallery card: "✓ Phoebe · ⏳ Cam" */
 .pd-card-reviewers { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 14px 10px; margin-top: -2px; }
 .pd-rev-chip { font-size: .64rem; font-weight: 800; letter-spacing: .02em; padding: 3px 8px;

@@ -289,6 +289,9 @@ window.PresentDocs = (function () {
   const uid = () => "d_" + Date.now() + "_" + (seq++);
   const deliv = (id) => items.find(d => d.id === id) || draftItems.find(d => d.id === id);
   const isDraft = (d) => !!(d && d.versions && d.versions.some(v => v.state === "pending_approval"));
+  // A generated Brand Keywords deliverable (kind:"keywords"). Its artwork is rendered from
+  // v.keywords, so a new round edits words rather than asking for a file.
+  const isKeywordDoc = (d) => !!(d && (d.kind === "keywords" || (d.versions || []).some(v => v && v.keywords)));
   // Modal edits (pins, notes, annotations, rename) hit whichever store the OPEN item
   // lives in — a draft being marked up before release must persist to the draft scope.
   function saveCur() { if (isDraft(deliv(curId))) saveDrafts(); else save(); }
@@ -348,6 +351,15 @@ window.PresentDocs = (function () {
       </button>
       <input type="file" id="pdFile" accept="image/*" multiple hidden>
       <input type="file" id="pdVerFile" accept="image/*" hidden>
+      <!-- Keyword exercise: a deliverable built from DATA, not an uploaded file. The three
+           columns are painted onto the agency's Brand Keywords slide (keyword-slide.js) and the
+           resulting image IS the proof — so review, markup, approval + the proof PDF all work
+           exactly as they do for an uploaded creative. -->
+      <button class="btn btn-upload btn-kw${(typeof canUploadDocs === "function" && canUploadDocs()) ? "" : " admin-only"}" id="pdKwBtn" title="Build a Brand Keywords deliverable from the three keyword lists">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M4 5h16M4 12h10M4 19h7"/></svg>
+        Keyword exercise
+      </button>
       <span class="pd-hint">${(typeof isCreative === "function" && isCreative())
         ? "PNG / JPG · your upload goes to the account manager for release — the client sees it after they hit Send"
         : "PNG / JPG · logos, banners, ad sets, messaging — anything you design"}</span>
@@ -475,6 +487,36 @@ window.PresentDocs = (function () {
         </div>
       </div>
 
+    </div>
+
+    <!-- Keyword-exercise builder. Sibling of #pdModal for the same reason as the brief dialog. -->
+    <div class="pd-up-overlay" id="pdKwOverlay" style="display:none">
+      <div class="pd-up-card pd-kw-card">
+        <div class="pd-sign-title" id="pdKwTitle">Brand Keywords</div>
+        <div class="pd-sign-sub">Type the keywords for each column — one per line. They're set onto the Brand Keywords slide, which becomes the proof the client reviews and signs.</div>
+        <div class="pd-kw-cols">
+          <label class="pd-kw-col"><span class="pd-review-label">LOOK</span>
+            <textarea id="pdKwLook" class="pd-kw-ta" placeholder="Tasteful&#10;Fresh&#10;Bold"></textarea></label>
+          <label class="pd-kw-col"><span class="pd-review-label">TONE</span>
+            <textarea id="pdKwTone" class="pd-kw-ta" placeholder="Playful&#10;Punchy&#10;Memorable"></textarea></label>
+          <label class="pd-kw-col"><span class="pd-review-label">AUDIENCE</span>
+            <textarea id="pdKwAud" class="pd-kw-ta" placeholder="Foodie&#10;Adventurous&#10;Trendy"></textarea></label>
+        </div>
+        <div class="pd-kw-preview" id="pdKwPreview"><span class="pd-kw-phint">A live preview appears here</span></div>
+        <label class="pd-review-label" for="pdKwSubject">Subject <span class="pd-up-hint">— required</span></label>
+        <input type="text" id="pdKwSubject" class="pd-up-subject" placeholder="e.g. Brand Keywords — round 1">
+        <label class="pd-review-label" for="pdKwMsg">Message to client <span class="pd-up-hint">— optional</span></label>
+        <textarea id="pdKwMsg" class="pd-up-msg" placeholder="Context for this round — what you'd like feedback on…"></textarea>
+        <div class="pd-revdue-row">
+          <label class="pd-review-label" for="pdKwDue">Feedback due <span class="pd-up-hint" id="pdKwDueHint"></span></label>
+          <input type="date" id="pdKwDue" class="pd-revdue">
+        </div>
+        <div class="pd-up-err" id="pdKwErr" style="display:none"></div>
+        <div class="pd-sign-actions">
+          <button class="pd-tool-btn" id="pdKwCancel">Cancel</button>
+          <button class="btn btn-primary" id="pdKwSend">📤 Send to client</button>
+        </div>
+      </div>
     </div>
 
     <!-- Upload brief — a SIBLING of #pdModal, never a child: the modal is display:none until a
@@ -683,6 +725,106 @@ window.PresentDocs = (function () {
     else if (img && img.url) v.url = img.url;
     else if (img && img.dataUrl) v.dataUrl = img.dataUrl;
     return v;
+  }
+
+  /* ---------- keyword exercise ----------
+     A deliverable whose artwork is GENERATED from three keyword lists rather than uploaded.
+     The rendered slide is stored as the version's image (so the gallery, modal, markup and proof
+     PDF need no special-casing at all), and the source lists ride along in v.keywords so a later
+     round can be pre-filled and re-rendered instead of retyped. Columns are fixed LOOK / TONE /
+     AUDIENCE (Cameron 2026-07-30). Client-side this is an APPROVE-ONLY deliverable, identical to
+     every other proof. */
+  const kwLines = (id) => ($(id) ? $(id).value.split("\n").map(s => s.trim()).filter(Boolean) : []);
+  const kwData = () => ({ look: kwLines("pdKwLook"), tone: kwLines("pdKwTone"), audience: kwLines("pdKwAud") });
+  let kwEditParentId = null;      // set when building a NEW ROUND of an existing keyword deliverable
+  let kwPreviewTimer = null;
+
+  function openKeywordDialog(parent) {
+    const ov = $("pdKwOverlay"); if (!ov || !window.TJA_KEYWORD_SLIDE) return;
+    kwEditParentId = parent ? parent.id : null;
+    // A new round starts from the CURRENT round's words — nobody should retype a list to change
+    // two of them.
+    const prev = parent ? (active(parent) || {}).keywords : null;
+    $("pdKwLook").value = (prev && prev.look || []).join("\n");
+    $("pdKwTone").value = (prev && prev.tone || []).join("\n");
+    $("pdKwAud").value = (prev && prev.audience || []).join("\n");
+    $("pdKwSubject").value = parent ? (parent.name || "Brand Keywords") : "Brand Keywords";
+    $("pdKwMsg").value = "";
+    $("pdKwDue").value = "";
+    if ($("pdKwErr")) $("pdKwErr").style.display = "none";
+    // an AM/PM owns the client timeline → due date required, same rule as an upload
+    const r = uploadRules();
+    if ($("pdKwDueHint")) { $("pdKwDueHint").textContent = r.due ? "— required" : "— optional"; $("pdKwDueHint").classList.toggle("req", r.due); }
+    if ($("pdKwTitle")) $("pdKwTitle").textContent = parent ? "Brand Keywords — new round" : "Brand Keywords";
+    if ($("pdKwSend")) $("pdKwSend").textContent = uploadsToDraft() ? "Add to waiting room" : "📤 Send to client";
+    ov.style.display = "flex";
+    kwPreview();
+    setTimeout(() => $("pdKwLook").focus(), 0);
+  }
+  function closeKeywordDialog() { const ov = $("pdKwOverlay"); if (ov) ov.style.display = "none"; kwEditParentId = null; }
+  // Debounced live preview so the sender sees the actual slide before it goes out.
+  function kwPreview() {
+    clearTimeout(kwPreviewTimer);
+    kwPreviewTimer = setTimeout(async () => {
+      const box = $("pdKwPreview"); if (!box || !window.TJA_KEYWORD_SLIDE) return;
+      try {
+        const url = await window.TJA_KEYWORD_SLIDE.render(Object.assign(kwData(), { clientName: clientDisplayName() }));
+        box.innerHTML = `<img src="${url}" alt="Brand Keywords preview">`;
+      } catch (e) { /* preview is a nicety — never block the send */ }
+    }, 250);
+  }
+  function clientDisplayName() {
+    try { const c = window.TJA_STORE && window.TJA_STORE.get(sess.client); return (c && c.name) || ""; } catch (e) { return ""; }
+  }
+  async function commitKeywords() {
+    const data = kwData();
+    const subject = $("pdKwSubject").value.trim();
+    const due = $("pdKwDue").value;
+    const message = $("pdKwMsg").value.trim();
+    const err = $("pdKwErr");
+    const missing = [];
+    if (!data.look.length && !data.tone.length && !data.audience.length) missing.push("at least one keyword");
+    if (!subject) missing.push("Subject");
+    if (uploadRules().due && !due) missing.push("Feedback due");
+    if (missing.length) { err.textContent = "Please add: " + missing.join(", ") + "."; err.style.display = ""; return; }
+    const over = window.TJA_KEYWORD_SLIDE.MAX_ITEMS;
+    if ([data.look, data.tone, data.audience].some(a => a.length > over)) {
+      err.textContent = `A column can hold at most ${over} keywords — the slide would clip beyond that.`;
+      err.style.display = ""; return;
+    }
+    const btn = $("pdKwSend"); const label = btn.textContent;
+    btn.disabled = true; btn.textContent = "Building…";
+    let dataUrl = "";
+    try { dataUrl = await window.TJA_KEYWORD_SLIDE.render(Object.assign({}, data, { clientName: clientDisplayName() })); }
+    catch (e) { btn.disabled = false; btn.textContent = label; err.textContent = "Couldn't build the slide — try again."; err.style.display = ""; return; }
+    btn.disabled = false; btn.textContent = label;
+
+    const parent = kwEditParentId ? items.find(x => x.id === kwEditParentId) : null;
+    // Re-use the SAME staging rules as an image upload: a creative's work waits in the room, an
+    // admin/AM-PM's goes straight out, and a new round on a sent deliverable is always staged.
+    const toDraft = uploadsToDraft() || !!parent;
+    const label2 = parent ? "V" + (parent.versions.length + 1) + (toDraft ? " (proposed)" : "") : "V1";
+    const v = newVersion({ dataUrl }, label2);
+    v.keywords = data;                       // the source of truth for the next round
+    v.subject = subject; v.message = message; v.revisionsDue = due;
+    closeKeywordDialog();
+    if (toDraft) {
+      v.state = "pending_approval";
+      const card = { id: uid(), name: subject, active: 0, versions: [v], kind: "keywords" };
+      if (parent) card.parentId = parent.id;
+      draftItems.unshift(card);
+      if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: card.id, docName: subject, versionLabel: v.label, by: sess.name || "Staff" }); } catch (e) {} }
+      await saveDraftsNow();
+      renderGallery();
+      flashDocsToast(`${subject} staged — click “📤 Send to client” to submit it for review.`);
+      return;
+    }
+    v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
+    const item = { id: uid(), name: subject, active: 0, versions: [v], kind: "keywords" };
+    items.unshift(item);
+    await saveNow();
+    renderGallery();
+    announceSend({ id: item.id, name: subject, version: v });
   }
 
   /* ---------- upload brief (V1) ----------
@@ -2047,7 +2189,23 @@ window.PresentDocs = (function () {
     // Shared helper — a bare click listener closed this dialog while you were typing the
     // subject/message (drag-select out of a field fires click on the overlay).
     window.TJA_UI.backdropClose($("pdUpOverlay"), closeUploadDialog);
-    $("pdResubmit").addEventListener("click", () => $("pdVerFile").click());
+    // Keyword-exercise builder
+    if ($("pdKwBtn")) $("pdKwBtn").addEventListener("click", () => openKeywordDialog(null));
+    if ($("pdKwCancel")) $("pdKwCancel").addEventListener("click", closeKeywordDialog);
+    if ($("pdKwSend")) $("pdKwSend").addEventListener("click", commitKeywords);
+    ["pdKwLook", "pdKwTone", "pdKwAud"].forEach(id => { const el = $(id); if (el) el.addEventListener("input", kwPreview); });
+    if ($("pdKwOverlay")) window.TJA_UI.backdropClose($("pdKwOverlay"), closeKeywordDialog);
+    // A new round of a KEYWORD deliverable edits the words — it never asks for a file.
+    $("pdResubmit").addEventListener("click", () => {
+      const d = deliv(curId);
+      if (d && isKeywordDoc(d)) {
+        if (!isDraft(d) && blockNewRound(d)) return;
+        closeModal();
+        openKeywordDialog(d);
+        return;
+      }
+      $("pdVerFile").click();
+    });
     $("pdVerFile").addEventListener("change", e => { handleResubmit(e.target.files[0]); e.target.value = ""; });
 
     $("pdGallery").addEventListener("click", async e => {
