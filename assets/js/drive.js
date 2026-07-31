@@ -34,13 +34,16 @@ window.TJA_DRIVE = (function () {
       const form = new FormData();
       form.append("file", file);
       form.append("clientId", clientId || "");   // ignored server-side for client callers
+      form.append("category", "files");          // → the client's "Files" folder in the tree
       const r = await fetch(fnBase() + "/drive-upload", {
         method: "POST",
         headers: { Authorization: "Bearer " + token },   // NO Content-Type — the browser sets the multipart boundary
         body: form,
       });
       const j = await r.json().catch(() => ({}));
-      if (r.ok && j.ok) return { ok: true, driveLink: j.driveLink, driveId: j.driveId };
+      // `url` is the AUTHENTICATED proxy path (drive-file) — the file is restricted in Drive, so
+      // this is what the portal must store/render. driveLink is for staff opening it in Drive.
+      if (r.ok && j.ok) return { ok: true, url: j.url, driveLink: j.driveLink, driveId: j.driveId, folder: j.folder };
       // 409 = no folder configured, 503 = function not set up — both are quiet no-ops
       return { ok: false, skipped: r.status === 409 || r.status === 503, error: j.error || r.status };
     } catch (e) { return { ok: false, error: String(e) }; }

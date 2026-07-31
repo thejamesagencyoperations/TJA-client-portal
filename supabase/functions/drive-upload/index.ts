@@ -28,8 +28,8 @@
    ============================================================ */
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
-import { registryEntry } from "../_shared/registry.ts";
 import { driveAccessToken } from "../_shared/google.ts";
+import { ensureClientFolders, folderForCategory } from "../_shared/drive-tree.ts";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -72,16 +72,34 @@ Deno.serve(async (req) => {
     : String(form.get("clientId") ?? "").trim() || caller.clientId;
   if (!clientId || clientId.startsWith("_")) return json(req, 400, { error: "no target client" });
 
-  const entry = await registryEntry(clientId);
-  const folderId = entry?.integrations?.driveFolderId;
-  if (!folderId) return json(req, 409, { error: "drive not configured for this client" });
+  const rootId = Deno.env.get("DRIVE_ROOT_FOLDER_ID");
+  if (!rootId) return json(req, 428, { error: "DRIVE_ROOT_FOLDER_ID not set" });
+
+  // Which asset folder this belongs in — "present-docs" → Present Docs, "files" → Files, etc.
+  // Anything unrecognised lands in Misc. rather than loose in the client's root.
+  const category = String(form.get("category") ?? "").trim();
+  const folderName = folderForCategory(category);
 
   try {
     const token = await driveAccessToken();
+    // Provision on demand: a brand-new client's first upload shouldn't fail waiting for the
+    // nightly provision run.
+    const tree = await ensureClientFolders(token, rootId, clientId);
+    if (!tree) return json(req, 404, { error: "unknown client" });
+    const folderId = tree.folders[folderName] || tree.folderId;
+
     const up = await uploadToDrive(token, folderId, file);
-    return json(req, 200, { ok: true, driveId: up.id, driveLink: up.webViewLink });
+    // The portal must NOT use webViewLink to display the file — these files are restricted, so a
+    // browser can't fetch them directly. Hand back the authenticated proxy path instead; the
+    // caller stores that. webViewLink is returned too, for staff opening it natively in Drive.
+    const proxyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/drive-file` +
+      `?id=${encodeURIComponent(up.id)}&client=${encodeURIComponent(clientId)}`;
+    return json(req, 200, {
+      ok: true, driveId: up.id, driveLink: up.webViewLink, url: proxyUrl,
+      folder: folderName,
+    });
   } catch (e) {
     console.error("drive upload failed", e);
-    return json(req, 502, { error: "drive upload failed" });
+    return json(req, 502, { error: "drive upload failed: " + String((e as Error).message || e).slice(0, 160) });
   }
 });

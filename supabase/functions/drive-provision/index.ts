@@ -28,70 +28,12 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { driveAccessToken } from "../_shared/google.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-
-// The per-client asset folders. APPEND ONLY — a re-run back-fills every existing client.
-export const ASSET_FOLDERS = [
-  "Present Docs",
-  "Reporting",
-  "Monthly Snapshots",
-  "Files",
-  "Media Requests",
-  "History",
-  "Misc.",
-];
-
-const DRIVE = "https://www.googleapis.com/drive/v3";
-const FOLDER_MIME = "application/vnd.google-apps.folder";
+// The folder list + tree helpers live in _shared so drive-upload can provision on demand with
+// exactly the same definition. Add a folder type THERE and re-run this to back-fill everyone.
+import { ASSET_FOLDERS, ensureClientTree } from "../_shared/drive-tree.ts";
 
 function svc() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-}
-
-// Drive has no "create if absent", and a double-run would happily make two folders with the same
-// name — so always look first. Escape single quotes for the query language.
-async function findChildFolder(token: string, parentId: string, name: string): Promise<string | null> {
-  const q = `'${parentId}' in parents and name = '${name.replace(/'/g, "\\'")}' ` +
-            `and mimeType = '${FOLDER_MIME}' and trashed = false`;
-  const u = new URL(DRIVE + "/files");
-  u.searchParams.set("q", q);
-  u.searchParams.set("fields", "files(id,name)");
-  u.searchParams.set("supportsAllDrives", "true");
-  u.searchParams.set("includeItemsFromAllDrives", "true");
-  u.searchParams.set("pageSize", "10");
-  const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
-  if (!r.ok) throw new Error(`drive list ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const j = await r.json();
-  return j.files?.[0]?.id ?? null;
-}
-
-async function createFolder(token: string, parentId: string, name: string): Promise<string> {
-  const r = await fetch(DRIVE + "/files?supportsAllDrives=true&fields=id", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parentId] }),
-  });
-  if (!r.ok) throw new Error(`drive create ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return (await r.json()).id;
-}
-
-async function ensureFolder(token: string, parentId: string, name: string): Promise<string> {
-  return (await findChildFolder(token, parentId, name)) ?? (await createFolder(token, parentId, name));
-}
-
-/* Ensure ONE client's tree. Returns { folderId, folders, created[] } and never re-creates
-   anything that already exists, so it is safe to call on every upload. */
-export async function ensureClientTree(token: string, rootId: string, clientName: string, known?: Record<string, string>) {
-  const created: string[] = [];
-  const folderId = await ensureFolder(token, rootId, clientName);
-  const folders: Record<string, string> = {};
-  for (const name of ASSET_FOLDERS) {
-    // Trust a recorded id rather than re-querying Drive 7× per client per run.
-    if (known && known[name]) { folders[name] = known[name]; continue; }
-    const existing = await findChildFolder(token, folderId, name);
-    folders[name] = existing ?? await createFolder(token, folderId, name);
-    if (!existing) created.push(`${clientName}/${name}`);
-  }
-  return { folderId, folders, created };
 }
 
 Deno.serve(async (req) => {

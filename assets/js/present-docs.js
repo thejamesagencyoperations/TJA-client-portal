@@ -285,6 +285,14 @@ window.PresentDocs = (function () {
     draftItems = draftItems.filter(d => !(d.versions || []).some(v => v.vid && sentVids.has(v.vid)));
     if (draftItems.length !== before) saveDrafts();
   }
+  /* A stored Drive file is served by the authenticated proxy, which <img src> can't call (no
+     Authorization header). So gallery markup emits data-tja-src and TJA_FILES.hydrate() swaps in
+     a blob: URL after render. Inline dataUrls still go straight into src. */
+  function imgSrcAttr(v) {
+    const u = (v && (v.url || v.dataUrl)) || "";
+    const proxied = window.TJA_FILES && window.TJA_FILES.isProxy && window.TJA_FILES.isProxy(u);
+    return proxied ? `data-tja-src="${esc(u)}"` : `src="${esc(u)}"`;
+  }
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   const uid = () => "d_" + Date.now() + "_" + (seq++);
   const deliv = (id) => items.find(d => d.id === id) || draftItems.find(d => d.id === id);
@@ -615,7 +623,7 @@ window.PresentDocs = (function () {
       return `<div class="pd-card pd-card-draft" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
         <span class="pd-enlarge-cue">Click to review</span>
-        <div class="pd-thumb"><img src="${v.url || v.dataUrl}" alt="${esc(d.name)}"></div>
+        <div class="pd-thumb"><img ${imgSrcAttr(v)} alt="${esc(d.name)}"></div>
         ${canSend ? `<button class="btn btn-primary pd-send-btn" data-send="${d.id}">📤 Send to client</button>` : ""}
         <div class="pd-card-foot">
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
@@ -635,7 +643,7 @@ window.PresentDocs = (function () {
         <button class="pd-card-export staff-only" data-copylink="${d.id}" title="Copy a shareable link to this deliverable">🔗</button>
         <button class="pd-card-export staff-only" data-export="${d.id}" title="Export proof PDF (internal record)" style="right:76px">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
-        <div class="pd-thumb"><img src="${v.url || v.dataUrl}" alt="${esc(d.name)}"></div>
+        <div class="pd-thumb"><img ${imgSrcAttr(v)} alt="${esc(d.name)}"></div>
         <div class="pd-card-foot">
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
           <span class="pd-ver-tag">${esc(v.label)}</span>
@@ -647,6 +655,9 @@ window.PresentDocs = (function () {
       </div>`;
     }).join("");
     g.innerHTML = draftCards + sentCards;   // waiting room first — it's the actionable pile
+    // Proofs stored in Drive come back through the authenticated proxy, which <img src> can't
+    // call — swap in blob: URLs now that the cards are in the DOM.
+    if (window.TJA_FILES && window.TJA_FILES.hydrate) window.TJA_FILES.hydrate(g);
   }
 
   // Shareable deep link to a deliverable — same shape the email/Slack use
@@ -829,6 +840,15 @@ window.PresentDocs = (function () {
     let dataUrl = "";
     try { dataUrl = await window.TJA_KEYWORD_SLIDE.render(Object.assign({}, data, { clientName: clientDisplayName() })); }
     catch (e) { btn.disabled = false; btn.textContent = label; err.textContent = "Couldn't build the slide — try again."; err.style.display = ""; return; }
+    // Store the rendered slide in Drive like any other proof so it doesn't sit inline in the row
+    // (~190KB each is exactly what made the deliverables pulls slow). Inline is the fallback.
+    let img = { dataUrl };
+    if (window.TJA_FILES && window.TJA_FILES.enabled()) {
+      try {
+        const up = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name: subject || "keywords" });
+        if (up && up.url) img = { url: up.url };
+      } catch (e) { console.warn("keyword slide upload — keeping inline", e); }
+    }
     btn.disabled = false; btn.textContent = label;
 
     const parent = kwEditParentId ? items.find(x => x.id === kwEditParentId) : null;
@@ -836,7 +856,7 @@ window.PresentDocs = (function () {
     // admin/AM-PM's goes straight out, and a new round on a sent deliverable is always staged.
     const toDraft = uploadsToDraft() || !!parent;
     const label2 = parent ? "V" + (parent.versions.length + 1) + (toDraft ? " (proposed)" : "") : "V1";
-    const v = newVersion({ dataUrl }, label2);
+    const v = newVersion(img, label2);
     v.keywords = data;                       // the source of truth for the next round
     v.subject = subject; v.message = message; v.revisionsDue = due;
     closeKeywordDialog();
@@ -1410,7 +1430,11 @@ window.PresentDocs = (function () {
     };
     img.onload = () => paint(0);
     if (v.url) img.crossOrigin = "anonymous";   // stored proof (cross-origin) — allow canvas use
-    img.src = v.url || v.dataUrl;
+    // resolve through the proxy when stored in Drive (blob: keeps the canvas untainted)
+    (async () => {
+      try { img.src = await window.TJA_FILES.blobUrl(v.url || v.dataUrl); }
+      catch (e) { img.src = v.dataUrl || ""; }
+    })();
     if (img.complete && img.naturalWidth) paint(0);   // already-loaded / cached / same-src
   }
   function openModal(id) {
@@ -1925,7 +1949,10 @@ window.PresentDocs = (function () {
       };
       base.onerror = () => resolve(null);
       if (v.url) base.crossOrigin = "anonymous";   // stored proof — keep the export canvas untainted
-      base.src = v.url || v.dataUrl;
+      // blob: URL for a Drive-stored proof — same-origin, so toDataURL() can't throw
+      window.TJA_FILES.blobUrl(v.url || v.dataUrl)
+        .then((u) => { base.src = u; })
+        .catch(() => { base.src = v.dataUrl || ""; });
     });
   }
   // opts.returnBase64 → build the PDF and return its base64 (no download, no UI) so the

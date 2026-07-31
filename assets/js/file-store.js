@@ -13,44 +13,106 @@
    window.TJA_FILES.uploadDataUrl(dataUrl, {category, clientId, name})  (for canvas JPEGs, e.g. proofs)
    ============================================================ */
 window.TJA_FILES = (function () {
-  // KILL SWITCH (Cameron 2026-07-23): storage is OFF until the final Drive destination is wired.
-  // While false, NOTHING is written anywhere — Present Docs falls back to inline (its old
-  // behaviour) and the media form hides its file input. Flip to true only when put() points at
-  // the agreed Drive location.
-  const STORAGE_ENABLED = false;
-  const BUCKET = "media-intake";   // interim Supabase Storage bucket (reused; no extra setup)
+  /* LIVE as of 2026-07-31 — the backend is Google Drive ("TJA Client Portal Storage"), one
+     folder per client, one subfolder per asset type. Uploads go through the drive-upload Edge
+     Function (which holds the service-account credentials and provisions folders on demand);
+     the URL we store and render is the drive-file PROXY, never a Drive link.
+
+     WHY THE PROXY: these folders hold MSA/SOW contracts and unreleased creative, so files stay
+     RESTRICTED in Drive. A client signs in to the PORTAL, not to Google, so a raw Drive URL
+     would have to be made public for their browser to load it. The proxy checks the portal
+     session + that the file belongs to that client, then streams it with correct CORS (which
+     the Present Docs canvas and PDF export both require). */
+  const STORAGE_ENABLED = true;
 
   const safe = (s) => String(s || "file").replace(/[^\w.\-]+/g, "_").slice(0, 120);
-  function pathFor(category, clientId, name) {
-    const cat = String(category || "misc").replace(/[^\w-]+/g, "") || "misc";
-    const cid = String(clientId || "shared").replace(/[^\w-]+/g, "_") || "shared";
-    const rnd = Math.random().toString(36).slice(2, 8);
-    return `${cat}/${cid}/${Date.now()}-${rnd}-${safe(name)}`;
+  function fnBase() {
+    const cfg = window.SUPABASE_CONFIG || {};
+    return cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
+  }
+  async function token() {
+    try {
+      const { data } = await window.SUPA.client.auth.getSession();
+      if (data && data.session) return data.session.access_token;
+      if (window.SUPA.refreshSession) {          // ghost session — try once before failing
+        await window.SUPA.refreshSession();
+        const r = await window.SUPA.client.auth.getSession();
+        if (r.data && r.data.session) return r.data.session.access_token;
+      }
+    } catch (e) {}
+    return null;
   }
 
-  // THE swap point: change this one function to move to a different backend (Drive, etc.).
-  async function put(path, blob, contentType) {
-    if (!(window.SUPA && window.SUPA.client)) throw new Error("storage-not-configured");
-    const client = window.SUPA.client;
-    const { error } = await client.storage.from(BUCKET).upload(path, blob, { upsert: false, contentType: contentType || blob.type || undefined });
-    if (error) throw error;
-    const { data } = client.storage.from(BUCKET).getPublicUrl(path);
-    return data && data.publicUrl;
+  /* THE swap point. Uploads a Blob/File to the client's Drive asset folder and returns the
+     proxy URL to store. `category` picks the subfolder (present-docs → Present Docs, files →
+     Files, media-intake → Media Requests, …; anything unmapped → Misc.). */
+  async function put(blob, { category, clientId, name, contentType } = {}) {
+    if (!fnBase() || !(window.SUPA && window.SUPA.client)) throw new Error("storage-not-configured");
+    const t = await token();
+    if (!t) throw new Error("session-stale");   // surfaces as an upload error, never a silent skip
+    const fd = new FormData();
+    const filename = safe(name || (blob && blob.name) || "file");
+    fd.append("file", blob, filename);
+    if (category) fd.append("category", String(category));
+    if (clientId) fd.append("clientId", String(clientId));   // ignored server-side for clients
+    const r = await fetch(fnBase() + "/drive-upload", {
+      method: "POST", headers: { Authorization: "Bearer " + t }, body: fd,
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.url) throw new Error(j.error || `drive-upload ${r.status}`);
+    return j;                                    // { url (proxy), driveId, driveLink, folder }
   }
 
   async function upload(file, opts = {}) {
-    const path = pathFor(opts.category, opts.clientId, opts.name || file.name);
-    const url = await put(path, file, file.type || opts.contentType);
-    return { url, path, name: file.name || safe(opts.name), size: file.size || 0, type: file.type || "" };
+    const res = await put(file, { ...opts, name: opts.name || file.name, contentType: file.type });
+    return { url: res.url, driveId: res.driveId, driveLink: res.driveLink, folder: res.folder,
+             name: file.name || safe(opts.name), size: file.size || 0, type: file.type || "" };
   }
 
-  // Present Docs proofs are canvas-generated JPEG data URLs — turn one into a Blob and store it.
+  // Present Docs proofs (and generated keyword slides) are canvas JPEG data URLs.
   async function uploadDataUrl(dataUrl, opts = {}) {
     const blob = await (await fetch(dataUrl)).blob();
-    const path = pathFor(opts.category, opts.clientId, opts.name || "file.jpg");
-    const url = await put(path, blob, blob.type || "image/jpeg");
-    return { url, path, name: opts.name || "file", size: blob.size || 0, type: blob.type || "" };
+    const res = await put(blob, { ...opts, name: (opts.name || "proof") + ".jpg", contentType: blob.type || "image/jpeg" });
+    return { url: res.url, driveId: res.driveId, driveLink: res.driveLink, folder: res.folder,
+             name: opts.name || "file", size: blob.size || 0, type: blob.type || "image/jpeg" };
   }
 
-  return { upload, uploadDataUrl, bucket: BUCKET, enabled: () => STORAGE_ENABLED && !!(window.SUPA && window.SUPA.client) };
+  /* ---------- READING a stored file ----------
+     The proxy requires an Authorization header, and <img src> cannot send one — so a stored
+     proxy URL is NOT directly renderable. We fetch it with the session token and hand back a
+     blob: URL instead. Two wins beyond auth:
+       • blob: is SAME-ORIGIN, so the Present Docs canvas is never tainted and toDataURL()
+         (the proof PDF) keeps working — no reliance on CORS headers at all;
+       • nothing bearer-ish is ever put in a URL that gets stored or shared.
+     Cached per URL for the page's lifetime: the same proof appears in the gallery, the modal
+     and the PDF export, and should be fetched once. */
+  const blobCache = new Map();
+  const isProxy = (u) => typeof u === "string" && u.indexOf("/functions/v1/drive-file") > -1;
+  async function blobUrl(url) {
+    if (!url) return url;
+    if (!isProxy(url)) return url;                 // inline dataUrl or legacy public URL
+    if (blobCache.has(url)) return blobCache.get(url);
+    const p = (async () => {
+      const t = await token();
+      if (!t) throw new Error("session-stale");
+      const r = await fetch(url, { headers: { Authorization: "Bearer " + t } });
+      if (!r.ok) throw new Error("drive-file " + r.status);
+      return URL.createObjectURL(await r.blob());
+    })().catch((e) => { blobCache.delete(url); throw e; });
+    blobCache.set(url, p);
+    return p;
+  }
+  /* Hydrate markup rendered as innerHTML: gallery cards can't await, so they emit
+     data-tja-src="<proxy url>" and this fills in .src afterwards. Safe to call repeatedly. */
+  async function hydrate(root) {
+    const els = (root || document).querySelectorAll("[data-tja-src]");
+    await Promise.all([...els].map(async (el) => {
+      const u = el.getAttribute("data-tja-src");
+      el.removeAttribute("data-tja-src");
+      try { el.src = await blobUrl(u); } catch (e) { el.alt = "couldn't load"; }
+    }));
+  }
+
+  return { upload, uploadDataUrl, blobUrl, hydrate, isProxy,
+           enabled: () => STORAGE_ENABLED && !!fnBase() && !!(window.SUPA && window.SUPA.client) };
 })();
