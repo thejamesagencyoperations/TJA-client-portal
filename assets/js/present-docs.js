@@ -304,6 +304,29 @@ window.PresentDocs = (function () {
   // lives in — a draft being marked up before release must persist to the draft scope.
   function saveCur() { if (isDraft(deliv(curId))) saveDrafts(); else save(); }
   const active = (d) => d && d.versions[d.active];
+  /* ---------- multi-page surfaces (PDF proofs) ----------
+     A version normally has ONE markup surface: its image, v.pins and v.annotation. A multi-page
+     PDF instead carries v.pages = [{url|dataUrl, pins, annotation}] and every markup function
+     goes through surface() rather than touching the version directly. A version with no pages
+     array returns the version itself, so single images and every deliverable created before this
+     existed behave exactly as before — no migration. */
+  let curPage = 0;
+  const pagesOf = (v) => (v && Array.isArray(v.pages) && v.pages.length) ? v.pages : null;
+  function surface(v) {
+    const ps = pagesOf(v);
+    if (!ps) return v || {};
+    const pg = ps[Math.min(Math.max(0, curPage), ps.length - 1)] || {};
+    if (!Array.isArray(pg.pins)) pg.pins = [];      // lazily normalise so callers can push
+    return pg;
+  }
+  const curSurface = () => surface(active(deliv(curId)));
+  const srcOf = (o) => (o && (o.url || o.dataUrl)) || "";
+  // Pins ACROSS every page — the comment count in notifications/PDF must not be page-1 only.
+  function allPins(v) {
+    const ps = pagesOf(v);
+    if (!ps) return (v && v.pins) || [];
+    return ps.reduce((acc, pg) => acc.concat((pg && pg.pins) || []), []);
+  }
   const $ = (id) => document.getElementById(id);
 
   /* ---------- multi-reviewer support ----------
@@ -420,6 +443,8 @@ window.PresentDocs = (function () {
               <div class="pd-spacer"></div>
               <span class="pd-hint" id="pdToolHint">Draw to circle / highlight areas</span>
             </div>
+            <!-- page strip — only rendered for multi-page (PDF) proofs -->
+            <div class="pd-page-row" id="pdPageRow" style="display:none"></div>
           </div>
 
           <div class="pd-review">
@@ -714,21 +739,30 @@ window.PresentDocs = (function () {
       document.head.appendChild(s);
     });
   }
-  // → { dataUrl, pages } for page 1 at ~1600px wide (matching the image path).
-  async function pdfFirstPageDataUrl(file) {
+  // Rasterise up to MAX_PDF_PAGES pages at proof resolution. 20 is Cameron's cap (2026-07-31):
+  // most proofs are 1 page, some are heftier, and rendering + storing an unbounded deck would be
+  // slow on upload and heavy in the export.
+  const MAX_PDF_PAGES = 20;
+  async function pdfPageDataUrls(file) {
     const lib = await loadPdfJs();
-    const buf = await file.arrayBuffer();
-    const doc = await lib.getDocument({ data: buf }).promise;
-    const page = await doc.getPage(1);
-    const base = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: Math.min(3, 1600 / base.width) });
-    const c = document.createElement("canvas");
-    c.width = Math.round(viewport.width); c.height = Math.round(viewport.height);
-    // White behind the page — a PDF's background is transparent, which would render black.
-    const x = c.getContext("2d");
-    x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
-    await page.render({ canvasContext: x, viewport }).promise;
-    return { dataUrl: c.toDataURL("image/jpeg", 0.9), pages: doc.numPages };
+    const doc = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const total = doc.numPages;
+    const take = Math.min(total, MAX_PDF_PAGES);
+    const out = [];
+    for (let n = 1; n <= take; n++) {
+      const page = await doc.getPage(n);
+      const base = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: Math.min(3, 1600 / base.width) });
+      const c = document.createElement("canvas");
+      c.width = Math.round(viewport.width); c.height = Math.round(viewport.height);
+      const x = c.getContext("2d");
+      // White behind the page — a PDF's background is transparent and would render black.
+      x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvasContext: x, viewport }).promise;
+      out.push(c.toDataURL("image/jpeg", 0.9));
+      c.width = c.height = 0;                       // release the bitmap; a 20-page deck adds up
+    }
+    return { dataUrls: out, pages: total, rendered: take };
   }
 
   /* Turn a PDF into a proof: page 1 becomes the markup image; the original file is uploaded too
@@ -736,19 +770,36 @@ window.PresentDocs = (function () {
      storage is off or an upload fails, so a send is never blocked. */
   async function processPdf(file) {
     const name = file.name.replace(/\.[^.]+$/, "");
-    const { dataUrl, pages } = await pdfFirstPageDataUrl(file);
-    const out = { name, pdfPages: pages };
-    if (window.TJA_FILES && window.TJA_FILES.enabled()) {
-      try {
-        const r = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name });
-        if (r && r.url) out.url = r.url;
-      } catch (e) { console.warn("pdf page upload — keeping inline", e); }
+    const { dataUrls, pages, rendered } = await pdfPageDataUrls(file);
+    const store = window.TJA_FILES && window.TJA_FILES.enabled();
+    // Each page is its own markup surface: image + its own pins + its own drawing layer.
+    const built = [];
+    for (let i = 0; i < dataUrls.length; i++) {
+      let pg = { pins: [], annotation: null };
+      if (store) {
+        try {
+          const r = await window.TJA_FILES.uploadDataUrl(dataUrls[i], {
+            category: "present-docs", clientId: sess.client, name: `${name}-p${i + 1}`,
+          });
+          if (r && r.url) pg.url = r.url;
+        } catch (e) { console.warn("pdf page upload — keeping inline", e); }
+      }
+      if (!pg.url) pg.dataUrl = dataUrls[i];
+      built.push(pg);
+    }
+    const out = { name, pdfPages: pages, pdfRendered: rendered };
+    // Page 1 doubles as the version's own image so the gallery thumbnail and anything that
+    // predates pages keeps working with no special case.
+    if (built[0].url) out.url = built[0].url; else out.dataUrl = built[0].dataUrl;
+    if (built.length > 1) out.pages = built;
+    // Keep the ORIGINAL pdf too — the reviewer can open the real document, and it matters when
+    // a deck is longer than the render cap.
+    if (store) {
       try {
         const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name });
         if (src && src.url) { out.sourceUrl = src.url; out.sourceName = file.name; }
-      } catch (e) { console.warn("original pdf upload failed — page image still stands", e); }
+      } catch (e) { console.warn("original pdf upload failed — page images still stand", e); }
     }
-    if (!out.url) out.dataUrl = dataUrl;
     return out;
   }
 
@@ -805,6 +856,9 @@ window.PresentDocs = (function () {
     // PDF proof: keep the link to the full document + its page count alongside the page-1 image
     if (img && img.sourceUrl) { v.sourceUrl = img.sourceUrl; v.sourceName = img.sourceName || "document.pdf"; }
     if (img && img.pdfPages) v.pdfPages = img.pdfPages;
+    if (img && img.pdfRendered) v.pdfRendered = img.pdfRendered;
+    // per-page markup surfaces for a multi-page PDF (absent for a single image)
+    if (img && Array.isArray(img.pages) && img.pages.length > 1) v.pages = img.pages;
     return v;
   }
 
@@ -1324,7 +1378,7 @@ window.PresentDocs = (function () {
   }
   function persistCanvas() {
     const d = deliv(curId); if (!d || !ctx || !cv) return;
-    active(d).annotation = isBlank(cv) ? null : cv.toDataURL("image/png");
+    surface(active(d)).annotation = isBlank(cv) ? null : cv.toDataURL("image/png");
   }
   function isBlank(c) {
     const b = document.createElement("canvas"); b.width = c.width; b.height = c.height;
@@ -1333,12 +1387,12 @@ window.PresentDocs = (function () {
 
   /* ---------- pins ---------- */
   function renderPins() {
-    const v = active(deliv(curId)); const layer = $("pdPins");
+    const v = curSurface(); const layer = $("pdPins");
     layer.innerHTML = v.pins.map((p, i) =>
       `<button class="pd-pin ${p.resolved ? "resolved" : ""}" data-pin="${p.id}" style="left:${p.x * 100}%;top:${p.y * 100}%">${i + 1}</button>`).join("");
   }
   function renderPinList() {
-    const v = active(deliv(curId)); const box = $("pdPinList");
+    const v = curSurface(); const box = $("pdPinList");
     const n = v.pins.length;
     const cc = $("pdCommentsCount"); if (cc) cc.textContent = n ? `Comments (${n})` : "Comments";
     const clr = $("pdClearComments"); if (clr) clr.style.display = n ? "" : "none";
@@ -1357,7 +1411,7 @@ window.PresentDocs = (function () {
       </div>`).join("");
   }
   function addPin(xFrac, yFrac) {
-    const v = active(deliv(curId));
+    const v = curSurface();
     // author-stamped so a multi-login client's comments are tellable apart
     const p = { id: "p_" + Date.now() + "_" + (seq++), x: xFrac, y: yFrac, text: "", resolved: false,
       by: myName(), byEmail: myEmail() };
@@ -1368,7 +1422,7 @@ window.PresentDocs = (function () {
     if (ta) ta.focus();
   }
   function deletePin(id) {
-    const v = active(deliv(curId));
+    const v = curSurface();
     const index = v.pins.findIndex(x => x.id === id);
     if (index < 0) return;
     const [pin] = v.pins.splice(index, 1);
@@ -1377,13 +1431,13 @@ window.PresentDocs = (function () {
     saveCur(); renderPins(); renderPinList();
   }
   function clearComments() {
-    const v = active(deliv(curId)); if (!v.pins.length) return;
+    const v = curSurface(); if (!v.pins.length) return;
     history.push({ type: "pinClear", pins: v.pins.slice() });
     v.pins = [];
     hidePopup(); saveCur(); renderPins(); renderPinList();
   }
   function toggleResolve(id) {
-    const v = active(deliv(curId)); const p = v.pins.find(x => x.id === id); if (!p) return;
+    const v = curSurface(); const p = v.pins.find(x => x.id === id); if (!p) return;
     p.resolved = !p.resolved; saveCur(); renderPins(); renderPinList();
   }
   function selectPin(id) {
@@ -1391,7 +1445,7 @@ window.PresentDocs = (function () {
     document.querySelectorAll(".pd-comment").forEach(c => c.classList.toggle("sel", c.dataset.row === id));
     const m = document.querySelector(`.pd-pin[data-pin="${id}"]`);
     if (m) { m.classList.add("pulse"); setTimeout(() => m.classList.remove("pulse"), 700); }
-    const v = active(deliv(curId)); const p = v && v.pins.find(x => x.id === id);
+    const v = curSurface(); const p = v && v.pins.find(x => x.id === id);
     if (p) showPopup(p);   // bring the note up on the image, anchored to the pin
   }
 
@@ -1424,18 +1478,49 @@ window.PresentDocs = (function () {
     if (a.type === "draw") {
       if (ctx && a.img) ctx.putImageData(a.img, 0, 0);
     } else if (a.type === "pinAdd") {
-      const v = active(deliv(curId));
+      const v = curSurface();
       v.pins = v.pins.filter(p => p.id !== a.id);
       saveCur(); renderPins(); renderPinList();
     } else if (a.type === "pinDel") {
-      const v = active(deliv(curId));
+      const v = curSurface();
       v.pins.splice(Math.min(a.index, v.pins.length), 0, a.pin);
       saveCur(); renderPins(); renderPinList();
     } else if (a.type === "pinClear") {
-      const v = active(deliv(curId));
+      const v = curSurface();
       v.pins = a.pins;
       saveCur(); renderPins(); renderPinList();
     }
+  }
+
+  /* ---------- pages (multi-page PDF proofs) ----------
+     Same interaction as the version chips, one level down. Hidden entirely for single-surface
+     deliverables, so an image proof looks exactly as it always has. */
+  function renderPages() {
+    const row = $("pdPageRow"); if (!row) return;
+    const v = active(deliv(curId));
+    const ps = pagesOf(v);
+    if (!ps || ps.length < 2) { row.style.display = "none"; row.innerHTML = ""; return; }
+    const idx = Math.min(curPage, ps.length - 1);
+    const marked = (pg) => !!((pg.pins && pg.pins.length) || pg.annotation);
+    row.innerHTML =
+      `<span class="pd-review-label">Page</span>` +
+      `<button class="pd-tool-btn pd-page-nav" data-pagestep="-1" ${idx === 0 ? "disabled" : ""} title="Previous page">‹</button>` +
+      `<div class="pd-page-chips">` +
+      ps.map((pg, i) =>
+        `<button class="pd-page-chip ${i === idx ? "active" : ""}${marked(pg) ? " marked" : ""}" data-page="${i}" ` +
+        `title="Page ${i + 1}${marked(pg) ? " — has markup" : ""}">${i + 1}</button>`).join("") +
+      `</div>` +
+      `<button class="pd-tool-btn pd-page-nav" data-pagestep="1" ${idx === ps.length - 1 ? "disabled" : ""} title="Next page">›</button>` +
+      `<span class="pd-page-count">${idx + 1} of ${ps.length}</span>`;
+    row.style.display = "";
+  }
+  function switchPage(i) {
+    const v = active(deliv(curId)); const ps = pagesOf(v); if (!ps) return;
+    const next = Math.min(Math.max(0, i), ps.length - 1);
+    if (next === curPage) return;
+    persistCanvas(); saveCur();        // bank this page's drawing before leaving it
+    curPage = next;
+    loadVersionIntoModal();
   }
 
   /* ---------- versions ---------- */
@@ -1448,6 +1533,7 @@ window.PresentDocs = (function () {
     const d = deliv(curId); if (i === d.active) return;
     persistCanvas(); saveCur();
     d.active = i;
+    curPage = 0;                      // a new round starts at its first page
     loadVersionIntoModal();
     maybeShowDisclaimer();   // each version is its own proof — first view gets the disclaimer
   }
@@ -1482,6 +1568,7 @@ window.PresentDocs = (function () {
       : v.status;
     document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === shownStatus));
     renderVersions();
+    renderPages();
     applyReviewLock();   // lock Agency Notes for clients + freeze the rail if this version is already reviewed
     const img = $("pdImg");
     // Robust paint: wait (up to ~20 frames) until the image is decoded AND laid
@@ -1492,21 +1579,23 @@ window.PresentDocs = (function () {
       if ((!img.clientWidth || !img.naturalWidth) && tries < 20) { requestAnimationFrame(() => paint(tries + 1)); return; }
       sizeOverlay();
       if (ctx) ctx.clearRect(0, 0, cv.width, cv.height);
-      drawSaved(v.annotation);
+      drawSaved(surface(v).annotation);
       renderPins(); renderPinList();
     };
     img.onload = () => paint(0);
     if (v.url) img.crossOrigin = "anonymous";   // stored proof (cross-origin) — allow canvas use
-    // resolve through the proxy when stored in Drive (blob: keeps the canvas untainted)
+    // resolve through the proxy when stored in Drive (blob: keeps the canvas untainted).
+    // For a multi-page PDF this is the CURRENT PAGE's image, not the version's.
     (async () => {
-      try { img.src = await window.TJA_FILES.blobUrl(v.url || v.dataUrl); }
-      catch (e) { img.src = v.dataUrl || ""; }
+      const sf = surface(v);
+      try { img.src = await window.TJA_FILES.blobUrl(srcOf(sf)); }
+      catch (e) { img.src = sf.dataUrl || ""; }
     })();
     if (img.complete && img.naturalWidth) paint(0);   // already-loaded / cached / same-src
   }
   function openModal(id) {
     const d = deliv(id); if (!d) return;
-    curId = id; setTool("draw");
+    curId = id; curPage = 0; setTool("draw");
     const m = $("pdModal");
     m.classList.add("open");
     // Creatives review nothing — their modal is look-and-annotate-your-own-draft only.
@@ -1714,8 +1803,12 @@ window.PresentDocs = (function () {
     if (pl) {
       if (v.sourceUrl) {
         const n = +v.pdfPages || 0;
+        const shown = +v.pdfRendered || (pagesOf(v) || [1]).length;
+        const note = (n > shown)
+          ? `${n} pages — first ${shown} available to mark up`      // deck longer than the cap
+          : (n > 1 ? `${n} pages — mark up any of them above` : ``);
         pl.innerHTML = `📄 <a href="#" data-openpdf="1">Open the full PDF</a>` +
-          (n > 1 ? ` <span class="pd-pdf-n">${n} pages — page 1 shown for markup</span>` : ``);
+          (note ? ` <span class="pd-pdf-n">${note}</span>` : ``);
         pl.style.display = "";
       } else { pl.style.display = "none"; pl.innerHTML = ""; }
     }
@@ -1779,7 +1872,7 @@ window.PresentDocs = (function () {
       if (window.TJA_NOTIFY) {
         window.TJA_NOTIFY.record({
           type: "review", docId: d.id, docName: d.name, versionLabel: v.label,
-          status: v.status || null, comments: (v.pins || []).length,
+          status: v.status || null, comments: allPins(v).length,
           by: multi ? "All reviewers in" : (getSession().name || "Client"),
         });
       }
@@ -1857,7 +1950,7 @@ window.PresentDocs = (function () {
       try {
         window.TJA_MAIL.sendReviewResponse({
           docId: curD.id, docName: curD.name, versionLabel: curV.label,
-          status: curV.status || null, comments: (curV.pins || []).length, reviewerLine,
+          status: curV.status || null, comments: allPins(curV).length, reviewerLine,
           pdfBase64, pdfName: `${(curD.name || "deliverable").replace(/[^\w-]+/g, "_")}-${curV.label}.pdf`,
         });
       } catch (e) { console.warn("review-response notify failed", e); }
@@ -2044,7 +2137,13 @@ window.PresentDocs = (function () {
       if (btn) { btn.disabled = true; btn.textContent = "Generating…"; }
       const jsPDF = await loadJsPDF(); if (!jsPDF) throw new Error("no jsPDF");
       const [fonts, mark] = await Promise.all([loadInterFonts(), loadTjaMark()]);
-      const v = active(d), composite = await buildComposite(v);
+      const v = active(d);
+      // One PDF page per document page for a multi-page proof, each with ITS own markup. A
+      // single-surface deliverable yields exactly one, so nothing changes for image proofs.
+      const surfaces = pagesOf(v) || [v];
+      const composites = [];
+      for (const sf of surfaces) composites.push(await buildComposite(sf));
+      const composite = composites[0];
 
       // ---- orientation: the IMAGE decides. Wide creative → 17×11 horizontal,
       // tall/square → 8.5×11 vertical. Aspect ratio itself is never touched.
@@ -2163,30 +2262,42 @@ window.PresentDocs = (function () {
         y += 6;
       }
 
-      /* ---- the creative: fit inside its box, aspect ratio untouched, centered ---- */
-      const pins = v.pins || [];
-      if (composite && imgW && imgH) {
-        // reserve room below for the first chunk of comments (they continue to page 2+)
-        const reserve = pins.length ? Math.min(150, 34 + pins.length * 22) : 16;
-        const boxW = pageW - M * 2, boxH = Math.max(120, bottom() - y - reserve);
-        const scale = Math.min(boxW / imgW, boxH / imgH);
-        const w = imgW * scale, h = imgH * scale;
-        pdf.addImage(composite, "JPEG", M + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
-        y += boxH + 14;
-      }
-
-      /* ---- comments below the doc, numbered exactly like the pins ---- */
-      if (pins.length) {
-        setF("Inter", "bold", 9, INK); pdf.text(`COMMENTS (${pins.length})`, M, y, { charSpace: 0.4 }); y += 14;
-        pins.forEach((p, i) => {
-          const lines = pdf.splitTextToSize(`${p.by ? p.by + ": " : ""}${p.text || "(no note)"}${p.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
-          if (y + lines.length * 11.5 > bottom()) newPage();
-          pdf.setFillColor(...(p.resolved ? [54, 194, 117] : ORANGE));
-          pdf.circle(M + 6, y - 3, 6, "F");
-          setF("Inter", "bold", 7, [255, 255, 255]); pdf.text(String(i + 1), M + 6, y - 0.6, { align: "center" });
-          setF("Inter", "normal", 8.5, INK);
-          pdf.text(lines, M + 20, y); y += lines.length * 11.5 + 7;
-        });
+      /* ---- each page: the creative, then ITS comments, numbered to match its pins ---- */
+      for (let si = 0; si < surfaces.length; si++) {
+        const sf = surfaces[si], comp = composites[si];
+        if (si > 0) newPage();                      // pages 2+ get the slim header
+        const pins = (sf && sf.pins) || [];
+        let cW = imgW, cH = imgH;
+        if (si > 0 && comp) {                       // measure this page's own bitmap
+          const probe2 = new Image();
+          await new Promise((res) => { probe2.onload = res; probe2.onerror = res; probe2.src = comp; });
+          cW = probe2.naturalWidth; cH = probe2.naturalHeight;
+        }
+        if (comp && cW && cH) {
+          const reserve = pins.length ? Math.min(150, 34 + pins.length * 22) : 16;
+          const boxW = pageW - M * 2, boxH = Math.max(120, bottom() - y - reserve);
+          const scale = Math.min(boxW / cW, boxH / cH);
+          const w = cW * scale, h = cH * scale;
+          pdf.addImage(comp, "JPEG", M + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
+          y += boxH + 14;
+        }
+        if (surfaces.length > 1) {                  // label which page this is
+          setF("Inter", "bold", 7, GRAY);
+          pdf.text(`PAGE ${si + 1} OF ${surfaces.length}`, M, y, { charSpace: 0.4 });
+          y += 12;
+        }
+        if (pins.length) {
+          setF("Inter", "bold", 9, INK); pdf.text(`COMMENTS (${pins.length})`, M, y, { charSpace: 0.4 }); y += 14;
+          pins.forEach((pn, i) => {
+            const lines = pdf.splitTextToSize(`${pn.by ? pn.by + ": " : ""}${pn.text || "(no note)"}${pn.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
+            if (y + lines.length * 11.5 > bottom()) newPage();
+            pdf.setFillColor(...(pn.resolved ? [54, 194, 117] : ORANGE));
+            pdf.circle(M + 6, y - 3, 6, "F");
+            setF("Inter", "bold", 7, [255, 255, 255]); pdf.text(String(i + 1), M + 6, y - 0.6, { align: "center" });
+            setF("Inter", "normal", 8.5, INK);
+            pdf.text(lines, M + 20, y); y += lines.length * 11.5 + 7;
+          });
+        }
       }
 
       const pages = pdf.getNumberOfPages();
@@ -2315,7 +2426,7 @@ window.PresentDocs = (function () {
     window.addEventListener("resize", () => {
       const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
       const v = active(deliv(curId));
-      persistCanvas(); sizeOverlay(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); drawSaved(v && v.annotation); renderPins(); hidePopup(); clampPan(); applyZoom();
+      persistCanvas(); sizeOverlay(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); drawSaved(surface(v).annotation); renderPins(); hidePopup(); clampPan(); applyZoom();
     });
   }
 
@@ -2399,6 +2510,13 @@ window.PresentDocs = (function () {
     $("pdUndo").addEventListener("click", undo);
     $("pdClear").addEventListener("click", () => { snapshot(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); });
     $("pdVers").addEventListener("click", e => { const c = e.target.closest("[data-ver]"); if (c) switchVersion(+c.dataset.ver); });
+    const pr = $("pdPageRow");
+    if (pr) pr.addEventListener("click", e => {
+      const st = e.target.closest("[data-pagestep]");
+      if (st) { switchPage(curPage + (+st.dataset.pagestep)); return; }
+      const c = e.target.closest("[data-page]");
+      if (c) switchPage(+c.dataset.page);
+    });
 
     $("pdStatus").addEventListener("click", e => {
       const opt = e.target.closest(".pd-status-opt"); if (!opt) return;
@@ -2445,7 +2563,7 @@ window.PresentDocs = (function () {
     if (pop) {
       pop.querySelector("[data-popuptext]").addEventListener("input", e => {
         const id = pop.dataset.pin; if (!id) return;
-        const v = active(deliv(curId)); const p = v && v.pins.find(x => x.id === id);
+        const v = curSurface(); const p = v && v.pins.find(x => x.id === id);
         if (p) { p.text = e.target.value; saveCur(); const ta = document.querySelector(`[data-pintext="${id}"]`); if (ta) ta.value = p.text; }
       });
       $("pdPopupClose").addEventListener("click", hidePopup);

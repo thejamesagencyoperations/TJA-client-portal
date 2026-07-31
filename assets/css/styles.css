@@ -1951,3 +1951,18 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 .pd-pdf-line a { color: var(--orange); font-weight: 700; text-decoration: none; border-bottom: 1px solid transparent; }
 .pd-pdf-line a:hover { border-bottom-color: var(--orange); }
 .pd-pdf-n { color: var(--text-faint); font-weight: 600; margin-left: 6px; }
+
+/* ---- page strip for multi-page (PDF) proofs — mirrors the version chips one level down ---- */
+.pd-page-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.pd-page-nav { padding: 2px 9px; font-size: .9rem; line-height: 1; }
+.pd-page-nav:disabled { opacity: .35; cursor: default; }
+.pd-page-chips { display: flex; gap: 4px; flex-wrap: wrap; min-width: 0; }
+.pd-page-chip { font: 700 .66rem Inter, sans-serif; min-width: 24px; padding: 3px 6px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--input); color: var(--text-dim); cursor: pointer; position: relative; }
+.pd-page-chip:hover { border-color: var(--orange); color: var(--text); }
+.pd-page-chip.active { background: var(--orange); border-color: var(--orange); color: var(--on-accent); }
+/* a dot marks a page that already carries pins or a drawing, so nothing gets missed */
+.pd-page-chip.marked::after { content: ""; position: absolute; top: 2px; right: 2px; width: 4px; height: 4px;
+  border-radius: 50%; background: var(--good); }
+.pd-page-chip.active.marked::after { background: #fff; }
+.pd-page-count { font-size: .68rem; font-weight: 700; color: var(--text-faint); margin-left: auto; }
