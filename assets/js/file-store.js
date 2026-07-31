@@ -46,21 +46,28 @@ window.TJA_FILES = (function () {
   /* THE swap point. Uploads a Blob/File to the client's Drive asset folder and returns the
      proxy URL to store. `category` picks the subfolder (present-docs → Present Docs, files →
      Files, media-intake → Media Requests, …; anything unmapped → Misc.). */
-  async function put(blob, { category, clientId, name, contentType } = {}) {
+  /* items: [{ blob, name }] — one request per call. `subfolder` groups them inside the asset
+     folder (a multi-page PDF's pages belong together under the deliverable's name, not scattered
+     across Present Docs). Batching matters for speed too: one invocation, one folder lookup. */
+  async function putMany(items, { category, clientId, subfolder } = {}) {
     if (!fnBase() || !(window.SUPA && window.SUPA.client)) throw new Error("storage-not-configured");
     const t = await token();
     if (!t) throw new Error("session-stale");   // surfaces as an upload error, never a silent skip
     const fd = new FormData();
-    const filename = safe(name || (blob && blob.name) || "file");
-    fd.append("file", blob, filename);
+    items.forEach((it) => fd.append("file", it.blob, safe(it.name || (it.blob && it.blob.name) || "file")));
     if (category) fd.append("category", String(category));
     if (clientId) fd.append("clientId", String(clientId));   // ignored server-side for clients
+    if (subfolder) fd.append("subfolder", String(subfolder));
     const r = await fetch(fnBase() + "/drive-upload", {
       method: "POST", headers: { Authorization: "Bearer " + t }, body: fd,
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.url) throw new Error(j.error || `drive-upload ${r.status}`);
-    return j;                                    // { url (proxy), driveId, driveLink, folder }
+    if (!r.ok || !Array.isArray(j.results) || !j.results.length) throw new Error(j.error || `drive-upload ${r.status}`);
+    return j.results;                            // [{ url (proxy), driveId, driveLink, name }]
+  }
+  async function put(blob, opts = {}) {
+    const res = await putMany([{ blob, name: opts.name }], opts);
+    return res[0];
   }
 
   async function upload(file, opts = {}) {
@@ -113,6 +120,25 @@ window.TJA_FILES = (function () {
     }));
   }
 
-  return { upload, uploadDataUrl, blobUrl, hydrate, isProxy,
+  /* Upload MANY canvas data URLs in one go (PDF pages). Chunked so a single request can't get
+     huge — 6 × ~250KB pages per request keeps well inside the function's body limit while cutting
+     a 20-page deck from 20 round trips to 4. onProgress(done, total) drives the veil. */
+  async function uploadDataUrls(dataUrls, opts = {}, onProgress) {
+    const CHUNK = 6;
+    const out = [];
+    for (let i = 0; i < dataUrls.length; i += CHUNK) {
+      const slice = dataUrls.slice(i, i + CHUNK);
+      const items = await Promise.all(slice.map(async (du, n) => ({
+        blob: await (await fetch(du)).blob(),
+        name: `${opts.name || "page"}-p${i + n + 1}.jpg`,
+      })));
+      const res = await putMany(items, opts);
+      out.push(...res);
+      if (onProgress) onProgress(Math.min(i + CHUNK, dataUrls.length), dataUrls.length);
+    }
+    return out;
+  }
+
+  return { upload, uploadDataUrl, uploadDataUrls, blobUrl, hydrate, isProxy,
            enabled: () => STORAGE_ENABLED && !!fnBase() && !!(window.SUPA && window.SUPA.client) };
 })();

@@ -1952,17 +1952,43 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 .pd-pdf-line a:hover { border-bottom-color: var(--orange); }
 .pd-pdf-n { color: var(--text-faint); font-weight: 600; margin-left: 6px; }
 
-/* ---- page strip for multi-page (PDF) proofs — mirrors the version chips one level down ---- */
-.pd-page-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-.pd-page-nav { padding: 2px 9px; font-size: .9rem; line-height: 1; }
-.pd-page-nav:disabled { opacity: .35; cursor: default; }
-.pd-page-chips { display: flex; gap: 4px; flex-wrap: wrap; min-width: 0; }
-.pd-page-chip { font: 700 .66rem Inter, sans-serif; min-width: 24px; padding: 3px 6px; border-radius: 6px;
-  border: 1px solid var(--line); background: var(--input); color: var(--text-dim); cursor: pointer; position: relative; }
-.pd-page-chip:hover { border-color: var(--orange); color: var(--text); }
-.pd-page-chip.active { background: var(--orange); border-color: var(--orange); color: var(--on-accent); }
-/* a dot marks a page that already carries pins or a drawing, so nothing gets missed */
-.pd-page-chip.marked::after { content: ""; position: absolute; top: 2px; right: 2px; width: 4px; height: 4px;
-  border-radius: 50%; background: var(--good); }
-.pd-page-chip.active.marked::after { background: #fff; }
-.pd-page-count { font-size: .68rem; font-weight: 700; color: var(--text-faint); margin-left: auto; }
+/* ---- multi-page (PDF) page nav — OVERLAID on the image so it costs no vertical space ---- */
+.pd-page-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 13;
+  width: 38px; height: 52px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+  background: rgba(18,18,20,.72); backdrop-filter: blur(6px); color: #fff;
+  font-size: 1.5rem; line-height: 1; display: grid; place-items: center; transition: background .14s ease; }
+.pd-page-arrow:hover:not(:disabled) { background: rgba(18,18,20,.94); }
+.pd-page-arrow:disabled { opacity: .25; cursor: default; }
+.pd-page-arrow.prev { left: 10px; }
+.pd-page-arrow.next { right: 10px; }
+/* compact readout + a dot per page, so which pages carry markup is still visible */
+.pd-page-badge { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 13;
+  display: flex; align-items: center; gap: 9px; padding: 5px 10px; border-radius: 999px;
+  background: rgba(18,18,20,.78); backdrop-filter: blur(6px); border: 1px solid var(--line); }
+.pd-page-num { font: 800 .68rem Inter, sans-serif; color: #fff; letter-spacing: .02em; white-space: nowrap; }
+.pd-page-dots { display: flex; gap: 4px; align-items: center; }
+.pd-page-dot { width: 7px; height: 7px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.45); background: transparent; }
+.pd-page-dot.marked { background: var(--good); border-color: var(--good); }
+.pd-page-dot.active { outline: 2px solid var(--orange); outline-offset: 1px; }
+@media (max-width: 900px) { .pd-page-dots { display: none; } }
+
+/* ---- work-in-progress veil (render + upload) ---- */
+.pd-busy { position: fixed; inset: 0; z-index: 11000; display: flex; align-items: center; justify-content: center;
+  background: rgba(10,10,12,.62); backdrop-filter: blur(3px); }
+.pd-busy-card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 24px 30px; text-align: center; min-width: 260px; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.pd-spinner { width: 34px; height: 34px; margin: 0 auto 14px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--orange); animation: pd-spin .8s linear infinite; }
+@keyframes pd-spin { to { transform: rotate(360deg); } }
+.pd-busy-msg { font-weight: 700; font-size: .86rem; color: var(--text); }
+.pd-busy-sub { margin-top: 5px; font-size: .74rem; color: var(--text-dim); min-height: 1em; }
+
+/* toolbar: let it WRAP and tighten the spacing — it was cramped once the page row appeared */
+.pd-draw-tools { flex-wrap: wrap; row-gap: 8px; gap: 8px; padding: 10px 14px; }
+.pd-draw-tools .pd-spacer { flex: 1 1 auto; min-width: 0; }
+.pd-draw-tools .pd-hint { flex: 1 1 100%; }
+.pd-seg-btn { padding: 6px 11px; font-size: .72rem; }
+.pd-tool-btn { padding: 5px 10px; }
+.pd-swatch { width: 20px; height: 20px; }
+

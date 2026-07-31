@@ -420,6 +420,11 @@ window.PresentDocs = (function () {
                 <button class="pd-popup-close" id="pdPopupClose" title="Close">✕</button>
                 <textarea data-popuptext placeholder="Add a note for this pin…"></textarea>
               </div>
+              <!-- page nav for multi-page PDFs: overlaid on the image so it costs no vertical
+                   space (the strip below made the toolbar cramped — Cameron 2026-07-31) -->
+              <button class="pd-page-arrow prev" id="pdPagePrev" style="display:none" title="Previous page (←)">‹</button>
+              <button class="pd-page-arrow next" id="pdPageNext" style="display:none" title="Next page (→)">›</button>
+              <div class="pd-page-badge" id="pdPageBadge" style="display:none"></div>
               <div class="pd-zoom-controls">
                 <button class="pd-zbtn" id="pdZoomOut" title="Zoom out">−</button>
                 <span id="pdZoomLevel">100%</span>
@@ -443,8 +448,6 @@ window.PresentDocs = (function () {
               <div class="pd-spacer"></div>
               <span class="pd-hint" id="pdToolHint">Draw to circle / highlight areas</span>
             </div>
-            <!-- page strip — only rendered for multi-page (PDF) proofs -->
-            <div class="pd-page-row" id="pdPageRow" style="display:none"></div>
           </div>
 
           <div class="pd-review">
@@ -520,6 +523,17 @@ window.PresentDocs = (function () {
         </div>
       </div>
 
+    </div>
+
+    <!-- Work-in-progress veil. Rendering + uploading a multi-page PDF takes seconds, and it used
+         to happen with NO feedback at all before the brief dialog opened, so people assumed the
+         upload had failed and clicked again (Cameron 2026-07-31). -->
+    <div class="pd-busy" id="pdBusy" style="display:none">
+      <div class="pd-busy-card">
+        <div class="pd-spinner" aria-hidden="true"></div>
+        <div class="pd-busy-msg" id="pdBusyMsg">Working…</div>
+        <div class="pd-busy-sub" id="pdBusySub"></div>
+      </div>
     </div>
 
     <!-- Keyword-exercise builder. Sibling of #pdModal for the same reason as the brief dialog. -->
@@ -716,6 +730,18 @@ window.PresentDocs = (function () {
   }
 
   /* ---------- image processing ---------- */
+  /* ---------- work-in-progress veil ----------
+     Rendering + uploading a PDF's pages takes seconds. It used to run with no feedback before the
+     brief dialog appeared, which read as a failed upload. */
+  function showBusy(msg, sub) {
+    const b = $("pdBusy"); if (!b) return;
+    if ($("pdBusyMsg")) $("pdBusyMsg").textContent = msg || "Working…";
+    if ($("pdBusySub")) $("pdBusySub").textContent = sub || "";
+    b.style.display = "flex";
+  }
+  function busySub(sub) { if ($("pdBusySub")) $("pdBusySub").textContent = sub || ""; }
+  function hideBusy() { const b = $("pdBusy"); if (b) b.style.display = "none"; }
+
   /* ---------- PDF proofs ----------
      A PDF can't be drawn from an <img>, so pdf.js rasterises page 1 at proof resolution and the
      rest of the pipeline is unchanged. The ORIGINAL pdf is uploaded alongside it, so a
@@ -743,13 +769,14 @@ window.PresentDocs = (function () {
   // most proofs are 1 page, some are heftier, and rendering + storing an unbounded deck would be
   // slow on upload and heavy in the export.
   const MAX_PDF_PAGES = 20;
-  async function pdfPageDataUrls(file) {
+  async function pdfPageDataUrls(file, onProgress) {
     const lib = await loadPdfJs();
     const doc = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
     const total = doc.numPages;
     const take = Math.min(total, MAX_PDF_PAGES);
     const out = [];
     for (let n = 1; n <= take; n++) {
+      if (onProgress) onProgress(n, take);
       const page = await doc.getPage(n);
       const base = page.getViewport({ scale: 1 });
       const viewport = page.getViewport({ scale: Math.min(3, 1600 / base.width) });
@@ -770,33 +797,39 @@ window.PresentDocs = (function () {
      storage is off or an upload fails, so a send is never blocked. */
   async function processPdf(file) {
     const name = file.name.replace(/\.[^.]+$/, "");
-    const { dataUrls, pages, rendered } = await pdfPageDataUrls(file);
+    const { dataUrls, pages, rendered } = await pdfPageDataUrls(file,
+      (n, total) => busySub(total > 1 ? `Reading page ${n} of ${total}…` : ""));
     const store = window.TJA_FILES && window.TJA_FILES.enabled();
-    // Each page is its own markup surface: image + its own pins + its own drawing layer.
-    const built = [];
-    for (let i = 0; i < dataUrls.length; i++) {
-      let pg = { pins: [], annotation: null };
-      if (store) {
-        try {
-          const r = await window.TJA_FILES.uploadDataUrl(dataUrls[i], {
-            category: "present-docs", clientId: sess.client, name: `${name}-p${i + 1}`,
-          });
-          if (r && r.url) pg.url = r.url;
-        } catch (e) { console.warn("pdf page upload — keeping inline", e); }
-      }
-      if (!pg.url) pg.dataUrl = dataUrls[i];
-      built.push(pg);
-    }
-    const out = { name, pdfPages: pages, pdfRendered: rendered };
-    // Page 1 doubles as the version's own image so the gallery thumbnail and anything that
-    // predates pages keeps working with no special case.
-    if (built[0].url) out.url = built[0].url; else out.dataUrl = built[0].dataUrl;
-    if (built.length > 1) out.pages = built;
-    // Keep the ORIGINAL pdf too — the reviewer can open the real document, and it matters when
-    // a deck is longer than the render cap.
+    const multi = dataUrls.length > 1;
+    // Multi-page PDFs get their OWN subfolder inside Present Docs, named after the document, so
+    // the page images sit together instead of scattering (Cameron 2026-07-31). A single-page PDF
+    // is just a proof — no subfolder.
+    const subfolder = multi ? name : "";
+    const built = dataUrls.map(() => ({ pins: [], annotation: null }));
+
     if (store) {
+      busySub(multi ? `Uploading ${dataUrls.length} pages…` : "");
       try {
-        const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name });
+        // batched: 6 pages per request rather than one request per page
+        const res = await window.TJA_FILES.uploadDataUrls(dataUrls,
+          { category: "present-docs", clientId: sess.client, name, subfolder },
+          (done, total) => busySub(total > 1 ? `Uploaded ${done} of ${total} pages…` : ""));
+        res.forEach((r, i) => { if (r && r.url && built[i]) built[i].url = r.url; });
+      } catch (e) { console.warn("pdf page upload — keeping inline", e); }
+    }
+    dataUrls.forEach((du, i) => { if (!built[i].url) built[i].dataUrl = du; });
+
+    const out = { name, pdfPages: pages, pdfRendered: rendered };
+    // Page 1 doubles as the version's own image so the gallery thumbnail and anything predating
+    // pages keeps working with no special case.
+    if (built[0].url) out.url = built[0].url; else out.dataUrl = built[0].dataUrl;
+    if (multi) out.pages = built;
+    // Keep the ORIGINAL pdf beside its pages — the reviewer can open the real document, and it
+    // matters when a deck runs past the render cap.
+    if (store) {
+      busySub("Saving the original PDF…");
+      try {
+        const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name, subfolder });
         if (src && src.url) { out.sourceUrl = src.url; out.sourceName = file.name; }
       } catch (e) { console.warn("original pdf upload failed — page images still stand", e); }
     }
@@ -956,9 +989,10 @@ window.PresentDocs = (function () {
     }
     const btn = $("pdKwSend"); const label = btn.textContent;
     btn.disabled = true; btn.textContent = "Building…";
+    showBusy("Building the Brand Keywords slide…");
     let dataUrl = "";
     try { dataUrl = await window.TJA_KEYWORD_SLIDE.render(Object.assign({}, data, { clientName: clientDisplayName() })); }
-    catch (e) { btn.disabled = false; btn.textContent = label; err.textContent = "Couldn't build the slide — try again."; err.style.display = ""; return; }
+    catch (e) { hideBusy(); btn.disabled = false; btn.textContent = label; err.textContent = "Couldn't build the slide — try again."; err.style.display = ""; return; }
     // Store the rendered slide in Drive like any other proof so it doesn't sit inline in the row
     // (~190KB each is exactly what made the deliverables pulls slow). Inline is the fallback.
     let img = { dataUrl };
@@ -968,6 +1002,7 @@ window.PresentDocs = (function () {
         if (up && up.url) img = { url: up.url };
       } catch (e) { console.warn("keyword slide upload — keeping inline", e); }
     }
+    hideBusy();
     btn.disabled = false; btn.textContent = label;
 
     const parent = kwEditParentId ? items.find(x => x.id === kwEditParentId) : null;
@@ -1012,7 +1047,19 @@ window.PresentDocs = (function () {
     const files = Array.from(fileList).filter(f => f.type.startsWith("image/") || isPdfFile(f));
     if (!files.length) return;
     const processed = [];
-    for (const f of files) processed.push(await processFile(f));
+    // veil up for the whole render+upload, so a multi-page PDF never looks like a dead click
+    showBusy(files.length > 1 ? `Preparing ${files.length} files…` : "Preparing your deliverable…");
+    try {
+      for (let i = 0; i < files.length; i++) {
+        if (files.length > 1) showBusy(`Preparing file ${i + 1} of ${files.length}…`);
+        processed.push(await processFile(files[i]));
+      }
+    } catch (e) {
+      hideBusy();
+      window.TJA_UI.alert("Couldn't prepare that file — " + (e && e.message ? e.message : "please try again") + ".");
+      return;
+    }
+    hideBusy();
     pendingUpload = processed;
     const ov = $("pdUpOverlay");
     if (!ov) { commitUpload(); return; }   // no dialog in the DOM → don't strand the files
@@ -1234,7 +1281,11 @@ window.PresentDocs = (function () {
     // file): one round at a time, and not until the client has reviewed the current one.
     if (!isDraft(d) && blockNewRound(d)) return;
     persistCanvas();
-    const p = await processFile(file);
+    showBusy("Preparing the new version…");
+    let p;
+    try { p = await processFile(file); }
+    catch (e) { hideBusy(); window.TJA_UI.alert("Couldn't prepare that file — please try again."); return; }
+    hideBusy();
     if (!isDraft(d)) {
       // ALREADY-SENT deliverable → the new round is STAGED in the waiting room as a proposed
       // version that must be explicitly SENT ("Send to client"). This is now the flow for ALL
@@ -1496,23 +1547,27 @@ window.PresentDocs = (function () {
      Same interaction as the version chips, one level down. Hidden entirely for single-surface
      deliverables, so an image proof looks exactly as it always has. */
   function renderPages() {
-    const row = $("pdPageRow"); if (!row) return;
+    const prev = $("pdPagePrev"), next = $("pdPageNext"), badge = $("pdPageBadge");
+    if (!prev || !next || !badge) return;
     const v = active(deliv(curId));
     const ps = pagesOf(v);
-    if (!ps || ps.length < 2) { row.style.display = "none"; row.innerHTML = ""; return; }
+    if (!ps || ps.length < 2) {                       // single surface: no page chrome at all
+      prev.style.display = next.style.display = badge.style.display = "none";
+      return;
+    }
     const idx = Math.min(curPage, ps.length - 1);
     const marked = (pg) => !!((pg.pins && pg.pins.length) || pg.annotation);
-    row.innerHTML =
-      `<span class="pd-review-label">Page</span>` +
-      `<button class="pd-tool-btn pd-page-nav" data-pagestep="-1" ${idx === 0 ? "disabled" : ""} title="Previous page">‹</button>` +
-      `<div class="pd-page-chips">` +
-      ps.map((pg, i) =>
-        `<button class="pd-page-chip ${i === idx ? "active" : ""}${marked(pg) ? " marked" : ""}" data-page="${i}" ` +
-        `title="Page ${i + 1}${marked(pg) ? " — has markup" : ""}">${i + 1}</button>`).join("") +
-      `</div>` +
-      `<button class="pd-tool-btn pd-page-nav" data-pagestep="1" ${idx === ps.length - 1 ? "disabled" : ""} title="Next page">›</button>` +
-      `<span class="pd-page-count">${idx + 1} of ${ps.length}</span>`;
-    row.style.display = "";
+    prev.style.display = next.style.display = "";
+    prev.disabled = idx === 0;
+    next.disabled = idx === ps.length - 1;
+    // Compact readout: "3 / 5", plus a dot per page so it's still obvious which pages already
+    // carry markup — the chunky numbered chips are gone but that information isn't.
+    badge.innerHTML = `<span class="pd-page-num">${idx + 1} / ${ps.length}</span>` +
+      `<span class="pd-page-dots">` +
+      ps.map((pg, i) => `<button class="pd-page-dot ${i === idx ? "active" : ""}${marked(pg) ? " marked" : ""}" ` +
+        `data-page="${i}" title="Page ${i + 1}${marked(pg) ? " — has markup" : ""}"></button>`).join("") +
+      `</span>`;
+    badge.style.display = "";
   }
   function switchPage(i) {
     const v = active(deliv(curId)); const ps = pagesOf(v); if (!ps) return;
@@ -2418,6 +2473,11 @@ window.PresentDocs = (function () {
       const typing = /INPUT|TEXTAREA/.test(e.target.tagName || "") || e.target.isContentEditable;
       if (e.code === "Space" && !typing) { spaceDown = true; const w = $("pdWrap"); if (w) w.classList.add("space-pan"); e.preventDefault(); return; }
       if (e.key === "Escape") closeModal();
+      // ← / → page through a multi-page proof (not while typing a note)
+      else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !typing) {
+        const d = deliv(curId);
+        if (d && pagesOf(active(d))) { e.preventDefault(); switchPage(curPage + (e.key === "ArrowRight" ? 1 : -1)); }
+      }
       else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); }
     });
     document.addEventListener("keyup", e => {
@@ -2510,14 +2570,12 @@ window.PresentDocs = (function () {
     $("pdUndo").addEventListener("click", undo);
     $("pdClear").addEventListener("click", () => { snapshot(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); });
     $("pdVers").addEventListener("click", e => { const c = e.target.closest("[data-ver]"); if (c) switchVersion(+c.dataset.ver); });
-    const pr = $("pdPageRow");
-    if (pr) pr.addEventListener("click", e => {
-      const st = e.target.closest("[data-pagestep]");
-      if (st) { switchPage(curPage + (+st.dataset.pagestep)); return; }
-      const c = e.target.closest("[data-page]");
-      if (c) switchPage(+c.dataset.page);
+    if ($("pdPagePrev")) $("pdPagePrev").addEventListener("click", () => switchPage(curPage - 1));
+    if ($("pdPageNext")) $("pdPageNext").addEventListener("click", () => switchPage(curPage + 1));
+    const badge = $("pdPageBadge");
+    if (badge) badge.addEventListener("click", e => {
+      const d = e.target.closest("[data-page]"); if (d) switchPage(+d.dataset.page);
     });
-
     $("pdStatus").addEventListener("click", e => {
       const opt = e.target.closest(".pd-status-opt"); if (!opt) return;
       const v = active(deliv(curId)); if (!v) return;

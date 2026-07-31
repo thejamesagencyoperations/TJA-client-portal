@@ -29,7 +29,7 @@
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { driveAccessToken } from "../_shared/google.ts";
-import { ensureClientFolders, folderForCategory } from "../_shared/drive-tree.ts";
+import { ensureClientFolders, folderForCategory, ensureFolder } from "../_shared/drive-tree.ts";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -62,9 +62,13 @@ Deno.serve(async (req) => {
 
   let form: FormData;
   try { form = await req.formData(); } catch { return json(req, 400, { error: "multipart form-data required" }); }
-  const file = form.get("file");
-  if (!(file instanceof File) || !file.size) return json(req, 400, { error: "file required" });
-  if (file.size > MAX_BYTES) return json(req, 413, { error: "file over 10 MB" });
+  // One request may carry SEVERAL files ("file" repeated). A 20-page PDF used to mean 20 separate
+  // invocations — 20 cold starts, 20 registry reads and 20 folder lookups — which is most of why
+  // it took ~30s. Batching also means the subfolder is resolved once per request.
+  const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) return json(req, 400, { error: "file required" });
+  const over = files.find((f) => f.size > MAX_BYTES);
+  if (over) return json(req, 413, { error: `"${over.name}" is over 10 MB` });
 
   // THE rule: clients upload to their own folder, full stop.
   const clientId = (caller.role === "client")
@@ -88,15 +92,31 @@ Deno.serve(async (req) => {
     if (!tree) return json(req, 404, { error: "unknown client" });
     const folderId = tree.folders[folderName] || tree.folderId;
 
-    const up = await uploadToDrive(token, folderId, file);
-    // The portal must NOT use webViewLink to display the file — these files are restricted, so a
-    // browser can't fetch them directly. Hand back the authenticated proxy path instead; the
-    // caller stores that. webViewLink is returned too, for staff opening it natively in Drive.
-    const proxyUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/drive-file` +
-      `?id=${encodeURIComponent(up.id)}&client=${encodeURIComponent(clientId)}`;
+    // Optional subfolder INSIDE the asset folder — used so a multi-page PDF's page images live
+    // together under the deliverable's own name instead of scattering across Present Docs
+    // (Cameron 2026-07-31). Sanitised: Drive has no path semantics, but a name with slashes or
+    // quotes would break the lookup query.
+    const sub = String(form.get("subfolder") ?? "").trim().replace(/[\\/'"\r\n]+/g, " ").slice(0, 120);
+    const targetId = sub ? await ensureFolder(token, folderId, sub) : folderId;
+
+    const base = Deno.env.get("SUPABASE_URL");
+    const results = [];
+    for (const f of files) {
+      const up = await uploadToDrive(token, targetId, f);
+      // Never hand back webViewLink for DISPLAY — the file is restricted, so a browser can't
+      // fetch it. The authenticated proxy path is what the portal stores and renders.
+      results.push({
+        name: f.name,
+        driveId: up.id,
+        driveLink: up.webViewLink,
+        url: `${base}/functions/v1/drive-file?id=${encodeURIComponent(up.id)}&client=${encodeURIComponent(clientId)}`,
+      });
+    }
+    const first = results[0];
     return json(req, 200, {
-      ok: true, driveId: up.id, driveLink: up.webViewLink, url: proxyUrl,
-      folder: folderName,
+      ok: true, folder: folderName, subfolder: sub || null, results,
+      // single-file callers keep the original flat shape
+      driveId: first.driveId, driveLink: first.driveLink, url: first.url,
     });
   } catch (e) {
     console.error("drive upload failed", e);

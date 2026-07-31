@@ -74,7 +74,7 @@ async function createFolder(token: string, parentId: string, name: string): Prom
 
 // Drive has no upsert, and a concurrent double-run would happily create duplicates — always look
 // before creating.
-async function ensureFolder(token: string, parentId: string, name: string): Promise<string> {
+export async function ensureFolder(token: string, parentId: string, name: string): Promise<string> {
   return (await findChildFolder(token, parentId, name)) ?? (await createFolder(token, parentId, name));
 }
 
