@@ -1,0 +1,36 @@
+name: Drive folder provision
+
+# Ensures every client has their Drive folder tree under "TJA Client Portal Storage":
+#   <Client Name>/{Present Docs, Reporting, Monthly Snapshots, Files, Media Requests, History, Misc.}
+#
+# IDEMPOTENT — it only creates what's missing, so it's safe to run any time. Run it manually
+# (Actions -> this workflow -> Run workflow) whenever a new asset-type folder is added to
+# ASSET_FOLDERS in supabase/functions/drive-provision/index.ts: every existing client gets the
+# new folder back-filled. The daily schedule catches clients Workamajig creates.
+
+on:
+  schedule:
+    - cron: "20 7 * * *"     # 07:20 UTC daily — after the 06:00 snapshot, before the workday
+  workflow_dispatch:
+    inputs:
+      clientId:
+        description: "Provision ONE client only (registry id, e.g. a-new-leaf). Blank = all clients."
+        required: false
+        default: ""
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger drive-provision
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+          ONLY: ${{ github.event.inputs.clientId }}
+        run: |
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/drive-provision" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+            -H "Authorization: Bearer ${ANON_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"clientId\":\"${ONLY}\"}" \
+            -w "\nHTTP %{http_code}\n" --fail-with-body
