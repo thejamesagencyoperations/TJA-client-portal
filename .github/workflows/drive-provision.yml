@@ -27,10 +27,19 @@ jobs:
           SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
           ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
           ONLY: ${{ github.event.inputs.clientId }}
+        # The function works to a time budget and returns `remaining` when it stops early (each
+        # folder is a Drive round-trip, so 50 fresh clients can't fit one invocation). Loop until
+        # it reports nothing left — progress is recorded in the registry, so every pass resumes.
         run: |
-          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/drive-provision" \
-            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
-            -H "Authorization: Bearer ${ANON_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{\"clientId\":\"${ONLY}\"}" \
-            -w "\nHTTP %{http_code}\n" --fail-with-body
+          for i in $(seq 1 12); do
+            echo "--- pass $i ---"
+            OUT=$(curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/drive-provision" \
+              -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+              -H "Authorization: Bearer ${ANON_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "{\"clientId\":\"${ONLY}\"}" \
+              -w "\nHTTP %{http_code}" --fail-with-body)
+            echo "$OUT"
+            echo "$OUT" | grep -q '"remaining":0' && { echo "all clients provisioned"; break; }
+            sleep 3
+          done

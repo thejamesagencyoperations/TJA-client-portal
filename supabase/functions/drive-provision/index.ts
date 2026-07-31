@@ -131,12 +131,23 @@ Deno.serve(async (req) => {
   const token = await driveAccessToken();
   const createdAll: string[] = [];
   const failed: Array<{ client: string; error: string }> = [];
-  let touched = 0;
+  let touched = 0, skipped = 0, remaining = 0;
+
+  // Each folder costs a Drive round-trip (~0.7s), so ~14 calls per fresh client. Provisioning 50
+  // clients in one invocation would run for minutes and hit the function's wall clock. Instead:
+  // skip clients already fully recorded (zero Drive calls), and stop on a time budget reporting
+  // `remaining` so the caller can loop. Registry state makes the whole thing resumable.
+  const BUDGET_MS = 95_000;
+  const startedAt = Date.now();
 
   for (const c of targets) {
     const id = String(c.id), name = String(c.name || id);
     const integ = (c.integrations && typeof c.integrations === "object" ? c.integrations : {}) as Record<string, unknown>;
     const known = (body.force ? {} : (integ.driveFolders as Record<string, string>)) || {};
+    // Fully provisioned already? Nothing to do — and crucially, no Drive traffic.
+    const complete = !body.force && !!integ.driveFolderId && ASSET_FOLDERS.every((n) => known[n]);
+    if (complete) { skipped++; continue; }
+    if (Date.now() - startedAt > BUDGET_MS) { remaining++; continue; }
     try {
       const tree = await ensureClientTree(token, rootId, name, known);
       integ.driveFolderId = tree.folderId;
@@ -158,7 +169,8 @@ Deno.serve(async (req) => {
   if (werr) return json(req, 500, { error: "registry write failed: " + werr.message, created: createdAll, failed });
 
   return json(req, 200, {
-    ok: true, clients: targets.length, provisioned: touched,
+    ok: true, clients: targets.length, provisioned: touched, alreadyDone: skipped,
+    remaining,                                   // >0 → call again to continue (state is durable)
     foldersCreated: createdAll.length, created: createdAll.slice(0, 60),
     failed,
   });
