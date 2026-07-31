@@ -81,6 +81,39 @@ export async function uploadFileToSlack(
   }
 }
 
+/* Resolve full names ("Frankie Bautista") to Slack user IDs so posts can @-mention people
+   for real (<@U…> pings; plain "@Name" text notifies nobody). Matches real_name /
+   display_name / handle case-insensitively via users.list.
+   Needs the bot scope `users:read` — on missing_scope (or any failure) this returns what it
+   has and the caller falls back to bold plain-text names, so tagging can never break a post. */
+export async function slackUserIdsByName(names: string[]): Promise<Record<string, string>> {
+  const botToken = Deno.env.get("SLACK_BOT_TOKEN");
+  const want = [...new Set(names.map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))];
+  const out: Record<string, string> = {};
+  if (!botToken || !want.length) return out;
+  let cursor = "";
+  try {
+    for (let page = 0; page < 6; page++) {           // 6×200 covers a workspace far larger than TJA
+      const u = new URL("https://slack.com/api/users.list");
+      u.searchParams.set("limit", "200");
+      if (cursor) u.searchParams.set("cursor", cursor);
+      const r = await fetch(u, { headers: { Authorization: `Bearer ${botToken}` } });
+      const j = await r.json().catch(() => ({}));
+      if (!j.ok) { console.error("slackUserIdsByName", j.error || "users.list failed"); return out; }
+      for (const m of (j.members || [])) {
+        if (m.deleted || m.is_bot || m.id === "USLACKBOT") continue;
+        const cands = [m.real_name, m.profile?.real_name, m.profile?.display_name, m.name]
+          .map((s: string) => String(s || "").trim().toLowerCase());
+        for (const w of want) if (!out[w] && cands.includes(w)) out[w] = m.id;
+      }
+      if (Object.keys(out).length === want.length) break;
+      cursor = j.response_metadata?.next_cursor || "";
+      if (!cursor) break;
+    }
+  } catch (e) { console.error("slackUserIdsByName", e); }
+  return out;
+}
+
 export async function postToSlack(channel: string | undefined, text: string): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   const botToken = Deno.env.get("SLACK_BOT_TOKEN");
   const webhook = Deno.env.get("SLACK_WEBHOOK_URL");

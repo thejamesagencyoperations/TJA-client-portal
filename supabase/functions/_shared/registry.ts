@@ -18,6 +18,9 @@ export type RegistryEntry = {
   id: string; name: string;
   login?: { email?: string };
   integrations?: Integrations;
+  am?: string;                 // Account Manager (full login name — assign-sync / Admin Center)
+  pm?: string;                 // Project Manager  (ditto)
+  managers?: string[];         // the edit-access tags; usually [am, pm]
 };
 
 export async function registryEntry(clientId: string): Promise<RegistryEntry | null> {

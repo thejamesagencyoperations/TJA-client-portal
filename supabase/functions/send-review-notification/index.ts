@@ -20,7 +20,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
 import { portalEmail } from "../_shared/email.ts";
-import { postToSlack, uploadFileToSlack } from "../_shared/slack.ts";
+import { postToSlack, uploadFileToSlack, slackUserIdsByName } from "../_shared/slack.ts";
 
 const PORTAL_BASE_URL = "https://thejamesagencyoperations.github.io/TJA-client-portal";
 
@@ -79,7 +79,19 @@ Deno.serve(async (req) => {
   // Multi-reviewer rounds pass a per-person breakdown ("Jane: Approved · Sam: Revisions…") —
   // the ping itself fires once, when the LAST reviewer submits (gated client-side).
   const reviewerLine = String(body.reviewerLine ?? "").slice(0, 400);
-  const slackText = `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}${reviewerLine ? `\n${reviewerLine}` : ""}\n<${REVIEW_URL}|Open the deliverable →>`;
+  // On an APPROVAL (approved / approved-with-changes) tag the account's AM + PM so the sign-off
+  // pings the people who own the account (Cameron 2026-07-31). Real <@id> mentions when the
+  // names resolve (needs bot scope users:read); bold plain names otherwise — never silent.
+  let ccLine = "";
+  if (body.status === "approved" || body.status === "changes") {
+    const names = [...new Set([entry.am, entry.pm].filter(Boolean).map((n) => String(n)))];
+    if (names.length) {
+      const ids = await slackUserIdsByName(names).catch(() => ({} as Record<string, string>));
+      const tags = names.map((n) => ids[n.toLowerCase()] ? `<@${ids[n.toLowerCase()]}>` : `*${n}*`);
+      ccLine = `\n${tags.join(" ")} — approved, over to you`;
+    }
+  }
+  const slackText = `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}${reviewerLine ? `\n${reviewerLine}` : ""}${ccLine}\n<${REVIEW_URL}|Open the deliverable →>`;
   // If the client's browser sent the proof PDF, push it to Slack WITH the review message
   // (one post: summary + attached PDF). Falls back to a text-only post if there's no PDF or
   // the upload fails (e.g. the bot doesn't have files:write yet).
