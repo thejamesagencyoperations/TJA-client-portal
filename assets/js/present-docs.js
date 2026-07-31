@@ -357,8 +357,8 @@ window.PresentDocs = (function () {
           <path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 20h14"/></svg>
         Upload Deliverable
       </button>
-      <input type="file" id="pdFile" accept="image/*" multiple hidden>
-      <input type="file" id="pdVerFile" accept="image/*" hidden>
+      <input type="file" id="pdFile" accept="image/*,application/pdf,.pdf" multiple hidden>
+      <input type="file" id="pdVerFile" accept="image/*,application/pdf,.pdf" hidden>
       <!-- Keyword exercise: a deliverable built from DATA, not an uploaded file. The three
            columns are painted onto the agency's Brand Keywords slide (keyword-slide.js) and the
            resulting image IS the proof — so review, markup, approval + the proof PDF all work
@@ -369,8 +369,8 @@ window.PresentDocs = (function () {
         Keyword exercise
       </button>
       <span class="pd-hint">${(typeof isCreative === "function" && isCreative())
-        ? "PNG / JPG · your upload goes to the account manager for release — the client sees it after they hit Send"
-        : "PNG / JPG · logos, banners, ad sets, messaging — anything you design"}</span>
+        ? "PNG / JPG / PDF · your upload goes to the account manager for release — the client sees it after they hit Send"
+        : "PNG / JPG / PDF · logos, banners, ad sets, messaging — anything you design"}</span>
     </div>
 
     <div class="pd-gallery" id="pdGallery"></div>
@@ -691,7 +691,69 @@ window.PresentDocs = (function () {
   }
 
   /* ---------- image processing ---------- */
-  function processFile(file) {
+  /* ---------- PDF proofs ----------
+     A PDF can't be drawn from an <img>, so pdf.js rasterises page 1 at proof resolution and the
+     rest of the pipeline is unchanged. The ORIGINAL pdf is uploaded alongside it, so a
+     multi-page document is never lost — the review screen links to the full file.
+     NOTE (bookmarked): per-page markup for multi-page PDFs is the follow-up; today page 1 is the
+     markup surface and the full document sits beside it. */
+  const isPdfFile = (f) => !!f && (f.type === "application/pdf" || /\.pdf$/i.test(f.name || ""));
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      s.onload = () => {
+        try {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        } catch (e) {}
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = () => reject(new Error("pdf.js failed to load"));
+      document.head.appendChild(s);
+    });
+  }
+  // → { dataUrl, pages } for page 1 at ~1600px wide (matching the image path).
+  async function pdfFirstPageDataUrl(file) {
+    const lib = await loadPdfJs();
+    const buf = await file.arrayBuffer();
+    const doc = await lib.getDocument({ data: buf }).promise;
+    const page = await doc.getPage(1);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: Math.min(3, 1600 / base.width) });
+    const c = document.createElement("canvas");
+    c.width = Math.round(viewport.width); c.height = Math.round(viewport.height);
+    // White behind the page — a PDF's background is transparent, which would render black.
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: x, viewport }).promise;
+    return { dataUrl: c.toDataURL("image/jpeg", 0.9), pages: doc.numPages };
+  }
+
+  /* Turn a PDF into a proof: page 1 becomes the markup image; the original file is uploaded too
+     so the reviewer can open the whole document. Falls back to inline (like the image path) if
+     storage is off or an upload fails, so a send is never blocked. */
+  async function processPdf(file) {
+    const name = file.name.replace(/\.[^.]+$/, "");
+    const { dataUrl, pages } = await pdfFirstPageDataUrl(file);
+    const out = { name, pdfPages: pages };
+    if (window.TJA_FILES && window.TJA_FILES.enabled()) {
+      try {
+        const r = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name });
+        if (r && r.url) out.url = r.url;
+      } catch (e) { console.warn("pdf page upload — keeping inline", e); }
+      try {
+        const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name });
+        if (src && src.url) { out.sourceUrl = src.url; out.sourceName = file.name; }
+      } catch (e) { console.warn("original pdf upload failed — page image still stands", e); }
+    }
+    if (!out.url) out.dataUrl = dataUrl;
+    return out;
+  }
+
+  async function processFile(file) {
+    if (isPdfFile(file)) return await processPdf(file);
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = () => {
@@ -740,6 +802,9 @@ window.PresentDocs = (function () {
     if (typeof img === "string") v.dataUrl = img;
     else if (img && img.url) v.url = img.url;
     else if (img && img.dataUrl) v.dataUrl = img.dataUrl;
+    // PDF proof: keep the link to the full document + its page count alongside the page-1 image
+    if (img && img.sourceUrl) { v.sourceUrl = img.sourceUrl; v.sourceName = img.sourceName || "document.pdf"; }
+    if (img && img.pdfPages) v.pdfPages = img.pdfPages;
     return v;
   }
 
@@ -888,7 +953,9 @@ window.PresentDocs = (function () {
   // commitUpload(). This is what gives V2/V3 the same notes + feedback-due popup V1 gets.
   let pendingSendDraftId = null;
   async function handleNewDeliverables(fileList) {
-    const files = Array.from(fileList).filter(f => f.type.startsWith("image/"));
+    // Images AND PDFs. A PDF's first page is rasterised by processFile so it flows through the
+    // SAME canvas pipeline as an image — markup, pins and the proof PDF need no special case.
+    const files = Array.from(fileList).filter(f => f.type.startsWith("image/") || isPdfFile(f));
     if (!files.length) return;
     const processed = [];
     for (const f of files) processed.push(await processFile(f));
@@ -1640,6 +1707,18 @@ window.PresentDocs = (function () {
     // small specs line so the client sees the artwork's specifications at a glance
     const sl = $("pdSpecsLine");
     if (sl) { sl.style.display = d.specs ? "" : "none"; sl.textContent = d.specs ? "Specs: " + d.specs : ""; }
+    // PDF proof: page 1 is what's marked up, so always offer the FULL document (and say how many
+    // pages there are, otherwise a reviewer has no idea anything else exists).
+    let pl = $("pdPdfLine");
+    if (!pl && sl) { pl = document.createElement("div"); pl.id = "pdPdfLine"; pl.className = "pd-specs-line pd-pdf-line"; sl.parentNode.insertBefore(pl, sl.nextSibling); }
+    if (pl) {
+      if (v.sourceUrl) {
+        const n = +v.pdfPages || 0;
+        pl.innerHTML = `📄 <a href="#" data-openpdf="1">Open the full PDF</a>` +
+          (n > 1 ? ` <span class="pd-pdf-n">${n} pages — page 1 shown for markup</span>` : ``);
+        pl.style.display = "";
+      } else { pl.style.display = "none"; pl.innerHTML = ""; }
+    }
   }
   // In-flight guard: a double-click on Submit (the revisions path has no confirm dialog to
   // slow it down) ran the entire pipeline twice — two saves, two Slack pings, two emails for
@@ -2417,6 +2496,15 @@ window.PresentDocs = (function () {
     });
 
     $("pdSubmit").addEventListener("click", submitReview);
+    // "Open the full PDF" — resolve through the authenticated proxy, then open the blob.
+    document.addEventListener("click", async (e) => {
+      const a = e.target.closest("[data-openpdf]"); if (!a) return;
+      e.preventDefault();
+      const d = deliv(curId); const v = d && active(d);
+      if (!v || !v.sourceUrl) return;
+      try { window.open(await window.TJA_FILES.blobUrl(v.sourceUrl), "_blank", "noopener"); }
+      catch (err) { window.TJA_UI.alert("Couldn't open the PDF — your session may have expired. Sign out and back in, then try again."); }
+    });
     $("pdExport").addEventListener("click", () => exportPDF(deliv(curId)));
 
     // signature pad

@@ -1945,3 +1945,9 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 .cl-login-note { font-size: .74rem; color: var(--text-dim); background: var(--input);
   border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin: 12px 0 0; line-height: 1.5; }
 .cl-login-note a { color: var(--accent-text); font-weight: 700; }
+
+/* PDF proof: link to the full document beside the marked-up page-1 image */
+.pd-pdf-line { display: none; }
+.pd-pdf-line a { color: var(--orange); font-weight: 700; text-decoration: none; border-bottom: 1px solid transparent; }
+.pd-pdf-line a:hover { border-bottom-color: var(--orange); }
+.pd-pdf-n { color: var(--text-faint); font-weight: 600; margin-left: 6px; }

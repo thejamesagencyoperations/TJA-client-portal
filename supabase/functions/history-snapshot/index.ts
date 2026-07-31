@@ -47,6 +47,17 @@ Deno.serve(async (req) => {
   const st: any = (stRow?.data && typeof stRow.data === "object" && !Array.isArray(stRow.data)) ? stRow.data : {};
   st.folders = st.folders || {}; st.lastSnapshot = st.lastSnapshot || {};
 
+  // Per-client History folder ids, so a snapshot lands in that client's own folder inside the
+  // main storage tree rather than a separate parallel hierarchy. Read once per run.
+  const reg = new Map<string, { integrations?: { driveFolders?: Record<string, string> } }>();
+  try {
+    const { data: regRow } = await svc.from("app_state").select("data")
+      .eq("client_id", "_registry").eq("scope", "clients").maybeSingle();
+    for (const c of (Array.isArray(regRow?.data) ? regRow!.data : [])) {
+      if (c && c.id) reg.set(String(c.id), c);
+    }
+  } catch (e) { /* fall back to the legacy layout below */ }
+
   // folder ids are cached so we don't re-query Drive for every client every day
   async function folder(path: string): Promise<string> {
     if (st.folders[path]) return st.folders[path];
@@ -95,7 +106,12 @@ Deno.serve(async (req) => {
         for (const r of (mine || [])) scopes[String(r.scope)] = r.data;
         const payload = enc.encode(JSON.stringify({ client: cid, takenAt: new Date().toISOString(), newestChange: m.newest, scopes }));
         const gz = await gzipBytes(payload);
-        const fid = await folder(`snapshots/${cid}`);
+        // Per-client snapshots now live in that client's OWN History folder inside
+        // "TJA Client Portal Storage" (integrations.driveFolders.History), so the whole tree is
+        // one place — Cameron 2026-07-31. Falls back to the legacy snapshots/<client> path under
+        // DRIVE_HISTORY_FOLDER_ID when a client hasn't been provisioned yet.
+        const histId = reg.get(cid)?.integrations?.driveFolders?.History;
+        const fid = histId || await folder(`snapshots/${cid}`);
         await driveUploadBytes(token, fid, `${today}.json.gz`, gz, "application/gzip");
         st.lastSnapshot[cid] = { date: today, stamp: m.newest, bytes: gz.length };
         snapshotted++;
