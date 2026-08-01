@@ -107,12 +107,18 @@ window.PresentDocs = (function () {
     local.forEach(ld => {
       const fd = freshById.get(ld.id);
       if (!fd) return;   // card the server doesn't have (deleted elsewhere) — server wins
+      // the deliverable's Drive folder, if this browser was the one that resolved it
+      if (ld.driveFolderId && !fd.driveFolderId) fd.driveFolderId = ld.driveFolderId;
       (ld.versions || []).forEach(lv => {
         if (!lv.vid) return;
         const fv = (fd.versions || []).find(x => x.vid === lv.vid);
         if (!fv) return;   // version the server doesn't have — server wins
         mergeVersionSurfaces(lv, fv, me);        // pins + drawings, per page when paged
         if (lv.reviews && lv.reviews[me]) fv.reviews = Object.assign({}, fv.reviews, { [me]: lv.reviews[me] });
+        /* Facts this browser just PRODUCED about the round — the archived proof PDF is written
+           after the review flush, so without carrying it here the very next merge drops it and
+           the Drive copy is orphaned (the link came back null even though the upload succeeded). */
+        ["reviewedPdfUrl", "reviewedPdfLink"].forEach(k => { if (lv[k] && !fv[k]) fv[k] = lv[k]; });
         if (lv.signature && !fv.signature) { fv.signature = lv.signature; fv.signedBy = lv.signedBy; fv.signedDate = lv.signedDate; }
         if (expectedOf(fv).length) {
           fv.status = aggregateStatus(fv);
@@ -2078,9 +2084,16 @@ window.PresentDocs = (function () {
           });
           if (up) {
             pdfDriveLink = up.driveLink || "";
-            if (!curD.driveFolderId && up.folderId) curD.driveFolderId = up.folderId;
+            /* Re-resolve the live objects AFTER the awaits. Rendering and uploading a multi-MB
+               PDF takes seconds, and the debounced merged push fires mid-flight and REPLACES
+               `items` with a fresh server array — which detaches curD/curV, so writing to them
+               silently wrote to an orphan and the archived PDF never got linked to the round
+               (Cameron 2026-08-01). Always target whatever is live now. */
+            const liveD = (items || []).find(x => x.id === curD.id) || curD;
+            const liveV = (liveD.versions || []).find(x => x.vid === curV.vid) || curV;
+            if (!liveD.driveFolderId && up.folderId) liveD.driveFolderId = up.folderId;
             // remember it on the round so the team can re-open the signed copy later
-            curV.reviewedPdfUrl = up.url || ""; curV.reviewedPdfLink = pdfDriveLink;
+            liveV.reviewedPdfUrl = up.url || ""; liveV.reviewedPdfLink = pdfDriveLink;
             saveCur();
           }
         } catch (e) { console.warn("reviewed-proof archive to Drive failed", e); }
@@ -2683,7 +2696,10 @@ window.PresentDocs = (function () {
 
     $("pdPinList").addEventListener("input", e => {
       const ta = e.target.closest("[data-pintext]"); if (!ta) return;
-      const v = active(deliv(curId)); const p = v.pins.find(x => x.id === ta.dataset.pintext);
+      // curSurface(), NOT the version: on a multi-page proof the pins live on the CURRENT PAGE,
+      // and looking them up in v.pins found nothing — so typing a comment silently saved nowhere
+      // (Cameron 2026-08-01). Every other pin site already resolves through curSurface().
+      const v = curSurface(); const p = v && (v.pins || []).find(x => x.id === ta.dataset.pintext);
       if (p) { p.text = ta.value; saveCur(); syncPopup(p); }
     });
     $("pdPinList").addEventListener("click", e => {
