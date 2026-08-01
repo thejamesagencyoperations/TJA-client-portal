@@ -76,6 +76,31 @@ window.PresentDocs = (function () {
        • legacy single-reviewer versions keep local-wins on their review fields (old behavior).
      Drawings (annotation) are one shared canvas, so the last writer wins there — that's the
      one thing that can't be merged. */
+  /* Graft MY markup from one surface onto another. A "surface" is a PAGE for a multi-page PDF,
+     or the version itself for a single image — which is exactly the distinction the merge used
+     to miss: it only ever looked at version-level pins, so a multi-page proof's markup was
+     dropped on every merge and the client's comments vanished the moment they submitted
+     (2026-07-31). Author-keyed, so a teammate's pins are never touched. */
+  function mergeSurfaceMine(lsf, fsf, me) {
+    if (!lsf || !fsf) return;
+    const mineOwned = (pn) => !pn.byEmail || pn.byEmail === me;
+    const byId = new Map((fsf.pins || []).map(pn => [pn.id, pn]));
+    (lsf.pins || []).forEach(pn => { if (mineOwned(pn)) byId.set(pn.id, pn); });
+    (fsf.pins || []).forEach(pn => { if (mineOwned(pn) && !(lsf.pins || []).some(x => x.id === pn.id)) byId.delete(pn.id); });
+    fsf.pins = [...byId.values()];
+    if (lsf.annotation !== undefined) fsf.annotation = lsf.annotation;
+  }
+  // Apply across EVERY surface of a version — each page when paged, else the version itself.
+  function mergeVersionSurfaces(lv, fv, me) {
+    const lp = pagesOf(lv), fp = pagesOf(fv);
+    if (lp && fp) {
+      const n = Math.min(lp.length, fp.length);
+      for (let i = 0; i < n; i++) mergeSurfaceMine(lp[i], fp[i], me);
+    } else {
+      mergeSurfaceMine(lv, fv, me);
+    }
+  }
+
   function mergeMineInto(fresh, local) {
     const me = myEmail();
     const freshById = new Map(fresh.map(x => [x.id, x]));
@@ -86,13 +111,8 @@ window.PresentDocs = (function () {
         if (!lv.vid) return;
         const fv = (fd.versions || []).find(x => x.vid === lv.vid);
         if (!fv) return;   // version the server doesn't have — server wins
-        const mineOwned = (p) => !p.byEmail || p.byEmail === me;
-        const byId = new Map((fv.pins || []).map(p => [p.id, p]));
-        (lv.pins || []).forEach(p => { if (mineOwned(p)) byId.set(p.id, p); });
-        (fv.pins || []).forEach(p => { if (mineOwned(p) && !(lv.pins || []).some(x => x.id === p.id)) byId.delete(p.id); });
-        fv.pins = [...byId.values()];
+        mergeVersionSurfaces(lv, fv, me);        // pins + drawings, per page when paged
         if (lv.reviews && lv.reviews[me]) fv.reviews = Object.assign({}, fv.reviews, { [me]: lv.reviews[me] });
-        if (lv.annotation !== undefined) fv.annotation = lv.annotation;
         if (lv.signature && !fv.signature) { fv.signature = lv.signature; fv.signedBy = lv.signedBy; fv.signedDate = lv.signedDate; }
         if (expectedOf(fv).length) {
           fv.status = aggregateStatus(fv);
@@ -172,6 +192,19 @@ window.PresentDocs = (function () {
     if (!Object.keys(out.reviews).length) delete out.reviews;
     out.pins = mergeById(b.pins, mine.pins, theirs.pins, "id",
       (pb, pm, pt) => (same(pm, pb) ? pt : pm));
+    // PAGES: a whole-array win would throw away one side's markup, so merge each page's pins
+    // (id-keyed 3-way) and take a changed drawing from whoever changed it.
+    const bp = pagesOf(b), mp = pagesOf(mine), tp = pagesOf(theirs);
+    if (mp && tp) {
+      out.pages = tp.map((tpg, i) => {
+        const mpg = mp[i]; if (!mpg) return tpg;
+        const bpg = (bp && bp[i]) || {};
+        const merged = Object.assign({}, tpg);
+        merged.pins = mergeById(bpg.pins, mpg.pins, tpg.pins, "id", (pb, pm2, pt) => (same(pm2, pb) ? pt : pm2));
+        if (!same(mpg.annotation, bpg.annotation)) merged.annotation = mpg.annotation;
+        return merged;
+      });
+    }
     return out;
   }
   function mergeCard(base, mine, theirs) {
@@ -795,31 +828,36 @@ window.PresentDocs = (function () {
   /* Turn a PDF into a proof: page 1 becomes the markup image; the original file is uploaded too
      so the reviewer can open the whole document. Falls back to inline (like the image path) if
      storage is off or an upload fails, so a send is never blocked. */
-  async function processPdf(file) {
+  async function processPdf(file, opts) {
     const name = file.name.replace(/\.[^.]+$/, "");
     const { dataUrls, pages, rendered } = await pdfPageDataUrls(file,
       (n, total) => busySub(total > 1 ? `Reading page ${n} of ${total}…` : ""));
     const store = window.TJA_FILES && window.TJA_FILES.enabled();
     const multi = dataUrls.length > 1;
-    // Multi-page PDFs get their OWN subfolder inside Present Docs, named after the document, so
-    // the page images sit together instead of scattering (Cameron 2026-07-31). A single-page PDF
-    // is just a proof — no subfolder.
-    const subfolder = multi ? name : "";
+    /* EVERY deliverable gets its own folder inside Present Docs — not just multi-page PDFs.
+       One folder now holds V1, V2, the page images, the original PDFs, the client's marked-up
+       proof and the approved export, instead of those scattering across the client's Present
+       Docs (Cameron 2026-07-31). A later round passes the parent's folderId so it joins V1's
+       folder rather than starting a new one. */
+    const subfolder = (opts && opts.subfolder) || name;
+    const folderId = (opts && opts.folderId) || "";
     const built = dataUrls.map(() => ({ pins: [], annotation: null }));
+    const out0 = {};                     // carries driveFolderId back out of the upload block
 
     if (store) {
       busySub(multi ? `Uploading ${dataUrls.length} pages…` : "");
       try {
         // batched: 6 pages per request rather than one request per page
         const res = await window.TJA_FILES.uploadDataUrls(dataUrls,
-          { category: "present-docs", clientId: sess.client, name, subfolder },
+          { category: "present-docs", clientId: sess.client, name, subfolder, folderId },
           (done, total) => busySub(total > 1 ? `Uploaded ${done} of ${total} pages…` : ""));
         res.forEach((r, i) => { if (r && r.url && built[i]) built[i].url = r.url; });
+        if (res[0] && res[0].folderId) out0.driveFolderId = res[0].folderId;
       } catch (e) { console.warn("pdf page upload — keeping inline", e); }
     }
     dataUrls.forEach((du, i) => { if (!built[i].url) built[i].dataUrl = du; });
 
-    const out = { name, pdfPages: pages, pdfRendered: rendered };
+    const out = Object.assign({ name, pdfPages: pages, pdfRendered: rendered }, out0);
     // Page 1 doubles as the version's own image so the gallery thumbnail and anything predating
     // pages keeps working with no special case.
     if (built[0].url) out.url = built[0].url; else out.dataUrl = built[0].dataUrl;
@@ -829,15 +867,16 @@ window.PresentDocs = (function () {
     if (store) {
       busySub("Saving the original PDF…");
       try {
-        const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name, subfolder });
+        const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name, subfolder, folderId: folderId || out.driveFolderId });
         if (src && src.url) { out.sourceUrl = src.url; out.sourceName = file.name; }
+        if (src && src.folderId && !out.driveFolderId) out.driveFolderId = src.folderId;
       } catch (e) { console.warn("original pdf upload failed — page images still stand", e); }
     }
     return out;
   }
 
-  async function processFile(file) {
-    if (isPdfFile(file)) return await processPdf(file);
+  async function processFile(file, opts) {
+    if (isPdfFile(file)) return await processPdf(file, opts);
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = () => {
@@ -856,8 +895,9 @@ window.PresentDocs = (function () {
           // NEVER break. Old deliverables keep their inline dataUrl (rendered via v.url||v.dataUrl).
           if (window.TJA_FILES && window.TJA_FILES.enabled()) {
             try {
-              const r = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name });
-              if (r && r.url) { resolve({ url: r.url, name }); return; }
+              const r = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name,
+                subfolder: (opts && opts.subfolder) || name, folderId: (opts && opts.folderId) || "" });
+              if (r && r.url) { resolve({ url: r.url, name, driveFolderId: r.folderId }); return; }
             } catch (e) { console.warn("proof upload — keeping inline", e); }
           }
           resolve({ dataUrl, name });
@@ -998,8 +1038,12 @@ window.PresentDocs = (function () {
     let img = { dataUrl };
     if (window.TJA_FILES && window.TJA_FILES.enabled()) {
       try {
-        const up = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name: subject || "keywords" });
-        if (up && up.url) img = { url: up.url };
+        // a new keyword ROUND belongs in the existing deliverable's folder, not a new one
+        const kwParent = kwEditParentId ? items.find(x => x.id === kwEditParentId) : null;
+        const up = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client,
+          name: subject || "keywords", subfolder: (kwParent && kwParent.name) || subject || "keywords",
+          folderId: (kwParent && kwParent.driveFolderId) || "" });
+        if (up && up.url) img = { url: up.url, driveFolderId: up.folderId };
       } catch (e) { console.warn("keyword slide upload — keeping inline", e); }
     }
     hideBusy();
@@ -1016,7 +1060,8 @@ window.PresentDocs = (function () {
     closeKeywordDialog();
     if (toDraft) {
       v.state = "pending_approval";
-      const card = { id: uid(), name: subject, active: 0, versions: [v], kind: "keywords" };
+      const card = { id: uid(), name: subject, active: 0, versions: [v], kind: "keywords",
+                     driveFolderId: (parent && parent.driveFolderId) || img.driveFolderId || null };
       if (parent) card.parentId = parent.id;
       draftItems.unshift(card);
       if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: card.id, docName: subject, versionLabel: v.label, by: sess.name || "Staff" }); } catch (e) {} }
@@ -1026,7 +1071,7 @@ window.PresentDocs = (function () {
       return;
     }
     v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
-    const item = { id: uid(), name: subject, active: 0, versions: [v], kind: "keywords" };
+    const item = { id: uid(), name: subject, active: 0, versions: [v], kind: "keywords", driveFolderId: img.driveFolderId || null };
     items.unshift(item);
     await saveNow();
     renderGallery();
@@ -1195,6 +1240,19 @@ window.PresentDocs = (function () {
     // When several files share one subject, the filename is appended so the cards stay
     // tellable apart (they'd otherwise all carry the same name).
     const nameFor = (p) => !subject ? p.name : (multi ? subject + " — " + p.name : subject);
+    /* The Drive folder was created at file-select time and named after the FILE — the subject
+       didn't exist yet. Now it does, so rename it to match the Present Doc's title, which is
+       what the folder is supposed to be called. Fire-and-forget: a rename failing must never
+       block a send, and the folderId (not the name) is what later rounds aim at. */
+    if (subject && window.TJA_FILES && window.TJA_FILES.renameFolder) {
+      const seen = new Set();
+      (pendingUpload || []).forEach(p => {
+        if (!p.driveFolderId || seen.has(p.driveFolderId)) return;
+        seen.add(p.driveFolderId);
+        window.TJA_FILES.renameFolder(p.driveFolderId, nameFor(p), sess.client)
+          .catch(e => console.warn("drive folder rename failed", e));
+      });
+    }
     (pendingUpload || []).forEach(p => {
       const v = newVersion(p, "V1");
       v.subject = subject; v.message = message; v.revisionsDue = due;
@@ -1203,7 +1261,7 @@ window.PresentDocs = (function () {
         v.state = "pending_approval";
         // record the draft CARD's id (not v.vid) — it's what openModal/openDoc resolve,
         // so a notification click can land straight on this waiting-room card.
-        const draftCard = { id: uid(), name: name, active: 0, versions: [v], specs: specs };
+        const draftCard = { id: uid(), name: name, active: 0, versions: [v], specs: specs, driveFolderId: p.driveFolderId || null };
         draftItems.unshift(draftCard);
         if (window.TJA_NOTIFY) {
           // admin-bell discovery of pending work (the CLIENT hears nothing until release)
@@ -1216,7 +1274,7 @@ window.PresentDocs = (function () {
         v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
         // capture the DELIVERABLE id (not v.vid) — it's what openModal / the email
         // deep-link (?open=docs&doc=<id>) resolve against.
-        const item = { id: uid(), name: name, active: 0, versions: [v], specs: specs };
+        const item = { id: uid(), name: name, active: 0, versions: [v], specs: specs, driveFolderId: p.driveFolderId || null };
         items.unshift(item);
         announceSend({ id: item.id, name: name, version: v });
       }
@@ -1283,7 +1341,9 @@ window.PresentDocs = (function () {
     persistCanvas();
     showBusy("Preparing the new version…");
     let p;
-    try { p = await processFile(file); }
+    // V2 must land in V1's folder, not a new one named after the new file — that was why the
+    // resubmitted file went missing from the deliverable's folder (Cameron 2026-07-31).
+    try { p = await processFile(file, { folderId: d.driveFolderId || "", subfolder: d.name || "" }); }
     catch (e) { hideBusy(); window.TJA_UI.alert("Couldn't prepare that file — please try again."); return; }
     hideBusy();
     if (!isDraft(d)) {
@@ -1294,7 +1354,8 @@ window.PresentDocs = (function () {
       // parent + recomputes the V-label then.
       const v = newVersion(p, "V" + (d.versions.length + 1) + " (proposed)");
       v.state = "pending_approval";
-      const proposedCard = { id: uid(), name: d.name, active: 0, versions: [v], parentId: d.id };
+      const proposedCard = { id: uid(), name: d.name, active: 0, versions: [v], parentId: d.id,
+                             driveFolderId: d.driveFolderId || p.driveFolderId || null };
       draftItems.unshift(proposedCard);
       if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: proposedCard.id, docName: d.name, versionLabel: v.label, by: sess.name || "Staff" }); } catch (e) {} }
       await saveDraftsNow();
@@ -1305,6 +1366,7 @@ window.PresentDocs = (function () {
     // Adding a round to a not-yet-sent DRAFT deliverable → stays a draft (extra pre-send round).
     const v = newVersion(p, "V" + (d.versions.length + 1));
     v.state = "pending_approval";
+    if (!d.driveFolderId && p.driveFolderId) d.driveFolderId = p.driveFolderId;
     d.versions.push(v);
     d.active = d.versions.length - 1;
     await saveDraftsNow();
@@ -1330,6 +1392,8 @@ window.PresentDocs = (function () {
       const v = draft.versions[draft.versions.length - 1];
       v.state = "sent"; v.sentAt = sentStamp; v.sentBy = sentBy;
       v.label = "V" + (parent.versions.length + 1);   // recompute — parent may have grown
+      // carry the Drive folder up: everything for this deliverable lives in ONE folder
+      if (!parent.driveFolderId && draft.driveFolderId) parent.driveFolderId = draft.driveFolderId;
       parent.versions.push(v);
       parent.active = parent.versions.length - 1;
       revert = () => { parent.versions.pop(); parent.active = Math.min(parent.active, parent.versions.length - 1); v.state = "pending_approval"; };
@@ -1944,9 +2008,8 @@ window.PresentDocs = (function () {
           const fv = fd && (fd.versions || []).find(x => x.vid === v.vid);
           if (fv) {
             fv.reviews = Object.assign({}, fv.reviews, { [myEmail()]: v.reviews[myEmail()] });
-            const have = new Set((fv.pins || []).map(p => p.id));
-            (v.pins || []).forEach(p => { if (!have.has(p.id)) { fv.pins = fv.pins || []; fv.pins.push(p); } });
-            if (v.annotation && !fv.annotation) fv.annotation = v.annotation;
+            // carry MY pins + drawings across — per page for a multi-page proof
+            mergeVersionSurfaces(v, fv, myEmail());
             if (v.signature && !fv.signature) { fv.signature = v.signature; fv.signedBy = v.signedBy; fv.signedDate = v.signedDate; }
             fv.status = aggregateStatus(fv);
             completeNow = reviewComplete(fv);
@@ -1998,7 +2061,30 @@ window.PresentDocs = (function () {
       const vIdx = (curD.versions || []).findIndex(x => x.vid === v.vid);
       if (vIdx > -1) curD.active = vIdx;   // exportPDF renders active(d) — pin it to THIS round
       let pdfBase64 = "";
-      try { pdfBase64 = await exportPDF(curD, { returnBase64: true }); } catch (e) { /* PDF optional — text still posts */ }
+      try { pdfBase64 = await exportPDF(curD, { returnBase64: true }); } catch (e) { console.warn("proof PDF export failed", e); }
+      /* ARCHIVE the reviewed proof to Drive — this single PDF is both things that were missing:
+         the client's MARKED-UP submission (it carries their pins, drawings and notes) and the
+         APPROVED export (it carries the signature and verdict). It lands in the deliverable's
+         own folder beside V1/V2. The driveLink also rides along to Slack, so the team still
+         gets the document even when the bot can't attach a file natively. */
+      let pdfDriveLink = "";
+      if (pdfBase64 && window.TJA_FILES && window.TJA_FILES.enabled() && window.TJA_FILES.uploadPdfBase64) {
+        const verdict = (STATUS_WORD[curV.status] || curV.status || "reviewed").replace(/[^\w]+/g, "-");
+        const fname = `${(curD.name || "deliverable").replace(/[^\w-]+/g, "_")}-${curV.label}-${verdict}.pdf`;
+        try {
+          const up = await window.TJA_FILES.uploadPdfBase64(pdfBase64, fname, {
+            category: "present-docs", clientId: sess.client,
+            subfolder: curD.name || "", folderId: curD.driveFolderId || "",
+          });
+          if (up) {
+            pdfDriveLink = up.driveLink || "";
+            if (!curD.driveFolderId && up.folderId) curD.driveFolderId = up.folderId;
+            // remember it on the round so the team can re-open the signed copy later
+            curV.reviewedPdfUrl = up.url || ""; curV.reviewedPdfLink = pdfDriveLink;
+            saveCur();
+          }
+        } catch (e) { console.warn("reviewed-proof archive to Drive failed", e); }
+      }
       const reviewerLine = expectedOf(curV).length > 1
         ? Object.values(reviewsOf(curV)).map(r => `${r.name || r.email}: ${STATUS_WORD[r.status] || r.status || "responded"}`).join(" · ")
         : "";
@@ -2007,6 +2093,7 @@ window.PresentDocs = (function () {
           docId: curD.id, docName: curD.name, versionLabel: curV.label,
           status: curV.status || null, comments: allPins(curV).length, reviewerLine,
           pdfBase64, pdfName: `${(curD.name || "deliverable").replace(/[^\w-]+/g, "_")}-${curV.label}.pdf`,
+          pdfDriveLink,
         });
       } catch (e) { console.warn("review-response notify failed", e); }
     }

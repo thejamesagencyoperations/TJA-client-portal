@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (caller.role !== "client" || !caller.clientId || caller.clientId.startsWith("_"))
     return json(req, 403, { error: "clients only" });
 
-  let body: { docId?: string; docName?: string; versionLabel?: string; status?: string; comments?: number; pdfBase64?: string; pdfName?: string; reviewerLine?: string };
+  let body: { docId?: string; docName?: string; versionLabel?: string; status?: string; comments?: number; pdfBase64?: string; pdfName?: string; reviewerLine?: string; pdfDriveLink?: string };
   try { body = await req.json(); } catch { return json(req, 400, { error: "invalid JSON" }); }
 
   const clientId = caller.clientId;                       // from the profile, never the body
@@ -91,7 +91,13 @@ Deno.serve(async (req) => {
       ccLine = `\n${tags.join(" ")} — approved, over to you`;
     }
   }
-  const slackText = `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}${reviewerLine ? `\n${reviewerLine}` : ""}${ccLine}\n<${REVIEW_URL}|Open the deliverable →>`;
+  /* The reviewed proof is archived to the deliverable's Drive folder by the browser before it
+     calls us, so we always have a link to it — include it in the post. This is what guarantees
+     the team can actually open the signed, marked-up PDF even when the native file attach is
+     unavailable (it needs files:write, which the bot may not have). */
+  const driveLink = /^https:\/\/(drive|docs)\.google\.com\//.test(String(body.pdfDriveLink || ""))
+    ? String(body.pdfDriveLink) : "";
+  const slackText = `${emoji} *${clientName}* responded to *${nameLine}*: *${statusLabel}*${nComments > 0 ? ` · ${nComments} comment${nComments === 1 ? "" : "s"}` : ""}${reviewerLine ? `\n${reviewerLine}` : ""}${ccLine}\n<${REVIEW_URL}|Open the deliverable →>${driveLink ? `  ·  <${driveLink}|Signed PDF in Drive →>` : ""}`;
   // If the client's browser sent the proof PDF, push it to Slack WITH the review message
   // (one post: summary + attached PDF). Falls back to a text-only post if there's no PDF or
   // the upload fails (e.g. the bot doesn't have files:write yet).
@@ -151,6 +157,7 @@ Deno.serve(async (req) => {
     bodyHtml:
       `<p style="margin:0 0 14px">They&rsquo;ve reviewed &ldquo;<b>${nameLine}</b>&rdquo; in the portal.</p>` +
       (reviewerLine ? `<p style="margin:0 0 14px;color:#666;font-size:13px">${reviewerLine}</p>` : "") +
+      (driveLink ? `<p style="margin:0 0 14px;font-size:13px"><a href="${driveLink}" style="color:#F68E21">Open the signed PDF in Drive →</a></p>` : "") +
       `<p style="margin:0 0 14px">${commentLine}</p>`,
     metaRows: [["Client", clientName], ["Response", statusLabel]],
     ctaText: "Open it in the portal",

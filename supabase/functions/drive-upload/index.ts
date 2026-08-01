@@ -49,6 +49,36 @@ async function uploadToDrive(token: string, folderId: string, file: File): Promi
   return await r.json();
 }
 
+/* A folderId reaches us from the deliverable record, which lives in the client's own app_state —
+   so it is CALLER-INFLUENCED and must never be trusted as a write target on its own. Walk its
+   parents up to the client's root; anything that doesn't lead there is refused. Bounded hops so a
+   cycle or a deep graph can't spin. */
+async function isUnder(token: string, folderId: string, rootId: string): Promise<boolean> {
+  let cur = folderId;
+  for (let i = 0; i < 6 && cur; i++) {
+    if (cur === rootId) return true;
+    const u = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(cur)}`);
+    u.searchParams.set("fields", "id,parents,trashed");
+    u.searchParams.set("supportsAllDrives", "true");
+    const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return false;
+    const j = await r.json();
+    if (j.trashed) return false;
+    cur = j.parents?.[0];
+    if (cur === rootId) return true;
+  }
+  return false;
+}
+
+async function renameFolder(token: string, folderId: string, name: string) {
+  const r = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?supportsAllDrives=true&fields=id,name`,
+    { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name }) });
+  if (!r.ok) throw new Error(`drive rename ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return await r.json();
+}
+
 Deno.serve(async (req) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== "POST") return json(req, 405, { error: "POST only" });
@@ -59,6 +89,34 @@ Deno.serve(async (req) => {
   // 'team' is a VIEW-ONLY staff tier — uploading is a write, and this runs as the Drive
   // service account (nothing else would stop it). They read files like everyone else.
   if (caller.role === "team") return json(req, 403, { error: "view-only account" });
+
+  const rootId0 = Deno.env.get("DRIVE_ROOT_FOLDER_ID");
+  if (!rootId0) return json(req, 428, { error: "DRIVE_ROOT_FOLDER_ID not set" });
+
+  /* RENAME branch (JSON, not multipart). A deliverable's folder is created at file-select time,
+     before the brief dialog exists, so it is first named after the FILE. Once the subject is
+     typed we rename it — that is what makes the folder match the Present Doc's title, which is
+     what was actually asked for. */
+  if ((req.headers.get("content-type") || "").includes("application/json")) {
+    let body: Record<string, unknown> = {};
+    try { body = await req.json(); } catch { return json(req, 400, { error: "bad json" }); }
+    if (String(body.action || "") !== "rename-folder") return json(req, 400, { error: "unknown action" });
+    const cid = (caller.role === "client") ? caller.clientId : (String(body.clientId || "").trim() || caller.clientId);
+    const fid = String(body.folderId || "").trim();
+    const nm = String(body.name || "").trim().replace(/[\\/'"\r\n]+/g, " ").slice(0, 120);
+    if (!cid || !fid || !nm) return json(req, 400, { error: "clientId, folderId and name required" });
+    try {
+      const token = await driveAccessToken();
+      const tree = await ensureClientFolders(token, rootId0, cid);
+      if (!tree) return json(req, 404, { error: "unknown client" });
+      if (!(await isUnder(token, fid, tree.folderId))) return json(req, 403, { error: "folder is not this client's" });
+      await renameFolder(token, fid, nm);
+      return json(req, 200, { ok: true, folderId: fid, name: nm });
+    } catch (e) {
+      console.error("drive rename failed", e);
+      return json(req, 502, { error: "drive rename failed: " + String((e as Error).message || e).slice(0, 160) });
+    }
+  }
 
   let form: FormData;
   try { form = await req.formData(); } catch { return json(req, 400, { error: "multipart form-data required" }); }
@@ -96,8 +154,14 @@ Deno.serve(async (req) => {
     // together under the deliverable's own name instead of scattering across Present Docs
     // (Cameron 2026-07-31). Sanitised: Drive has no path semantics, but a name with slashes or
     // quotes would break the lookup query.
+    // An explicit folderId wins: later rounds of a deliverable (V2, the client's marked-up
+    // proof, the approved export) must land in the SAME folder as V1 even after it was renamed,
+    // and a name lookup would miss it. Verified against this client's tree before we write.
+    const want = String(form.get("folderId") ?? "").trim();
     const sub = String(form.get("subfolder") ?? "").trim().replace(/[\\/'"\r\n]+/g, " ").slice(0, 120);
-    const targetId = sub ? await ensureFolder(token, folderId, sub) : folderId;
+    let targetId = folderId;
+    if (want && await isUnder(token, want, tree.folderId)) targetId = want;
+    else if (sub) targetId = await ensureFolder(token, folderId, sub);
 
     const base = Deno.env.get("SUPABASE_URL");
     const results = [];
@@ -114,7 +178,10 @@ Deno.serve(async (req) => {
     }
     const first = results[0];
     return json(req, 200, {
-      ok: true, folder: folderName, subfolder: sub || null, results,
+      ok: true, folder: folderName, subfolder: sub || null,
+      // the folder everything actually landed in — stored on the deliverable so every later
+      // artefact (V2, markup, approved PDF) can be aimed straight at it
+      folderId: targetId, results,
       // single-file callers keep the original flat shape
       driveId: first.driveId, driveLink: first.driveLink, url: first.url,
     });

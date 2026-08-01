@@ -49,7 +49,7 @@ window.TJA_FILES = (function () {
   /* items: [{ blob, name }] — one request per call. `subfolder` groups them inside the asset
      folder (a multi-page PDF's pages belong together under the deliverable's name, not scattered
      across Present Docs). Batching matters for speed too: one invocation, one folder lookup. */
-  async function putMany(items, { category, clientId, subfolder } = {}) {
+  async function putMany(items, { category, clientId, subfolder, folderId } = {}) {
     if (!fnBase() || !(window.SUPA && window.SUPA.client)) throw new Error("storage-not-configured");
     const t = await token();
     if (!t) throw new Error("session-stale");   // surfaces as an upload error, never a silent skip
@@ -58,12 +58,16 @@ window.TJA_FILES = (function () {
     if (category) fd.append("category", String(category));
     if (clientId) fd.append("clientId", String(clientId));   // ignored server-side for clients
     if (subfolder) fd.append("subfolder", String(subfolder));
+    // Aim straight at a known folder — later rounds of a deliverable must join V1, not start a
+    // new folder (and must survive the folder being renamed to the doc's subject).
+    if (folderId) fd.append("folderId", String(folderId));
     const r = await fetch(fnBase() + "/drive-upload", {
       method: "POST", headers: { Authorization: "Bearer " + t }, body: fd,
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !Array.isArray(j.results) || !j.results.length) throw new Error(j.error || `drive-upload ${r.status}`);
-    return j.results;                            // [{ url (proxy), driveId, driveLink, name }]
+    j.results.forEach((x) => { x.folderId = j.folderId; });   // where it landed, for the next round
+    return j.results;                            // [{ url (proxy), driveId, driveLink, name, folderId }]
   }
   async function put(blob, opts = {}) {
     const res = await putMany([{ blob, name: opts.name }], opts);
@@ -72,7 +76,7 @@ window.TJA_FILES = (function () {
 
   async function upload(file, opts = {}) {
     const res = await put(file, { ...opts, name: opts.name || file.name, contentType: file.type });
-    return { url: res.url, driveId: res.driveId, driveLink: res.driveLink, folder: res.folder,
+    return { url: res.url, driveId: res.driveId, driveLink: res.driveLink, folder: res.folder, folderId: res.folderId, folderId: res.folderId,
              name: file.name || safe(opts.name), size: file.size || 0, type: file.type || "" };
   }
 
@@ -139,6 +143,29 @@ window.TJA_FILES = (function () {
     return out;
   }
 
-  return { upload, uploadDataUrl, uploadDataUrls, blobUrl, hydrate, isProxy,
+  /* Rename a deliverable's Drive folder once its real subject is known — the folder is created
+     at file-select time (named after the file), before the brief dialog has been filled in. */
+  async function renameFolder(folderId, name, clientId) {
+    if (!fnBase() || !folderId || !name) return false;
+    const t = await token(); if (!t) return false;
+    const r = await fetch(fnBase() + "/drive-upload", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rename-folder", folderId, name, clientId }),
+    });
+    return r.ok;
+  }
+
+  /* Store a generated PDF (approved export, client's marked-up proof) beside the deliverable. */
+  async function uploadPdfBase64(b64, name, opts = {}) {
+    const bin = atob(String(b64).replace(/^data:[^,]*,/, ""));
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const blob = new Blob([buf], { type: "application/pdf" });
+    const res = await put(blob, { ...opts, name });
+    return { url: res.url, driveId: res.driveId, driveLink: res.driveLink, folderId: res.folderId, name };
+  }
+
+  return { upload, uploadDataUrl, uploadDataUrls, uploadPdfBase64, renameFolder, blobUrl, hydrate, isProxy,
            enabled: () => STORAGE_ENABLED && !!fnBase() && !!(window.SUPA && window.SUPA.client) };
 })();

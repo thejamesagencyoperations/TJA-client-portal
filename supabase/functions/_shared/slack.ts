@@ -86,11 +86,32 @@ export async function uploadFileToSlack(
    display_name / handle case-insensitively via users.list.
    Needs the bot scope `users:read` — on missing_scope (or any failure) this returns what it
    has and the caller falls back to bold plain-text names, so tagging can never break a post. */
+/* Resolve display names → Slack member ids so the AM/PM can be @-mentioned rather than merely
+   named in bold. Matching is deliberately forgiving: the portal's names come from the assignment
+   workbook, and a person's Slack profile rarely matches it character-for-character — an exact
+   compare tagged one AM and left the other as plain bold text (Cameron 2026-07-31). Tiers, most
+   confident first; a tier only runs for names still unresolved:
+     1. exact, after normalising case/punctuation/emoji
+     2. first + last token (survives a middle name, a suffix, or "Lastname, Firstname")
+     3. first name alone — ONLY when exactly one person in the workspace has it, so we can
+        never tag the wrong human just to avoid a bold name. */
+const normName = (s: string) =>
+  String(s || "").toLowerCase()
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ")   // emoji in display names
+    .replace(/\([^)]*\)/g, " ")                                   // "(she/her)", "(PTO)"
+    .replace(/[^a-z\s'-]/g, " ")
+    .replace(/\s+/g, " ").trim();
+const tokens = (s: string) => normName(s).split(" ").filter(Boolean);
+const firstLast = (s: string) => { const t = tokens(s); return t.length > 1 ? `${t[0]} ${t[t.length - 1]}` : (t[0] || ""); };
+
 export async function slackUserIdsByName(names: string[]): Promise<Record<string, string>> {
   const botToken = Deno.env.get("SLACK_BOT_TOKEN");
   const want = [...new Set(names.map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))];
   const out: Record<string, string> = {};
   if (!botToken || !want.length) return out;
+
+  type M = { id: string; forms: Set<string>; fl: Set<string>; first: string };
+  const members: M[] = [];
   let cursor = "";
   try {
     for (let page = 0; page < 6; page++) {           // 6×200 covers a workspace far larger than TJA
@@ -102,15 +123,43 @@ export async function slackUserIdsByName(names: string[]): Promise<Record<string
       if (!j.ok) { console.error("slackUserIdsByName", j.error || "users.list failed"); return out; }
       for (const m of (j.members || [])) {
         if (m.deleted || m.is_bot || m.id === "USLACKBOT") continue;
-        const cands = [m.real_name, m.profile?.real_name, m.profile?.display_name, m.name]
-          .map((s: string) => String(s || "").trim().toLowerCase());
-        for (const w of want) if (!out[w] && cands.includes(w)) out[w] = m.id;
+        const raw = [m.real_name, m.profile?.real_name, m.profile?.real_name_normalized,
+                     m.profile?.display_name, m.profile?.display_name_normalized, m.name]
+          .map((x: string) => String(x || "")).filter(Boolean);
+        // a handle is usually first.last or first_last — treat the separators as spaces
+        const forms = new Set(raw.map((x) => normName(x.replace(/[._-]+/g, " "))).filter(Boolean));
+        const fl = new Set([...forms].map(firstLast).filter(Boolean));
+        const firsts = [...forms].map((f) => f.split(" ")[0]).filter(Boolean);
+        members.push({ id: m.id, forms, fl, first: firsts[0] || "" });
       }
-      if (Object.keys(out).length === want.length) break;
       cursor = j.response_metadata?.next_cursor || "";
       if (!cursor) break;
     }
-  } catch (e) { console.error("slackUserIdsByName", e); }
+  } catch (e) { console.error("slackUserIdsByName", e); return out; }
+
+  const unresolved = () => want.filter((w) => !out[w]);
+  for (const w of unresolved()) {                          // tier 1 — exact (normalised)
+    const n = normName(w);
+    const hits = members.filter((m) => m.forms.has(n));
+    if (hits.length !== 1) continue;
+    /* A one-word target is a bare first name. Someone whose Slack HANDLE happens to equal it is
+       not proof of identity while a second person shares that first name — two Jordans, one with
+       the handle "jordan", would tag the wrong human. Defer those to the tier-3 uniqueness test,
+       which declines rather than guesses. */
+    if (tokens(w).length < 2 && members.filter((m) => m.first === n).length > 1) continue;
+    out[w] = hits[0].id;
+  }
+  for (const w of unresolved()) {                          // tier 2 — first + last
+    const n = firstLast(w); if (!n || n.indexOf(" ") < 0) continue;
+    const hits = members.filter((m) => m.fl.has(n));
+    if (hits.length === 1) out[w] = hits[0].id;
+  }
+  for (const w of unresolved()) {                          // tier 3 — unique first name only
+    const f = tokens(w)[0]; if (!f) continue;
+    const hits = members.filter((m) => m.first === f);
+    if (hits.length === 1) out[w] = hits[0].id;
+    else console.warn("slackUserIdsByName: no confident match for", w, `(${hits.length} share that first name)`);
+  }
   return out;
 }
 
