@@ -123,6 +123,34 @@ window.CLIENT_PR_SHEETS = (function () {
     if (m.burn && m.burn.pct != null) return m.burn.pct;
     return null;
   }
+  /* Header labels → column indexes; -1 = column absent (reads ""). Only trusted when
+     TASK/START/END are all labeled; otherwise the classic fixed positions stand.
+     KEEP IN SYNC with plan.ts (planColMap) — Circle the City's sheet dropped the
+     DEPENDENCY column and position-based reads shifted everything after WHO. */
+  function planColMap(headerRow) {
+    const seen = {};
+    (headerRow || []).forEach((c, i) => {
+      if (i === 0) return;
+      const h = String(c == null ? "" : c).trim().toLowerCase();
+      if (!h) return;
+      const put = (k) => { if (seen[k] == null) seen[k] = i; };
+      if (/^task/.test(h)) put("task");
+      else if (/^(who|owner)/.test(h)) put("who");
+      else if (/^dep/.test(h)) put("dep");
+      else if (/^start/.test(h)) put("start");
+      else if (/^end/.test(h)) put("end");
+      else if (/%|percent|\bdone\b/.test(h)) put("pct");
+      else if (/^status/.test(h)) put("status");
+      else if (/^note/.test(h)) put("notes");
+    });
+    if (seen.task != null && seen.start != null && seen.end != null) {
+      return { task: seen.task, who: seen.who != null ? seen.who : -1, dep: seen.dep != null ? seen.dep : -1,
+        start: seen.start, end: seen.end, pct: seen.pct != null ? seen.pct : -1,
+        status: seen.status != null ? seen.status : -1, notes: seen.notes != null ? seen.notes : -1 };
+    }
+    return { task: 1, who: 2, dep: 3, start: 4, end: 5, pct: 6, status: -1, notes: 7 };
+  }
+
   function parseProjectPlan(text) {
     const rows = parseRows(text);
     const meta = { title: "", outcome: "", deliverables: "", weeks: "", startDate: "", endDate: "",
@@ -151,12 +179,14 @@ window.CLIENT_PR_SHEETS = (function () {
       }
     }
     if (headerIdx < 0) return null;
+    const col = planColMap(rows[headerIdx]);
+    const at = (r, i) => (i < 0 ? "" : String(r[i] == null ? "" : r[i]).trim());
     const groups = []; let cur = null;
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const r = rows[i];
-      const num = (r[0] || "").trim(), task = (r[1] || "").trim(), who = (r[2] || "").trim(),
-        dep = (r[3] || "").trim(), start = (r[4] || "").trim(), end = (r[5] || "").trim(),
-        pctRaw = (r[6] || "").trim(), notes = (r[7] || "").trim();
+      const num = (r[0] || "").trim(), task = at(r, col.task), who = at(r, col.who),
+        dep = at(r, col.dep), start = at(r, col.start), end = at(r, col.end),
+        pctRaw = at(r, col.pct), statusRaw = at(r, col.status), notes = at(r, col.notes);
       if (!num && !task) continue;                       // blank / spacer
       if (/^\s*call name\b/i.test(task) || /\(link to .+ when complete\)/i.test(task)) continue;   // template placeholder stub — never shown (KEEP IN SYNC with plan.ts)
       // A PHASE header is an integer-numbered row (1, 2, "4.0") with no owner/dates/%.
@@ -168,7 +198,7 @@ window.CLIENT_PR_SHEETS = (function () {
       if (isGroup) { cur = { num, name: task, tasks: [] }; groups.push(cur); continue; }
       if (!cur) { cur = { num: "", name: "Tasks", tasks: [] }; groups.push(cur); }
       const pct = planPct(pctRaw);
-      cur.tasks.push({ num, task, who, dep, start: planFmtDate(start), end: planFmtDate(end), pct, notes, status: planStatus(notes, pct) });
+      cur.tasks.push({ num, task, who, dep, start: planFmtDate(start), end: planFmtDate(end), pct, notes, status: planStatus(statusRaw || notes, pct) });
     }
     if (!groups.length) return null;
     return { meta, groups };

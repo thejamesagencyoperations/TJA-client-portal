@@ -13,7 +13,7 @@
    Deploy: supabase functions deploy drive-webhook --use-api --no-verify-jwt
    ============================================================ */
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { driveAccessToken } from "../_shared/google.ts";
+import { driveAccessToken, parseSheetGid } from "../_shared/google.ts";
 import { fetchPlanFromDrive, stable } from "../_shared/planfetch.ts";
 
 const WATCH_CLIENT = "_drive_watch";
@@ -40,7 +40,14 @@ Deno.serve(async (req) => {
     if (!hit) return new Response("ok", { status: 200 });   // unknown channel — ignore
 
     const saToken = await driveAccessToken("https://www.googleapis.com/auth/drive.readonly");
-    const plan = await fetchPlanFromDrive(saToken, hit.fileId);
+    // resolve WHICH TAB from the connected project's own URL (#gid=...) so the fetch parses
+    // the tab the portal is actually pointed at, not whichever name matches /plan/i first
+    const { data: grow } = await svc.from("app_state").select("data")
+      .eq("client_id", hit.clientId).eq("scope", "dashboard").maybeSingle();
+    const gurls: string[] = (((grow?.data as { engagements?: { projects?: Array<{ projectPlanSheetUrl?: string }> } })?.engagements?.projects) || [])
+      .map((pr: { projectPlanSheetUrl?: string }) => String(pr.projectPlanSheetUrl || ""))
+      .filter((u: string) => u.includes(hit.fileId));
+    const plan = await fetchPlanFromDrive(saToken, hit.fileId, gurls.length ? parseSheetGid(gurls[0]) : null);
     if (!plan || !Array.isArray((plan as any).groups) || !(plan as any).groups.length) return new Response("ok", { status: 200 });
 
     // write it onto every project on this client that uses this file (guarded on updated_at so a

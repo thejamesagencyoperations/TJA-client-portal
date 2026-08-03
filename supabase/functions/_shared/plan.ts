@@ -80,6 +80,33 @@ export type ParsedPlan = {
   groups: PlanGroup[];
 };
 
+/* Map header labels → column indexes. -1 = the sheet has no such column (reads as "").
+   Only trusts the labels when the essentials (TASK/START/END) are all present — otherwise the
+   header is decorative and the classic fixed positions stand. KEEP IN SYNC with the browser
+   copy in client-pr-sheets.js (planColMap). */
+export function planColMap(headerRow: unknown[]): Record<"task"|"who"|"dep"|"start"|"end"|"pct"|"status"|"notes", number> {
+  const seen: Record<string, number> = {};
+  (headerRow || []).forEach((c, i) => {
+    if (i === 0) return;                          // col 0 is always the "#" anchor
+    const h = String(c ?? "").trim().toLowerCase();
+    if (!h) return;
+    const put = (k: string) => { if (seen[k] == null) seen[k] = i; };
+    if (/^task/.test(h)) put("task");
+    else if (/^(who|owner)/.test(h)) put("who");
+    else if (/^dep/.test(h)) put("dep");
+    else if (/^start/.test(h)) put("start");
+    else if (/^end/.test(h)) put("end");
+    else if (/%|percent|\bdone\b/.test(h)) put("pct");
+    else if (/^status/.test(h)) put("status");
+    else if (/^note/.test(h)) put("notes");
+  });
+  if (seen.task != null && seen.start != null && seen.end != null) {
+    return { task: seen.task, who: seen.who ?? -1, dep: seen.dep ?? -1, start: seen.start,
+      end: seen.end, pct: seen.pct ?? -1, status: seen.status ?? -1, notes: seen.notes ?? -1 };
+  }
+  return { task: 1, who: 2, dep: 3, start: 4, end: 5, pct: 6, status: -1, notes: 7 };
+}
+
 export function parseProjectPlanRows(rows: unknown[][]): ParsedPlan | null {
   const meta = { title: "", outcome: "", deliverables: "", weeks: "", startDate: "", endDate: "",
     condition: { level: "green", pct: null as number | null },
@@ -109,11 +136,20 @@ export function parseProjectPlanRows(rows: unknown[][]): ParsedPlan | null {
     }
   }
   if (headerIdx < 0) return null;
+  /* Column map read FROM THE HEADER ROW, not assumed by position. The template is
+     # | TASK | WHO | DEPENDENCY | START | END | % DONE | STATUS | NOTES — but real sheets
+     drift (Circle the City dropped DEPENDENCY, which shifted every later column and turned
+     "Complete, 100%" tasks into "pending, 0%"). Naming the columns makes a missing or extra
+     column harmless for EVERY client. Falls back to the classic positions only when the
+     header row doesn't carry recognisable labels. KEEP IN SYNC with client-pr-sheets.js. */
+  const col = planColMap(rows[headerIdx]);
+  const at = (r: unknown[], i: number) => (i < 0 ? "" : cell(r, i));
   const groups: PlanGroup[] = []; let cur: PlanGroup | null = null;
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const r = rows[i];
-    const num = cell(r, 0), task = cell(r, 1), who = cell(r, 2), dep = cell(r, 3),
-      start = cell(r, 4), end = cell(r, 5), pctRaw = cell(r, 6), notes = cell(r, 7);
+    const num = cell(r, 0), task = at(r, col.task), who = at(r, col.who), dep = at(r, col.dep),
+      start = at(r, col.start), end = at(r, col.end), pctRaw = at(r, col.pct),
+      statusRaw = at(r, col.status), notes = at(r, col.notes);
     if (!num && !task) continue;
     // ALWAYS drop the team's placeholder stub rows (both admin + client views — they're never
     // wanted): any "Call name …" row, and the "(link to … when complete)" convention. This is
@@ -129,7 +165,9 @@ export function parseProjectPlanRows(rows: unknown[][]): ParsedPlan | null {
     if (isGroup) { cur = { num, name: task, tasks: [] }; groups.push(cur); continue; }
     if (!cur) { cur = { num: "", name: "Tasks", tasks: [] }; groups.push(cur); }
     const pct = pctOf(pctRaw);
-    cur.tasks.push({ num, task, who, dep, start: fmtDate(start), end: fmtDate(end), pct, notes, status: statusOf(notes, pct) });
+    // status words come from the STATUS column when the sheet has one, else from NOTES
+    // (the pre-header-map behavior, where the 9-column template's STATUS landed in `notes`)
+    cur.tasks.push({ num, task, who, dep, start: fmtDate(start), end: fmtDate(end), pct, notes, status: statusOf(statusRaw || notes, pct) });
   }
   if (!groups.length) return null;
   return { meta, groups };

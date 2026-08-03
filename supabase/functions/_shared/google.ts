@@ -64,11 +64,33 @@ export function parseDriveFileId(raw: string): string | null {
   return m ? m[1] : null;
 }
 
+// The tab (gid) a Sheets URL points at — "#gid=123" or "?gid=123". Null when absent.
+export function parseSheetGid(raw: string): string | null {
+  const m = /[?#&]gid=(\d+)/.exec(String(raw || ""));
+  return m ? m[1] : null;
+}
+
+/* gid → tab title. The xlsx export loses gids, so resolving WHICH tab a stored URL means
+   requires one Sheets-metadata call. Null on any failure — callers fall back to the
+   name heuristic, so a revoked Sheets scope can never break plan fetching. */
+export async function sheetsTitleByGid(fileId: string, gid: string): Promise<string | null> {
+  try {
+    const token = await driveAccessToken("https://www.googleapis.com/auth/spreadsheets.readonly");
+    const u = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}` +
+      `?fields=sheets(properties(sheetId,title))`;
+    const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const hit = (j.sheets || []).find((sh: any) => String(sh?.properties?.sheetId) === String(gid));
+    return hit?.properties?.title || null;
+  } catch (_e) { return null; }
+}
+
 // File metadata (name + mimeType) — used to choose export (native Google Sheet)
 // vs raw download (uploaded .xlsx).
-export async function driveGetMeta(token: string, fileId: string): Promise<{ name: string; mimeType: string }> {
+export async function driveGetMeta(token: string, fileId: string): Promise<{ name: string; mimeType: string; modifiedTime?: string }> {
   const r = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=name,mimeType&supportsAllDrives=true`,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=name,mimeType,modifiedTime&supportsAllDrives=true`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   if (!r.ok) throw new Error(`drive meta ${r.status}: ${await r.text()}`);

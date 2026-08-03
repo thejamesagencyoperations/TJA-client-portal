@@ -14,7 +14,7 @@
    ============================================================ */
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { handleOptions, json } from "../_shared/cors.ts";
-import { driveAccessToken, parseDriveFileId } from "../_shared/google.ts";
+import { driveAccessToken, driveGetMeta, parseDriveFileId, parseSheetGid } from "../_shared/google.ts";
 import { audit } from "../_shared/audit.ts";
 import { fetchPlanFromDrive as fetchPlan, stable } from "../_shared/planfetch.ts";
 
@@ -31,8 +31,25 @@ Deno.serve(async (req) => {
   catch (e) { return json(req, 502, { error: "sa token: " + String((e as Error).message || e) }); }
 
   const { data: rows } = await svc.from("app_state").select("client_id,data,updated_at").eq("scope", "dashboard");
+
+  /* WHY THE STAMPS: this function used to download + parse EVERY connected workbook (a full
+     .xlsx each, some with 25-week Gantt grids) on every 15-minute run. That total crossed the
+     Edge Function compute ceiling — HTTP 546 WORKER_RESOURCE_LIMIT — killing the run partway
+     and leaving every client after the crash point stale (2026-08-03). Now each file costs one
+     Drive metadata call, and the download + XLSX parse happens ONLY when the file's
+     modifiedTime moved since the last successful parse. A quiet fleet is near-zero work. */
+  const STAMP_ID = "_plan_refresh";
+  const { data: srow } = await svc.from("app_state").select("data")
+    .eq("client_id", STAMP_ID).eq("scope", "state").maybeSingle();
+  const stamps: Record<string, string> = (srow && srow.data && typeof srow.data === "object" && !Array.isArray(srow.data))
+    ? { ...(srow.data as Record<string, string>) } : {};
+  let stampsDirty = false;
+
+  // Soft deadline: end cleanly with work remaining rather than being killed mid-write. The
+  // cron re-runs in 15 minutes and the stamps make the next pass cheap, so it converges.
+  const DEADLINE = Date.now() + 60_000;
   const cache: Record<string, unknown> = {};   // fileId → parsed plan (dedupe shared files)
-  let checked = 0, changed = 0, failed = 0, skipped = 0;
+  let checked = 0, changed = 0, failed = 0, skipped = 0, unchanged = 0, deferred = 0;
 
   for (const row of (rows || [])) {
     if (String(row.client_id).startsWith("_")) continue;
@@ -43,9 +60,21 @@ Deno.serve(async (req) => {
     for (const p of projs) {
       const fileId = parseDriveFileId(p.projectPlanSheetUrl || "");
       if (!fileId) continue;
+      if (Date.now() > DEADLINE) { deferred++; continue; }
       checked++;
       try {
-        if (!(fileId in cache)) cache[fileId] = await fetchPlan(token, fileId);
+        if (!(fileId in cache)) {
+          // 1 metadata call decides whether the heavy fetch+parse runs at all. Skip only when
+          // the stored plan is real — a failed prior parse must retry even if the file is quiet.
+          const meta = await driveGetMeta(token, fileId);
+          const stored = p.projectPlanSheet as { groups?: unknown[] } | null;
+          if (meta.modifiedTime && stamps[fileId] === meta.modifiedTime
+            && stored && Array.isArray(stored.groups) && stored.groups.length) {
+            unchanged++; checked--; continue;
+          }
+          cache[fileId] = await fetchPlan(token, fileId, parseSheetGid(p.projectPlanSheetUrl || ""));
+          if (meta.modifiedTime) { stamps[fileId] = meta.modifiedTime; stampsDirty = true; }
+        }
         const plan = cache[fileId] as { groups?: unknown[] } | null;
         if (plan && Array.isArray(plan.groups) && plan.groups.length
           && stable(plan) !== stable(p.projectPlanSheet)) {
@@ -68,5 +97,11 @@ Deno.serve(async (req) => {
       else audit({ clientId: row.client_id, scope: "dashboard", action: "plan.refreshed", summary: "project plan re-pulled from the connected sheet" });
     }
   }
-  return json(req, 200, { ok: true, checked, changed, failed, skipped });
+  if (stampsDirty) {
+    await svc.from("app_state").upsert(
+      { client_id: STAMP_ID, scope: "state", data: stamps, updated_at: new Date().toISOString() },
+      { onConflict: "client_id,scope" },
+    );
+  }
+  return json(req, 200, { ok: true, checked, changed, failed, skipped, unchanged, deferred });
 });

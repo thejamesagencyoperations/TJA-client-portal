@@ -27,7 +27,7 @@
 import * as XLSX from "npm:xlsx@0.18.5";
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
-import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId, sheetsHiddenRowSet } from "../_shared/google.ts";
+import { driveAccessToken, driveDownloadBytes, driveExportBytes, driveGetMeta, parseDriveFileId, sheetsHiddenRowSet, parseSheetGid, sheetsTitleByGid } from "../_shared/google.ts";
 import { parseProjectPlanRows, dropHiddenRows } from "../_shared/plan.ts";
 
 // Pick the plan tab: prefer a sheet named like "…plan…", else the last sheet
@@ -65,7 +65,18 @@ Deno.serve(async (req) => {
     const wb = XLSX.read(bytes, { type: "array", cellDates: true });
     const sheetNames: string[] = wb.SheetNames || [];
     if (!sheetNames.length) return json(req, 422, { error: "workbook has no sheets" });
-    const sheetName = (body.sheet && sheetNames.includes(body.sheet)) ? body.sheet : pickSheetName(sheetNames);
+    // Tab priority: explicit body.sheet → the #gid the pasted URL points at → name heuristic.
+    // The gid matters when a workbook holds an old phase's plan next to the live one — the
+    // name match alone can silently parse the dead tab (Circle the City, 2026-08-03).
+    let sheetName = (body.sheet && sheetNames.includes(body.sheet)) ? body.sheet : "";
+    if (!sheetName && meta.mimeType === "application/vnd.google-apps.spreadsheet") {
+      const gid = parseSheetGid(body.fileUrl || "");
+      if (gid) {
+        const t = await sheetsTitleByGid(fileId, gid);
+        if (t && sheetNames.includes(t)) sheetName = t;
+      }
+    }
+    if (!sheetName) sheetName = pickSheetName(sheetNames);
     const ws = wb.Sheets[sheetName];
     const startRow = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.r : 0;
     let rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: "m/d/yyyy", defval: "", blankrows: true }) as unknown[][];
