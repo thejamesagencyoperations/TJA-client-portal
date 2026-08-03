@@ -83,6 +83,38 @@
 window.TJA_STORE = (function () {
   const LS_KEY = "tja_clients";
   const REG_CLIENT = "_registry";   // pseudo client_id for the roster row
+  /* WORKSPACE-WIDE SETTINGS — one sentinel row, same pattern as the roster ("_settings" is
+     skipped by every client loop because it is "_"-prefixed). Cached in localStorage so
+     canEdit() can consult it SYNCHRONOUSLY during the first render; refreshed by hydrate().
+     Every staff role can READ app_state, so a manager sees the flag that governs them. */
+  const SET_CLIENT = "_settings", SET_KEY = "tja_settings";
+  const SETTING_DEFAULTS = {
+    // false = an AM/PM may edit ANY client (assignments still drive filtering + ownership
+    // display). true = they may only edit clients they're assigned to. Default OFF per
+    // Cameron 2026-08-03 — off is the deliberate current policy, so a MISSING row must read
+    // as off, not as restricted.
+    restrictManagerEdits: false,
+  };
+  function readSettings() {
+    try {
+      const o = JSON.parse(localStorage.getItem(SET_KEY) || "null");
+      return Object.assign({}, SETTING_DEFAULTS, (o && typeof o === "object") ? o : {});
+    } catch (e) { return Object.assign({}, SETTING_DEFAULTS); }
+  }
+  function writeSettingsLocal(o) {
+    try { localStorage.setItem(SET_KEY, JSON.stringify(Object.assign({}, SETTING_DEFAULTS, o || {}))); } catch (e) {}
+  }
+  // ADMIN write path (server first, then cache — a failed push must not leave a local lie)
+  async function setSetting(key, value) {
+    if (!(key in SETTING_DEFAULTS)) throw new Error("unknown setting: " + key);
+    const next = Object.assign(readSettings(), { [key]: value });
+    if (window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow) {
+      const r = await window.SUPA.pushScopeNow(SET_CLIENT, REG_SCOPE, next);
+      if (!r || !r.ok) throw new Error("couldn't save the setting");
+    }
+    writeSettingsLocal(next);
+    return next;
+  }
   const REG_SCOPE = "clients";
 
   function readAdded() {
@@ -273,6 +305,11 @@ window.TJA_STORE = (function () {
   // pull the roster from Supabase (if configured) and merge into localStorage
   async function hydrate() {
     if (!(window.SUPA && window.SUPA.enabled)) return;
+    // settings ride along in PARALLEL — the roster read already gates first paint, so this
+    // costs no extra latency, and canEdit() must not run against a stale flag
+    const setP = window.SUPA.pullScope(SET_CLIENT, REG_SCOPE)
+      .then((o) => { if (o && typeof o === "object" && !Array.isArray(o)) writeSettingsLocal(o); })
+      .catch(() => {});
     try {
       const remote = await window.SUPA.pullScope(REG_CLIENT, REG_SCOPE);
       if (Array.isArray(remote) && remote.length) {
@@ -287,8 +324,10 @@ window.TJA_STORE = (function () {
         try { localStorage.setItem(LS_KEY, JSON.stringify([...map.values()])); } catch {}
       }
     } catch (e) { console.warn("roster hydrate", e); }
+    await setP;
   }
 
   // Public surface — only what other modules actually consume (exists/uniqueId/referenceRetainerLayout are internal-only).
-  return { list, get, add, update, remove, seedWorkspace, hydrate, referenceProjectLayout };
+  return { list, get, add, update, remove, seedWorkspace, hydrate, referenceProjectLayout,
+           settings: readSettings, setSetting };
 })();

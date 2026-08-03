@@ -265,10 +265,23 @@ function ownsCurrentClient() {
 }
 // Can edit CLIENT WORK — the agency account (every client) and an AM/PM (only THEIR clients;
 // they still view all others). Creatives edit nothing (they only upload); clients edit nothing.
+/* Is the "AM/PMs may only edit their OWN clients" rule switched on? Workspace-wide, set by
+   an admin in Admin Center. Default OFF (Cameron 2026-08-03): an AM/PM edits any client, and
+   assignments still drive filtering, ownership display and notifications.
+   Unknown/unreadable reads as OFF — deliberately. This is an organisational rule, not a
+   security boundary (RLS already lets any manager write client data), and failing CLOSED here
+   would silently re-create the exact lockout it replaced. */
+function managerEditsRestricted() {
+  try {
+    const s = (window.TJA_STORE && typeof window.TJA_STORE.settings === "function")
+      ? window.TJA_STORE.settings() : null;
+    return !!(s && s.restrictManagerEdits === true);
+  } catch (e) { return false; }
+}
 function canEdit() {
   const r = effectiveRole();
   if (r === "admin") return true;
-  if (r === "manager") return ownsCurrentClient();
+  if (r === "manager") return managerEditsRestricted() ? ownsCurrentClient() : true;
   return false;
 }
 

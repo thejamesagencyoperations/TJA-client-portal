@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=359" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=359">
+<link rel="icon" href="assets/img/favicon.ico?v=360" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=360">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=359">
+<link rel="stylesheet" href="assets/css/styles.css?v=360">
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -38,6 +38,20 @@
       </div>
       <div class="tm-actions">
         <button class="btn btn-primary btn-sm" id="tmAdd">＋ Add login</button>
+      </div>
+    </div>
+
+    <!-- WORKSPACE SETTINGS — admin only (AM/PMs reach this page too, to invite clients).
+         Hidden by default and revealed in script only for isAdmin(), so a manager never sees
+         the switch that governs them. -->
+    <div class="tm-settings" id="tmGlobalSettings" style="display:none;margin:0 0 22px">
+      <div class="tm-set-row" style="border-top:none">
+        <div class="tm-set-txt"><b>Restrict AM/PM editing to their own clients</b><span>On = an
+          AM/PM can only edit clients they're assigned to (they still see every client, read-only).
+          Off = any AM/PM can edit any client. Assignments keep working either way — they still
+          drive filtering, who's shown as the owner, and Slack mentions. Admins always edit
+          everything.</span></div>
+        <label class="tm-switch"><input type="checkbox" id="setRestrictMgr"><span class="tm-slider-ui"></span></label>
       </div>
     </div>
 
@@ -219,12 +233,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=359"></script>
-<script src="assets/js/version-check.js?v=359"></script>
-<script src="assets/js/supabase-sync.js?v=359"></script>
-<script src="assets/js/ui.js?v=359"></script>
-<script src="assets/js/auth.js?v=359"></script>
-<script src="assets/js/chrome-menu.js?v=359"></script>
+<script src="assets/js/supabase-config.js?v=360"></script>
+<script src="assets/js/version-check.js?v=360"></script>
+<script src="assets/js/supabase-sync.js?v=360"></script>
+<script src="assets/js/ui.js?v=360"></script>
+<script src="assets/js/auth.js?v=360"></script>
+<script src="assets/js/chrome-menu.js?v=360"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -234,13 +248,43 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=359"></script>
-<script src="assets/js/client-template.js?v=359"></script>
-<script src="assets/js/client-store.js?v=359"></script>
+<script src="assets/js/clients.js?v=360"></script>
+<script src="assets/js/client-template.js?v=360"></script>
+<script src="assets/js/client-store.js?v=360"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+  /* Workspace settings (admin only). Server-first save: the switch reflects what is actually
+     stored, so a failed write shows an error and snaps back rather than lying. */
+  (function workspaceSettings() {
+    const box = document.getElementById("tmGlobalSettings");
+    const sw = document.getElementById("setRestrictMgr");
+    if (!box || !sw) return;
+    if (!(typeof isAdmin === "function" && isAdmin())) return;   // stays display:none for AM/PMs
+    box.style.display = "";
+    const read = () => {
+      try { return !!(window.TJA_STORE.settings() || {}).restrictManagerEdits; } catch (e) { return false; }
+    };
+    // Wiring happens now; the VALUE is filled in after hydrate() below (this runs first, and
+    // the cache it would read may disagree with the server).
+    window.__syncRestrictSwitch = () => { sw.checked = read(); };
+    sw.addEventListener("change", async () => {
+      const want = sw.checked;
+      sw.disabled = true;
+      try {
+        await window.TJA_STORE.setSetting("restrictManagerEdits", want);
+        note(want
+          ? "AM/PMs can now only edit the clients they're assigned to."
+          : "AM/PMs can now edit any client. Assignments still drive filtering and ownership.");
+      } catch (e) {
+        sw.checked = !want;                       // never leave the UI claiming something untrue
+        note("Couldn't save that setting — " + (e && e.message ? e.message : "please try again") + ".", "warn");
+      }
+      sw.disabled = false;
+    });
+  })();
 
   // theme toggle (mirrors the other pages)
   const applyTheme = (t) => document.documentElement.setAttribute("data-theme", t);
@@ -833,6 +877,7 @@
   }
 
   await window.TJA_STORE.hydrate().catch(() => {});
+  if (typeof window.__syncRestrictSwitch === "function") window.__syncRestrictSwitch();
   await load();
 
   // Live refresh: an invite accepted (or any status change) elsewhere shows up here without

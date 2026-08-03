@@ -57,6 +57,15 @@
       why: "Reads the assignment workbook so each AM/PM can edit the clients they own." },
   ];
 
+  // the workspace rule that decides whether "unassigned" is an access failure or just untidy
+  function restrictOn() {
+    try {
+      const st = (window.TJA_STORE && typeof window.TJA_STORE.settings === "function")
+        ? window.TJA_STORE.settings() : null;
+      return !!(st && st.restrictManagerEdits === true);
+    } catch (e) { return false; }
+  }
+
   const findings = [];
   const add = (sev, area, title, detail, clients) =>
     findings.push({ sev, area, title, detail, clients: clients || [] });
@@ -110,10 +119,20 @@
            anything, and the portal gives them no reason why — a field just refuses to take
            focus. Worth the loudest severity even though nothing is technically "broken". */
         if ((h.unassigned || []).length) {
-          add("error", "Access", (h.unassigned || []).length + " client(s) have no AM/PM assigned",
-            "Nobody can edit these clients except an admin — their AM/PM sees a view-only page. " +
-            "Either add the client to the assignment workbook, or assign someone directly in " +
-            "Admin Center → ⇄ Assignments (which also pins it against the nightly sync).",
+          /* Severity depends on the workspace rule. With "restrict AM/PM editing" ON, an
+             unassigned client is a hard access problem — nobody but an admin can touch it.
+             With it OFF (the current default) everyone can still edit, so it's a hygiene
+             issue: filtering, who shows as owner, and Slack mentions all read from these. */
+          const strict = restrictOn();
+          add(strict ? "error" : "warn", "Access",
+            (h.unassigned || []).length + " client(s) have no AM/PM assigned",
+            strict
+              ? "Nobody can edit these clients except an admin — their AM/PM sees a view-only " +
+                "page. Either add the client to the assignment workbook, or assign someone in " +
+                "Admin Center → ⇄ Assignments (which also pins it against the nightly sync)."
+              : "Editing isn't blocked (“Restrict AM/PM editing” is off), but these clients have " +
+                "no owner for filtering, ownership display or Slack mentions — and they WOULD be " +
+                "locked to admins only if that rule is ever switched on.",
             h.unassigned || []);
         }
         if ((h.blank_rows || []).length) {
@@ -274,7 +293,8 @@
       </div>`;
     }).join("");
 
-    $("hzStamp").textContent = "Checked " + new Date().toLocaleString();
+    $("hzStamp").textContent = "Checked " + new Date().toLocaleString() +
+      " · AM/PM editing: " + (restrictOn() ? "restricted to assigned clients" : "any client");
   }
 
   async function run() {
