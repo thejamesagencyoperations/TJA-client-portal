@@ -38,9 +38,15 @@ Deno.serve(async (req) => {
      and leaving every client after the crash point stale (2026-08-03). Now each file costs one
      Drive metadata call, and the download + XLSX parse happens ONLY when the file's
      modifiedTime moved since the last successful parse. A quiet fleet is near-zero work. */
-  const STAMP_ID = "_plan_refresh";
+  /* Sentinel row "_plan_refresh"/"clients". Scope "clients" (not a new "state" scope) because
+     app_state has a CHECK on allowed scopes and a new value needs a migration — the same
+     precedent the Drive-watch registry uses. Every loader targets its exact client_id, and
+     "_"-prefixed ids are skipped by the client loops, so the row is invisible elsewhere.
+     (The first cut used scope "state": the CHECK rejected it and the ignored upsert error made
+     the skip silently never engage — hence the error logging below.) */
+  const STAMP_ID = "_plan_refresh", STAMP_SCOPE = "clients";
   const { data: srow } = await svc.from("app_state").select("data")
-    .eq("client_id", STAMP_ID).eq("scope", "state").maybeSingle();
+    .eq("client_id", STAMP_ID).eq("scope", STAMP_SCOPE).maybeSingle();
   const stamps: Record<string, string> = (srow && srow.data && typeof srow.data === "object" && !Array.isArray(srow.data))
     ? { ...(srow.data as Record<string, string>) } : {};
   let stampsDirty = false;
@@ -98,10 +104,13 @@ Deno.serve(async (req) => {
     }
   }
   if (stampsDirty) {
-    await svc.from("app_state").upsert(
-      { client_id: STAMP_ID, scope: "state", data: stamps, updated_at: new Date().toISOString() },
+    const { error: serr } = await svc.from("app_state").upsert(
+      { client_id: STAMP_ID, scope: STAMP_SCOPE, data: stamps, updated_at: new Date().toISOString() },
       { onConflict: "client_id,scope" },
     );
+    // A rejected stamp write must be LOUD: without stamps every run re-parses everything,
+    // which is exactly the compute-limit death this exists to prevent.
+    if (serr) console.error("plan-refresh stamps upsert failed:", serr.message);
   }
   return json(req, 200, { ok: true, checked, changed, failed, skipped, unchanged, deferred });
 });
