@@ -332,9 +332,13 @@ window.SUPA = (function () {
   function auditWrite(clientId, scope, value) {
     try {
       if (auditMuted || AUDIT_SKIP_SCOPES[scope]) return;
-      // internal bookkeeping workspaces are noise — EXCEPT the '_registry' roster, whose
-      // changes (AM/PM assignments, integrations) are exactly what we want on the record.
-      if (String(clientId).startsWith("_") && clientId !== "_registry") return;
+      /* Internal bookkeeping workspaces are noise — EXCEPT the ones that record POLICY:
+           _registry — AM/PM assignments + per-client integrations
+           _settings — workspace rules, e.g. whether AM/PMs may edit clients they don't own
+         Both are exactly what an audit is for. Without _settings here, flipping the edit
+         restriction — the most sensitive switch in the portal — left no trace at all. */
+      const AUDITED_SENTINELS = { _registry: 1, _settings: 1 };
+      if (String(clientId).startsWith("_") && !AUDITED_SENTINELS[clientId]) return;
       const key = clientId + "::" + scope;
       const prev = auditPrev[key];
       auditPrev[key] = cloneJSON(value);
@@ -342,7 +346,7 @@ window.SUPA = (function () {
       const all = diffValues(prev, value, "", []);
       if (!all.length) return;
       const capped = all.slice(0, AUDIT_MAX_CHANGES);
-      const label = SCOPE_LABEL[scope] || scope;
+      const label = (clientId === "_settings") ? "Workspace settings" : (SCOPE_LABEL[scope] || scope);
       logAudit({
         client_id: clientId, scope, action: "edit",
         summary: `edited ${label} — ${all.length} change${all.length === 1 ? "" : "s"}`,
