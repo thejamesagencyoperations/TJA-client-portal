@@ -20,6 +20,7 @@
    ============================================================ */
 import { json } from "../_shared/cors.ts";
 import { fetchRetainerActuals, canon, normName } from "../_shared/wmj.ts";
+import { reportHealth } from "../_shared/health.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -44,7 +45,11 @@ Deno.serve(async (req) => {
 
   let actuals;
   try { actuals = await fetchRetainerActuals(); }
-  catch (e) { return json(req, 502, { error: String((e as Error).message || e) }); }
+  catch (e) {
+    const msg = String((e as Error).message || e);
+    await reportHealth("snapshot-months", { ok: false, error: msg });   // a dead sheet must be visible
+    return json(req, 502, { error: msg });
+  }
 
   // roster: clientId → name/wmjName, to match a stored dashboard to WMJ actuals
   const { data: regRow } = await svc.from("app_state").select("data")
@@ -58,7 +63,8 @@ Deno.serve(async (req) => {
     .select("client_id,data").eq("scope", "dashboard");
   if (error) return json(req, 500, { error: error.message });
 
-  let snapped = 0, skipped = 0, rolled = 0, suspect = 0;
+  let snapped = 0, skipped = 0, rolled = 0, suspect = 0, expired = 0;
+  const suspectClients: string[] = [], noDenominator: string[] = [];
   for (const r of rows ?? []) {
     const clientId = r.client_id as string;
     if (!clientId || clientId.startsWith("_")) { skipped++; continue; }
@@ -83,7 +89,9 @@ Deno.serve(async (req) => {
        new month yet, so `existing` is undefined and the roll-forward proceeds. */
     const priorMom: Array<{ month?: string; year?: number; usedHours?: number }> = Array.isArray(e.mom) ? e.mom : [];
     const existing = priorMom.find((m) => m && m.month === short && m.year === yr);
-    if (!a && actuals.size === 0 && existing && +(existing.usedHours ?? 0) > 0) { suspect++; continue; }
+    if (!a && actuals.size === 0 && existing && +(existing.usedHours ?? 0) > 0) {
+      suspect++; suspectClients.push(nm.name || clientId); continue;
+    }
 
     const used = a ? a.total : 0;
     const disc: any[] = Array.isArray(e.serviceDisciplines) ? e.serviceDisciplines : [];
@@ -135,6 +143,25 @@ Deno.serve(async (req) => {
         }))
       : [];
 
+    /* EXPIRE LAST MONTH'S PRESENTATION OVERRIDES. svcUtilOverride (a dragged service-line %)
+       and hoursRealloc (hours moved between lines) describe how ONE month was presented, but
+       carried no month stamp and never expired — so the browser kept computing the burn from a
+       July override and Arizona Dept of Child Safety still read 98% in August (Cameron
+       2026-08-03). Cleared here rather than only in the browser so it self-heals with nobody
+       online. Unstamped overrides are legacy (set before stamping existed) and are treated as
+       expired; anything stamped with THIS month is the admin's current intent and survives.
+       KEEP IN SYNC with exec-summary.js ovActive/stampOv. */
+    if (e.overrideMonth !== periodLabel) {
+      const had = !!(e.svcUtilOverride || e.hoursRealloc || (e.burn && e.burn.pctOverride != null));
+      delete e.svcUtilOverride; delete e.hoursRealloc; delete e.overrideMonth;
+      if (e.burn) delete e.burn.pctOverride;
+      if (had) expired++;
+    }
+
+    // A retainer with no contracted hours has no denominator, so its burn % is meaningless
+    // (renders as "—"). Surfaced on the health page rather than silently looking fine.
+    if (!(contracted > 0)) noDenominator.push(nm.name || clientId);
+
     // keep the live burn fresh too (so the dashboard is current even with no admin online)
     e.burn.usedHours = round2(used);
     e.burn.periodLabel = periodLabel;
@@ -147,5 +174,8 @@ Deno.serve(async (req) => {
 
   // snapped = had hours this month · rolled = retainer client at 0 so far (label still moves
   // forward) · suspect = left alone because the sheet came back empty over existing data
-  return json(req, 200, { ok: true, month: periodLabel, snapped, rolled, suspect, skipped, clientsInSheet: actuals.size });
+  const result = { ok: true, month: periodLabel, snapped, rolled, suspect, skipped, expired,
+    clientsInSheet: actuals.size, suspectClients, noDenominator };
+  await reportHealth("snapshot-months", result);
+  return json(req, 200, result);
 });

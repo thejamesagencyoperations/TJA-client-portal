@@ -270,7 +270,7 @@ window.ExecSummary = (function () {
     const total = (viewMonthIdx == null) ? (retainerTotalContracted(e) + scopeExt) : b.contractedHours;
     const used = (viewMonthIdx == null) ? round2(retainerUsed(e)) : b.usedHours;   // burn = SUM of the disciplines' used hrs
     const realPct = total > 0 ? Math.round(used / total * 100) : 0;
-    const hasOv = viewMonthIdx == null && !!(e.svcUtilOverride && Object.keys(e.svcUtilOverride).length);
+    const hasOv = viewMonthIdx == null && !!Object.keys(svcOv(e)).length;
     const pct = (burnPreviewPct != null && viewMonthIdx == null) ? burnPreviewPct : realPct;   // needle follows the drag
     const actualUsed = round2(retainerActualUsed(e));
     const mom = (e.mom || []).map((m, i) => {
@@ -391,9 +391,23 @@ window.ExecSummary = (function () {
   function setBurnPct(e, pct) {
     e.burn = e.burn || {};
     pct = Math.max(0, Math.min(100, Math.round(pct)));
-    if (e.source === "wmj") e.burn.pctOverride = pct;
+    if (e.source === "wmj") { e.burn.pctOverride = pct; stampOv(e); }
     else e.burn.usedHours = Math.round(pct / 100 * (e.burn.contractedHours || 0));
   }
+  /* ADMIN PRESENTATION OVERRIDES ARE MONTH-SCOPED — same rule as scope extensions.
+     svcUtilOverride (a dragged service-line %) and hoursRealloc (hours moved between lines)
+     describe how ONE month was presented, so they must not follow the calendar into the next
+     one. They previously had no month stamp and never expired, so a July override kept driving
+     August's speedometer — Arizona Dept of Child Safety still read 98% in August off July's
+     override (Cameron 2026-08-03). An override set from now on is stamped with the month it was
+     made in; anything unstamped is legacy and treated as expired.
+     KEEP IN SYNC with the server-side expiry in supabase/functions/snapshot-months. */
+  const ovActive = (e) => !!(e && e.overrideMonth && e.burn && e.overrideMonth === e.burn.periodLabel);
+  const svcOv = (e) => (ovActive(e) ? (e.svcUtilOverride || {}) : {});
+  const reallocOf = (e) => (ovActive(e) ? (e.hoursRealloc || {}) : {});
+  // stamp the current month onto an override the admin is setting right now
+  const stampOv = (e) => { if (e) e.overrideMonth = (e.burn && e.burn.periodLabel) || ""; };
+
   // actual billable hours worked per discipline, from the WMJ timesheet (matched by canon key)
   function actualByDiscipline(e) {
     const map = {};
@@ -402,7 +416,7 @@ window.ExecSummary = (function () {
     // WMJ filed them under the wrong one (e.g. Web/SEO hours that are really Creative). Keyed
     // by canon discipline; deltas SUM TO ZERO, so the burn total is unchanged — only WHERE the
     // hours are counted moves. "Reset to actuals" wipes this back to the raw WMJ split.
-    const rl = e.hoursRealloc || {};
+    const rl = reallocOf(e);
     Object.keys(rl).forEach(k => { map[k] = (map[k] || 0) + (+rl[k] || 0); });
     return map;
   }
@@ -411,7 +425,7 @@ window.ExecSummary = (function () {
   // and the burn dial distributes back into the disciplines via the popup.
   function discUsed(e, d, actMap) {
     const act = (actMap || actualByDiscipline(e))[canon(d.name)] || 0;
-    const ov = (e.svcUtilOverride || {})[d.name];
+    const ov = svcOv(e)[d.name];
     return (typeof ov === "number") ? (ov / 100 * (+d.contracted || 0)) : act;
   }
   // billable hours in WMJ departments that DON'T match any defined discipline ("misc"/unallocated).
@@ -481,7 +495,7 @@ window.ExecSummary = (function () {
     const disc = Array.isArray(e.serviceDisciplines) ? e.serviceDisciplines : [];
     const actual = actualByDiscipline(e);
     const total = retainerTotalContracted(e);
-    const ov = e.svcUtilOverride || {};   // admin manual % overrides, keyed by discipline name
+    const ov = svcOv(e);   // admin manual % overrides, keyed by discipline name (month-scoped)
     // "needs setup" keys off the DISCIPLINES (not the total, which may come from the SOW feed):
     // until the admin splits hours across disciplines, rows stay neutral and the note shows.
     const unset = disc.reduce((s, d2) => s + (+d2.contracted || 0), 0) <= 0;
@@ -512,7 +526,7 @@ window.ExecSummary = (function () {
         ? `${round1(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs${contracted > 0 ? ` · ${Math.round(realUtil)}%` : ""}`
         : `${contracted > 0 ? Math.round(dispUtil) + "% of hours used" : ""}`;
       const handle = admin ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %"></button>` : "";
-      const moved = +(((e.hoursRealloc || {})[canon(d.name)]) || 0);   // net hours moved in/out of this line
+      const moved = +((reallocOf(e)[canon(d.name)]) || 0);   // net hours moved in/out of this line
       const movedTag = (admin && Math.abs(moved) > 0.001) ? ` <span class="rsvc-moved" title="Hours reallocated to/from other service lines">⇄ ${moved > 0 ? "+" : ""}${round1(moved)}h</span>` : "";
       return `<div class="rsvc-row">
         <div class="rsvc-top">
@@ -544,8 +558,8 @@ window.ExecSummary = (function () {
   // any manual % override active (service-line sliders)? → show the Reset-to-actuals control
   function hasActualsOverride(e) {
     if (!e || e.type !== "retainer") return false;
-    const ovKeys = e.svcUtilOverride && Object.keys(e.svcUtilOverride).length;
-    const rlKeys = e.hoursRealloc && Object.keys(e.hoursRealloc).some(k => Math.abs(+e.hoursRealloc[k] || 0) > 0.001);
+    const ovKeys = Object.keys(svcOv(e)).length;
+    const rlKeys = Object.keys(reallocOf(e)).some(k => Math.abs(+reallocOf(e)[k] || 0) > 0.001);
     return !!(ovKeys || rlKeys);
   }
 
@@ -1000,7 +1014,7 @@ window.ExecSummary = (function () {
       const to = disc[+ov.querySelector("#rlTo").value];
       if (!hrs || !to) { ov.querySelector("#rlHrs").focus(); return; }
       const toCanon = canon(to.name);
-      eng.hoursRealloc = eng.hoursRealloc || {};
+      eng.hoursRealloc = eng.hoursRealloc || {}; stampOv(eng);
       eng.hoursRealloc[fromCanon] = (+eng.hoursRealloc[fromCanon] || 0) - hrs;
       eng.hoursRealloc[toCanon] = (+eng.hoursRealloc[toCanon] || 0) + hrs;
       close(); viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender();
@@ -1053,7 +1067,7 @@ window.ExecSummary = (function () {
     checkValid();
     const close = (commit) => {
       if (commit && checkValid()) {
-        eng.svcUtilOverride = eng.svcUtilOverride || {};
+        eng.svcUtilOverride = eng.svcUtilOverride || {}; stampOv(eng);
         ov.querySelectorAll(".bp-delta").forEach(inp => {
           const i = +inp.dataset.i, d = disc[i], c = +d.contracted || 0;
           const rowDelta = parseFloat(inp.value) || 0;
@@ -1319,7 +1333,7 @@ window.ExecSummary = (function () {
       svcRaf = null;
       if (svcPendingPct == null || svcName == null) return;
       const eng = window.DASH.getEng();
-      (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = svcPendingPct;
+      (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = svcPendingPct; stampOv(eng);
       rerender();
     }
     function svcMove(ev) {
@@ -1390,7 +1404,7 @@ window.ExecSummary = (function () {
 
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
-      if (ra && canAdmin()) { delete eng.svcUtilOverride; delete eng.hoursRealloc; if (eng.burn) delete eng.burn.pctOverride; viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return; }
+      if (ra && canAdmin()) { delete eng.svcUtilOverride; delete eng.hoursRealloc; delete eng.overrideMonth; if (eng.burn) delete eng.burn.pctOverride; viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return; }
 
       const rlBtn = e.target.closest("[data-realloc]");
       if (rlBtn && canAdmin()) { openReallocPopup(+rlBtn.dataset.realloc); return; }

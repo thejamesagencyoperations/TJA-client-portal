@@ -17,6 +17,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { driveAccessToken, driveGetMeta, parseDriveFileId, parseSheetGid } from "../_shared/google.ts";
 import { audit } from "../_shared/audit.ts";
 import { fetchPlanFromDrive as fetchPlan, stable } from "../_shared/planfetch.ts";
+import { reportHealth } from "../_shared/health.ts";
 
 Deno.serve(async (req) => {
   const pre = handleOptions(req); if (pre) return pre;
@@ -56,6 +57,7 @@ Deno.serve(async (req) => {
   const DEADLINE = Date.now() + 60_000;
   const cache: Record<string, unknown> = {};   // fileId → parsed plan (dedupe shared files)
   let checked = 0, changed = 0, failed = 0, skipped = 0, unchanged = 0, deferred = 0;
+  const failures: Array<{ client: string; fileId: string; error: string }> = [];
 
   for (const row of (rows || [])) {
     if (String(row.client_id).startsWith("_")) continue;
@@ -86,7 +88,13 @@ Deno.serve(async (req) => {
           && stable(plan) !== stable(p.projectPlanSheet)) {
           p.projectPlanSheet = plan; dirty = true; changed++;
         }
-      } catch (_e) { failed++; }
+      } catch (_e) {
+        failed++;
+        // name the client + file so a plan that has silently stopped parsing is VISIBLE on the
+        // health page, instead of only ever being a counter in a cron response
+        failures.push({ client: row.client_id as string, fileId,
+          error: String((_e as Error).message || _e).slice(0, 160) });
+      }
     }
     if (dirty) {
       // GUARDED write: only land if the row still carries the stamp we read. A human may have
@@ -112,5 +120,7 @@ Deno.serve(async (req) => {
     // which is exactly the compute-limit death this exists to prevent.
     if (serr) console.error("plan-refresh stamps upsert failed:", serr.message);
   }
-  return json(req, 200, { ok: true, checked, changed, failed, skipped, unchanged, deferred });
+  const result = { ok: true, checked, changed, failed, skipped, unchanged, deferred, failures };
+  await reportHealth("plan-refresh", result);
+  return json(req, 200, result);
 });

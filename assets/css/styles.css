@@ -1992,3 +1992,55 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 .pd-tool-btn { padding: 5px 10px; }
 .pd-swatch { width: 20px; height: 20px; }
 
+
+/* ============================================================
+   SYSTEM HEALTH (health.html) — findings + scheduled-job strip.
+   Severity is carried by a left border + dot so it survives both themes and
+   never relies on colour alone to convey "this is broken".
+   ============================================================ */
+.hz-bar { display:flex; align-items:center; justify-content:space-between; gap:14px;
+  flex-wrap:wrap; margin:4px 0 22px; }
+.hz-summary { display:flex; gap:8px; flex-wrap:wrap; }
+.hz-bar-right { display:flex; align-items:center; gap:12px; }
+.hz-stamp { font-size:11.5px; color:var(--text-dim); }
+.hz-pill { font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px;
+  border:1px solid var(--line); background:var(--panel); }
+.hz-pill.hz-error { color:#c0392b; border-color:rgba(192,57,43,.35); background:rgba(192,57,43,.07); }
+.hz-pill.hz-warn  { color:#9a6a00; border-color:rgba(154,106,0,.32);  background:rgba(154,106,0,.07); }
+.hz-pill.hz-ok    { color:#1e7d46; border-color:rgba(30,125,70,.32); background:rgba(30,125,70,.07); }
+
+.hz-section-title { font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--text-dim); margin:26px 0 10px; }
+
+.hz-jobs { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+.hz-job { border:1px solid var(--line); background:var(--panel); border-radius:10px; padding:13px 15px; }
+.hz-job-bad { border-color:rgba(192,57,43,.38); background:rgba(192,57,43,.05); }
+.hz-job-top { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.hz-job-name { font-size:13.5px; font-weight:600; }
+.hz-job-when { font-size:11.5px; color:var(--text-dim); white-space:nowrap; }
+.hz-job-sub { font-size:12px; color:var(--text-dim); margin-top:4px; line-height:1.45; }
+.hz-job-meta { font-size:11.5px; color:var(--text-dim); margin-top:7px; padding-top:7px;
+  border-top:1px solid var(--line); }
+
+.hz-card { border:1px solid var(--line); border-left-width:3px; background:var(--panel);
+  border-radius:10px; padding:14px 16px; margin-bottom:11px; }
+.hz-card.hz-error { border-left-color:#c0392b; }
+.hz-card.hz-warn  { border-left-color:#d79a1e; }
+.hz-card-head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.hz-dot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
+.hz-card.hz-error .hz-dot { background:#c0392b; }
+.hz-card.hz-warn  .hz-dot { background:#d79a1e; }
+.hz-title { font-size:14px; font-weight:600; }
+.hz-area { font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--text-dim); border:1px solid var(--line); border-radius:999px; padding:2px 8px; }
+.hz-detail { font-size:12.5px; color:var(--text-dim); line-height:1.55; margin-top:7px; }
+.hz-list { margin:10px 0 0; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:6px; }
+.hz-list li { font-size:11.5px; padding:3px 9px; border-radius:6px;
+  background:var(--panel-2); border:1px solid var(--line); }
+.hz-list li.hz-more { border-style:dashed; color:var(--text-dim); }
+.hz-empty { font-size:13px; color:var(--text-dim); padding:18px 2px; }
+
+@media (max-width:720px) {
+  .hz-jobs { grid-template-columns:1fr; }
+  .hz-bar { align-items:flex-start; }
+}

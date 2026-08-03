@@ -41,6 +41,9 @@
     // Edit history — admin sees every client, an AM/PM sees their own (audit_log RLS is
     // admin+manager; the page scopes a manager to their assigned clients).
     if (r === "admin" || r === "manager") items.push({ label: "History", href: "history.html" });
+    // System Health reads EVERY client's row (admin-only under RLS), so a manager would
+    // see a partial, misleading picture — admin only.
+    if (r === "admin") items.push({ label: "System Health", href: "health.html" });
     if (r === "admin") items.push({ label: "Backup & Sync", href: "backup.html" });
     const links = items
       .filter((it) => it.href.toLowerCase() !== here)
