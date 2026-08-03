@@ -271,7 +271,7 @@ window.ExecSummary = (function () {
     const used = (viewMonthIdx == null) ? round2(retainerUsed(e)) : b.usedHours;   // burn = SUM of the disciplines' used hrs
     const realPct = total > 0 ? Math.round(used / total * 100) : 0;
     const hasOv = viewMonthIdx == null && !!Object.keys(svcOv(e)).length;
-    const pct = (burnPreviewPct != null && viewMonthIdx == null) ? burnPreviewPct : realPct;   // needle follows the drag
+    const pct = (burnPreviewPct != null) ? burnPreviewPct : realPct;   // needle follows the drag (live or frozen month)
     const actualUsed = round2(retainerActualUsed(e));
     const mom = (e.mom || []).map((m, i) => {
       const active = (viewMonthIdx == null) ? (i === e.mom.length - 1) : (i === viewMonthIdx);
@@ -279,7 +279,11 @@ window.ExecSummary = (function () {
       return `<div class="mom-chip ${active ? "active" : ""}" data-mom="${i}" title="View ${esc(m.month)}"><div class="m">${esc(m.month)}</div><div class="v">${mp}%</div></div>`;
     }).join("");
     const unset = viewMonthIdx == null && total <= 0;   // no contracted hours entered yet
-    const interactive = canAdmin() && viewMonthIdx == null && !unset;
+    /* Draggable on a PAST month as well as the live one (Cameron 2026-08-03) — the dial is how
+       a month gets presented, and that need doesn't stop when the calendar turns. Gated on a
+       denominator: with no contracted hours there is nothing to derive hours from. */
+    const interactive = canAdmin() && !unset && total > 0;
+    const histAdj = viewMonthIdx != null && !!(b && b.adjusted);
     const bigPct = unset ? `—`
       : canAdmin() ? `<span class="ed burn-pct" contenteditable="true" data-burnpct="1">${pct}</span>%`
       : `${pct}%`;
@@ -289,7 +293,7 @@ window.ExecSummary = (function () {
       <div class="burn-wrap">
         ${gauge(unset ? 0 : pct, interactive)}
         <div class="burn-readout">
-          <div class="big">${bigPct}${canAdmin() && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}</div>
+          <div class="big">${bigPct}${canAdmin() && (hasOv || histAdj) ? ` <span class="rsvc-adj" title="${histAdj ? "This month was adjusted by hand" : "Shown % overridden for presentation"}">adj</span>` : ""}</div>
           ${unset
             ? `<div class="sub">${round1(used)} hrs billable${canAdmin() ? " · set contracted hours below" : ""}</div>
                ${(canAdmin() && e.retainerValueHasPending) ? `<div class="burn-hint">a pending (unsigned) SOW exists — it isn't counted until signed</div>` : ""}`
@@ -394,6 +398,44 @@ window.ExecSummary = (function () {
     if (e.source === "wmj") { e.burn.pctOverride = pct; stampOv(e); }
     else e.burn.usedHours = Math.round(pct / 100 * (e.burn.contractedHours || 0));
   }
+  /* ---------- editing a PAST month's snapshot ----------
+     A frozen mom[] entry stores ABSOLUTE hours ({usedHours, contractedHours, lines[].billable}),
+     not an override on top of live actuals — so a past month is adjusted by writing those
+     numbers directly. That is why this needs none of the svcUtilOverride machinery the live
+     month uses: there are no incoming actuals to preserve, the snapshot IS the record.
+     Safe from the cron: snapshot-months only ever upserts the CURRENT month, so a hand-set
+     July keeps whatever an admin put there.
+     Every edit stamps `adjusted` so a presented figure is never mistaken for raw WMJ actuals. */
+  function histLines(m) { return Array.isArray(m && m.lines) ? m.lines : []; }
+  // set a frozen month's TOTAL from a %, scaling its service lines to match so the line
+  // detail never contradicts the headline number
+  function setHistPct(m, pct) {
+    const total = +m.contractedHours || 0;
+    const target = round2(Math.max(0, Math.min(100, pct)) / 100 * total);
+    const lines = histLines(m);
+    const cur = lines.reduce((s, l) => s + (+l.billable || 0), 0);
+    if (lines.length && cur > 0) {
+      const k = target / cur;
+      lines.forEach((l) => { l.billable = round2((+l.billable || 0) * k); });
+      // push rounding drift into the largest line so Σ lines === usedHours exactly
+      const drift = round2(target - lines.reduce((s, l) => s + (+l.billable || 0), 0));
+      if (Math.abs(drift) >= 0.01) {
+        const big = lines.reduce((a, b) => ((+b.billable || 0) > (+a.billable || 0) ? b : a), lines[0]);
+        big.billable = round2((+big.billable || 0) + drift);
+      }
+    }
+    m.usedHours = target;
+    m.adjusted = true;
+  }
+  // set ONE line's hours from a util %; the month total follows the lines
+  function setHistLine(m, idx, pct) {
+    const l = histLines(m)[idx]; if (!l) return;
+    const c = +l.contracted || 0;
+    l.billable = round2(Math.max(0, Math.min(100, pct)) / 100 * c);
+    m.usedHours = round2(histLines(m).reduce((s, x) => s + (+x.billable || 0), 0));
+    m.adjusted = true;
+  }
+
   /* ADMIN PRESENTATION OVERRIDES ARE MONTH-SCOPED — same rule as scope extensions.
      svcUtilOverride (a dragged service-line %) and hoursRealloc (hours moved between lines)
      describe how ONE month was presented, so they must not follow the calendar into the next
@@ -464,9 +506,11 @@ window.ExecSummary = (function () {
         <div class="rsvc-list"><div class="pr-date">No service-line detail captured for this month.</div></div>
       </div>`;
     }
+    const admin = canAdmin();
     const ordered = lines.map((l, i) => ({ l, i }))
       .sort((a, b) => (canon(a.l.name) === "oversight" ? 0 : 1) - (canon(b.l.name) === "oversight" ? 0 : 1));
-    const rows = ordered.map(({ l }) => {
+    // `i` is the index into m.lines — carried through the sort so a handle writes the row it's on
+    const rows = ordered.map(({ l, i }) => {
       const c = +l.contracted || 0, bill = +l.billable || 0;
       const share = totalC > 0 ? Math.round(c / totalC * 100) : 0;
       const util = c > 0 ? (bill / c * 100) : 0;
@@ -476,15 +520,20 @@ window.ExecSummary = (function () {
       else if (util > 120) { st = "over"; lbl = "Over"; }
       else if (util >= 100) { st = "complete"; lbl = "Completed"; }
       else if (util > 0) { st = "in-progress"; lbl = "In progress"; }
+      // Draggable on a frozen month too — data-svcutilh marks it HISTORICAL so the shared
+      // pointer handler writes mom[].lines instead of the live svcUtilOverride map.
+      const handle = (admin && c > 0)
+        ? `<button class="rsvc-handle" data-svcutilh="${i}" style="left:${fill}%" title="Drag to adjust this month's hours"></button>`
+        : "";
       return `<div class="rsvc-row">
         <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}</span>
           <span class="rsvc-right"><span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span></span></div>
-        <div class="rsvc-bar${st === "over" ? " over" : ""}"><span style="width:${fill}%"></span></div>
+        <div class="rsvc-bar${st === "over" ? " over" : ""}${handle ? " rsvc-bar--drag" : ""}"><span style="width:${fill}%"></span>${handle}</div>
         <div class="rsvc-cap">${round1(bill)} of ${round1(c)} hrs${c > 0 ? ` · ${Math.round(util)}%` : ""}</div>
       </div>`;
     }).join("");
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.svc}Service Lines · ${esc(m.month)} ${m.year || ""}</span><span class="rsvc-legend">% of retainer</span></div>
+      <div class="module-head"><span class="module-title">${IC.svc}Service Lines · ${esc(m.month)} ${m.year || ""}</span>${m.adjusted ? `<span class="rsvc-adj" title="This month was adjusted by hand">adj</span>` : ""}<span class="rsvc-legend">% of retainer</span></div>
       <div class="rsvc-list">${rows}</div>
     </div>`;
   }
@@ -1220,6 +1269,14 @@ window.ExecSummary = (function () {
       if (bp) {
         let pct = parseFloat(bp.textContent.replace(/[^0-9.]/g, "")); pct = isNaN(pct) ? 0 : Math.max(0, Math.min(100, pct));
         const eng = window.DASH.getEng();
+        /* Typing over the % while viewing a PAST month used to write the LIVE month and snap the
+           view back to it (`viewMonthIdx = null`) — so the edit landed on the wrong month with no
+           sign anything had gone wrong. Route it to the month actually on screen. */
+        if (viewMonthIdx != null) {
+          const m = (eng.mom || [])[viewMonthIdx];
+          if (m) setHistPct(m, pct);
+          window.DASH.saveState(); rerender(); return;
+        }
         if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) { openBurnPopup(pct); return; }
         setBurnPct(eng, pct);
         viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return;
@@ -1310,6 +1367,14 @@ window.ExecSummary = (function () {
       document.removeEventListener("pointermove", gaugeMove);
       document.removeEventListener("pointerup", gaugeUp);
       const eng = window.DASH.getEng();
+      /* A FROZEN month is written straight to its mom[] entry — no "distribute to disciplines"
+         popup, because there are no live actuals to reconcile: the lines are simply scaled to
+         the new total. The live month keeps its existing popup flow. */
+      if (viewMonthIdx != null) {
+        const m = (eng.mom || [])[viewMonthIdx];
+        if (m) setHistPct(m, burnPreviewPct);
+        burnPreviewPct = null; window.DASH.saveState(); rerender(); return;
+      }
       if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) openBurnPopup(burnPreviewPct);   // distribute to disciplines
       else { setBurnPct(eng, burnPreviewPct); burnPreviewPct = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); }
     }
@@ -1328,24 +1393,31 @@ window.ExecSummary = (function () {
     // every move rather than keeping the original DOM reference — rerender() replaces the whole
     // tile's innerHTML, so a cached node reference would go stale/detached after the first frame
     // (same reason gaugePct() below re-queries `.gauge-drag` fresh on every call instead of caching it).
-    let svcIdx = null, svcName = null, svcPendingPct = null, svcRaf = null;
+    let svcIdx = null, svcName = null, svcPendingPct = null, svcRaf = null, svcHist = false;
     function svcApply() {
       svcRaf = null;
-      if (svcPendingPct == null || svcName == null) return;
+      if (svcPendingPct == null) return;
       const eng = window.DASH.getEng();
-      (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = svcPendingPct; stampOv(eng);
+      // FROZEN month → write the snapshot's own hours; live month → the override map
+      if (svcHist) {
+        const m = (eng.mom || [])[viewMonthIdx];
+        if (m) setHistLine(m, +svcIdx, svcPendingPct);
+      } else {
+        if (svcName == null) return;
+        (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = svcPendingPct; stampOv(eng);
+      }
       rerender();
     }
     function svcMove(ev) {
       if (svcIdx == null) return; ev.preventDefault();
-      const h = section().querySelector(`.rsvc-handle[data-svcutil="${svcIdx}"]`);
+      const h = section().querySelector(`.rsvc-handle[data-${svcHist ? "svcutilh" : "svcutil"}="${svcIdx}"]`);
       const bar = h && h.closest(".rsvc-bar"); if (!bar) return;
       const r = bar.getBoundingClientRect();
       svcPendingPct = Math.max(0, Math.min(100, Math.round((ev.clientX - r.left) / r.width * 100)));
       if (!svcRaf) svcRaf = requestAnimationFrame(svcApply);
     }
     function svcUp() {
-      if (svcIdx == null) return; svcIdx = null; svcName = null; svcPendingPct = null;
+      if (svcIdx == null) return; svcIdx = null; svcName = null; svcPendingPct = null; svcHist = false;
       document.removeEventListener("pointermove", svcMove);
       document.removeEventListener("pointerup", svcUp);
       window.DASH.saveState(); rerender();
@@ -1353,8 +1425,15 @@ window.ExecSummary = (function () {
     s.addEventListener("pointerdown", ev => {
       const h = ev.target.closest(".rsvc-handle"); if (!h || !canAdmin()) return;
       ev.preventDefault();
-      const line = (window.DASH.getEng().serviceDisciplines || [])[+h.dataset.svcutil]; if (!line) return;
-      svcIdx = h.dataset.svcutil; svcName = line.name;
+      if (h.dataset.svcutilh != null) {                     // a frozen month's line
+        if (viewMonthIdx == null) return;
+        const m = (window.DASH.getEng().mom || [])[viewMonthIdx];
+        if (!m || !histLines(m)[+h.dataset.svcutilh]) return;
+        svcHist = true; svcIdx = h.dataset.svcutilh; svcName = null;
+      } else {                                              // the live month
+        const line = (window.DASH.getEng().serviceDisciplines || [])[+h.dataset.svcutil]; if (!line) return;
+        svcHist = false; svcIdx = h.dataset.svcutil; svcName = line.name;
+      }
       document.addEventListener("pointermove", svcMove);
       document.addEventListener("pointerup", svcUp);
     });
