@@ -182,6 +182,23 @@ window.ExecSummary = (function () {
 
   /* ---- list helpers ---- */
   const owners = (o) => (o === "TJA" ? "tja" : "client");
+  /* Owner pills read the CLIENT CODE rather than the word "Client" (Cameron 2026-08-03) —
+     "CTC" is what the team actually says. Display only: the stored owner value stays
+     "Client"/"TJA" so the toggle, the colour rule and every existing record keep working;
+     only the visible text changes. Resolved via the same path app.js uses for the PDF header —
+     CLIENT_DATA first, registry override when it's readable (staff). A client login can't read
+     the registry, so it falls back to "Client" rather than showing an empty pill. */
+  function clientCode() {
+    let code = "";
+    try { code = (window.CLIENT_DATA && window.CLIENT_DATA.client && window.CLIENT_DATA.client.code) || ""; } catch (e) {}
+    try {
+      const m = (typeof getSession === "function" && window.TJA_STORE) ? window.TJA_STORE.get(getSession().client) : null;
+      if (m && m.code) code = m.code;
+    } catch (e) {}
+    return String(code || "").trim().toUpperCase();
+  }
+  const ownerLabel = (o) => (o === "TJA" ? "TJA" : (clientCode() || "Client"));
+  const ownerTitle = () => `Toggle owner (${ownerLabel("Client")} / TJA)`;
   function listDel(list, i) { return canAdmin() ? `<button class="row-del" data-listdel="${list}" data-idx="${i}" title="Remove">✕</button>` : ""; }
   function listAdd(list, label) { return canAdmin() ? `<button class="row-add" data-listadd="${list}">＋ ${esc(label)}</button>` : ""; }
   // Drag-to-reorder grip (admins only) — drag starts only from here, so it never fights the
@@ -698,7 +715,7 @@ window.ExecSummary = (function () {
     const cc = e.todoClientColor || logoAccent() || "#6aa6ff";   // TJA = always orange; Client = logo colour (admin can override)
     const tag = (t, i) => {
       const style = t.owner === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
-      return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(t.owner)}</span>`;
+      return `<span class="owner-tag ${owners(t.owner)} ${canAdmin() ? "admin-edit" : ""}" data-owner="${i}"${style} ${canAdmin() ? `title="${esc(ownerTitle())}"` : ""}>${esc(ownerLabel(t.owner))}</span>`;
     };
     const rows = (e.todos || []).map((t, i) => `
       <div class="tile-item${t.done ? " done" : ""}">
@@ -708,7 +725,7 @@ window.ExecSummary = (function () {
         ${listDel("todos", i)}
       </div>`).join("");
     const colorPick = canAdmin()
-      ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>`
+      ? `<label class="todo-colorpick" title="Set the colour used for ${esc(ownerLabel("Client"))} tasks"><input type="color" data-todocolor value="${cc}"><span>${esc(ownerLabel("Client"))}</span></label>`
       : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.todo}To-Do's</span>${colorPick}</div>
@@ -736,7 +753,7 @@ window.ExecSummary = (function () {
     const ownerTag = (item, i, attr) => {
       const o = item.owner || "TJA";
       const style = o === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
-      return `<span class="owner-tag ${owners(o)} ${canAdmin() ? "admin-edit" : ""}" ${attr}="${i}"${style} ${canAdmin() ? `title="Toggle owner (Client / TJA)"` : ""}>${esc(o)}</span>`;
+      return `<span class="owner-tag ${owners(o)} ${canAdmin() ? "admin-edit" : ""}" ${attr}="${i}"${style} ${canAdmin() ? `title="${esc(ownerTitle())}"` : ""}>${esc(ownerLabel(o))}</span>`;
     };
     const todoRows = (e.todos || []).map((t, i) => `
       <div class="tile-item${t.done ? " done" : ""}" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${todoCheck(t, i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
@@ -751,7 +768,7 @@ window.ExecSummary = (function () {
       return `<div class="tile-item${d.internal ? " is-internal" : ""}" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${depEye(d, i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}${d.internal && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`;
     }).join("");
     const colorPick = canAdmin()
-      ? `<label class="todo-colorpick" title="Set the colour used for Client tasks"><input type="color" data-todocolor value="${cc}"><span>Client</span></label>` : "";
+      ? `<label class="todo-colorpick" title="Set the colour used for ${esc(ownerLabel("Client"))} tasks"><input type="color" data-todocolor value="${cc}"><span>${esc(ownerLabel("Client"))}</span></label>` : "";
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.todo}To Do's / Dependencies</span>${colorPick}</div>
       <div class="td-sub"><span>To-Do's</span>${listAdd("todos", "Add to-do")}</div>

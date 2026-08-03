@@ -1096,6 +1096,18 @@ function applyEngagement() {
         window.SUPA.pullScope(cid, "files"),
         window.SUPA.pullScope(cid, "deliverables"),
         staff ? window.SUPA.pullScope(cid, "deliverables_draft") : Promise.resolve(null),
+        /* REFRESH THE CLIENT ROSTER. TJA_STORE only hydrates inside login()/restoreSession(),
+           and restoreSession() returns early the moment a per-tab session exists — so a browser
+           that is already signed in NEVER re-reads the roster, and serves whatever
+           localStorage held at last login. Since an AM/PM's edit rights come from that roster
+           (canEdit → ownsCurrentClient → TJA_STORE.get(client).managers), an assignment made
+           after their last login never reached them: every field silently refused to take
+           focus, which reads as a broken page rather than a permission (Alex on Circle the
+           City, 2026-08-03 — she WAS assigned; her cached roster just didn't know).
+           Pulled here in parallel so it costs no extra boot latency, and BEFORE first paint so
+           permissions are right on the first render rather than after a reload. */
+        (window.TJA_STORE && window.TJA_STORE.hydrate)
+          ? window.TJA_STORE.hydrate().catch(() => null) : Promise.resolve(null),
       ]);
       const dash = dashFull && dashFull.data;
       if (dash && dash.engagements) { STATE = migrate(dash); lastSnapshot = clone(STATE); dashPulled = true; try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch {} }
@@ -1116,6 +1128,27 @@ function applyEngagement() {
     const anchor = el("#previewBanner");
     if (anchor) anchor.parentNode.insertBefore(warn, anchor);
   }
+
+  /* SAY WHY THE PAGE IS READ-ONLY. An AM/PM only edits clients they're assigned to
+     (canEdit → ownsCurrentClient), and when they aren't, every field simply refuses to take
+     focus with NO explanation — clicking a goal and having nothing happen reads as a broken
+     page, not as a permission. That's exactly how it was reported (Alex, Circle the City,
+     2026-08-03: a client absent from the assignment workbook has no managers, so the whole
+     workspace is silently view-only). Name the reason and the fix instead. */
+  (function readOnlyNotice() {
+    try {
+      if (typeof effectiveRole !== "function" || effectiveRole() !== "manager") return;
+      if (typeof canEdit === "function" && canEdit()) return;          // they do own it — nothing to say
+      const note = document.createElement("div");
+      note.className = "presence-banner";
+      const nm = (D.client && D.client.name) || "this client";
+      note.innerHTML = "👁 <b>View-only</b> — you aren't listed as an AM or PM on " + nm +
+        ", so nothing here can be edited. Ask an admin to assign you (Admin Center → ⇄ Assignments) " +
+        "and this unlocks straight away.";
+      const anchor = el("#previewBanner");
+      if (anchor) anchor.parentNode.insertBefore(note, anchor);
+    } catch (e) { /* a notice must never break the page */ }
+  })();
 
   // self-heal: a retainer must always carry its service disciplines. If a stale/older state
   // (or a dropped sync write) leaves them empty, re-seed from the template so the Service Lines

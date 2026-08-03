@@ -52,6 +52,9 @@
     { key: "plan-refresh", label: "Project plan auto-refresh",
       cadence: "every 5 min", staleHrs: 3,
       why: "Re-pulls connected project-plan sheets so edits appear without anyone clicking refresh." },
+    { key: "assign-sync", label: "AM/PM assignment sync",
+      cadence: "daily", staleHrs: 30,
+      why: "Reads the assignment workbook so each AM/PM can edit the clients they own." },
   ];
 
   const findings = [];
@@ -100,6 +103,39 @@
           add("warn", "Data", (h.noDenominator || []).length + " retainer client(s) have no contracted hours",
             "Their burn gauge cannot show a percentage (it renders as “—”) until contracted hours " +
             "or a monthly SOW value is set.", h.noDenominator || []);
+        }
+      }
+      if (j.key === "assign-sync" && h.ok !== false) {
+        /* THE ONE THAT BITES SILENTLY: no assignment means that client's AM/PM cannot edit
+           anything, and the portal gives them no reason why — a field just refuses to take
+           focus. Worth the loudest severity even though nothing is technically "broken". */
+        if ((h.unassigned || []).length) {
+          add("error", "Access", (h.unassigned || []).length + " client(s) have no AM/PM assigned",
+            "Nobody can edit these clients except an admin — their AM/PM sees a view-only page. " +
+            "Either add the client to the assignment workbook, or assign someone directly in " +
+            "Admin Center → ⇄ Assignments (which also pins it against the nightly sync).",
+            h.unassigned || []);
+        }
+        if ((h.blank_rows || []).length) {
+          add("warn", "Access", (h.blank_rows || []).length + " workbook row(s) have no AM or PM",
+            "These clients are in the assignment workbook but both name cells are empty, so the " +
+            "sync skips them.", h.blank_rows || []);
+        }
+        if ((h.name_issues || []).length) {
+          add("warn", "Access", (h.name_issues || []).length + " assignment name(s) could not be matched",
+            "A name in the workbook doesn't resolve to exactly one portal login, so that " +
+            "assignment was skipped.", h.name_issues || []);
+        }
+        if ((h.unmatched_clients || []).length) {
+          add("warn", "Access", (h.unmatched_clients || []).length + " workbook client(s) aren't in the portal",
+            "These rows name a client the portal doesn't have, so their assignment goes nowhere.",
+            h.unmatched_clients || []);
+        }
+        // the workbook is month-tabbed; a tab that has fallen behind means stale ownership
+        if (h.tab && h.tab !== currentMonthLabel()) {
+          add("warn", "Access", "Assignment workbook has no tab for " + currentMonthLabel(),
+            "The sync is reading “" + esc(h.tab) + "”, the most recent tab it can find. " +
+            "Assignments will keep following that month until this month's tab exists.");
         }
       }
       if (j.key === "plan-refresh" && +h.failed > 0) {

@@ -23,6 +23,7 @@
 import { json } from "../_shared/cors.ts";
 import { audit } from "../_shared/audit.ts";
 import { csvToRows } from "../_shared/plan.ts";
+import { reportHealth } from "../_shared/health.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SHEET_ID = "1_I3UlEU__O4ea9SVV2J4ERKww3XWumc68wGDr0cDrQM";
@@ -130,6 +131,7 @@ Deno.serve(async (req) => {
     };
 
     const applied: any[] = [], skippedManual: any[] = [], unmatchedClients: string[] = [], nameIssues: string[] = [];
+    const blankRows: string[] = [];
     const seen = new Set<string>();
     for (const row of rows.slice(1)) {
       const sheetClient = String(row[ci] || "").trim();
@@ -137,7 +139,9 @@ Deno.serve(async (req) => {
       seen.add(norm(sheetClient));
       if (IGNORE_CLIENTS.has(norm(sheetClient))) continue;
       const amRaw = String(row[ai] || "").trim(), pmRaw = String(row[pi] || "").trim();
-      if (!amRaw && !pmRaw) continue;
+      // A row with a client but NO names was skipped silently — indistinguishable from a client
+      // that simply isn't in the workbook, and both leave every AM/PM locked out of that client.
+      if (!amRaw && !pmRaw) { blankRows.push(sheetClient); continue; }
       const c = matchClient(sheetClient);
       if (!c) { unmatchedClients.push(sheetClient); continue; }
       if (c.integrations?.amPmManual === true) { skippedManual.push({ client: c.id, sheetClient }); continue; }
@@ -167,10 +171,31 @@ Deno.serve(async (req) => {
       });
     }
 
-    return json(req, 200, {
+    /* Clients in the portal that this run left WITHOUT an assignment — from the workbook's
+       point of view they don't exist, and the consequence is invisible in the portal: their
+       AM/PM silently cannot edit anything. Reported so the health page can name them. */
+    const assignedIds = new Set(applied.filter((a) => a.managers.length).map((a) => a.client));
+    const unassigned = roster
+      .filter((c) => c && c.id && !c.archived && !assignedIds.has(c.id)
+        && !(Array.isArray(c.managers) && c.managers.length))
+      .map((c) => c.name || c.id);
+    /* Portal clients this tab DIDN'T cover but which still carry managers from some earlier
+       state. Nobody maintains these: the workbook has moved on, so whoever is listed stays
+       listed for ever — and a newly-assigned AM/PM silently cannot edit, because the sync has
+       no row to learn about them from (Circle the City / Alex, 2026-08-03). Reported WITH the
+       current owners so the gap is obvious at a glance. */
+    const notInWorkbook = roster
+      .filter((c) => c && c.id && !c.archived && !assignedIds.has(c.id)
+        && Array.isArray(c.managers) && c.managers.length)
+      .map((c) => `${c.name || c.id} — currently ${c.managers.join(" + ")}`);
+
+    const result = {
       dry, tab: tabName, applied_count: applied.length, skipped_manual: skippedManual.length,
       applied, unmatched_clients: unmatchedClients, name_issues: nameIssues,
-    });
+      blank_rows: blankRows, unassigned, not_in_workbook: notInWorkbook,
+    };
+    if (!dry) await reportHealth("assign-sync", result);
+    return json(req, 200, result);
   } catch (e) {
     return json(req, 500, { error: String((e as Error).message || e).slice(0, 300) });
   }
