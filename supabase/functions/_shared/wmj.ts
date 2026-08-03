@@ -52,7 +52,15 @@ function isNonBillable(r: Record<string, string>): boolean {
   return !cl || cm.indexOf("non-billable") > -1 || cl.indexOf("the james agency") > -1;
 }
 
-export interface ClientActuals { wmjName: string; norm: string; byDept: Record<string, number>; total: number; }
+export interface ClientActuals {
+  wmjName: string; norm: string;
+  byDept: Record<string, number>;
+  // dept → project name → billable hours. Feeds the admin "unallocated hours" drill-down
+  // (exec-summary unmatchedProjects), so the scheduled writer can refresh wmjServiceLines
+  // completely instead of leaving last month's project list attached to this month.
+  byDeptProjects: Record<string, Record<string, number>>;
+  total: number;
+}
 
 export async function fetchRetainerActuals(): Promise<Map<string, ClientActuals>> {
   const res = await fetch(RET_CSV_URL, { headers: { "cache-control": "no-cache" } });
@@ -62,19 +70,28 @@ export async function fetchRetainerActuals(): Promise<Map<string, ClientActuals>
   for (const r of rows) {
     if (isNonBillable(r)) continue;
     const key = normName(r.Client_Name);
-    if (!map.has(key)) map.set(key, { wmjName: (r.Client_Name || "").trim(), norm: key, byDept: {}, total: 0 });
+    if (!map.has(key)) map.set(key, { wmjName: (r.Client_Name || "").trim(), norm: key, byDept: {}, byDeptProjects: {}, total: 0 });
     const c = map.get(key)!;
     // Organic Social lives as a Service_Description under Creative — split it out to its own line
     const dept = /organic\s*social/i.test(r.Service_Description || "")
       ? "Organic Social" : ((r.User_Department || "Other").trim() || "Other");
     const bill = parseFloat(r.Actual_Billable_Hours) || 0;
     c.byDept[dept] = (c.byDept[dept] || 0) + bill;
+    const proj = (r.Project_Name || "").trim();
+    if (proj) {
+      const pm = c.byDeptProjects[dept] || (c.byDeptProjects[dept] = {});
+      pm[proj] = (pm[proj] || 0) + bill;
+    }
     c.total += bill;
   }
   // round
   for (const c of map.values()) {
     c.total = Math.round(c.total * 100) / 100;
     for (const k of Object.keys(c.byDept)) c.byDept[k] = Math.round(c.byDept[k] * 100) / 100;
+    for (const d of Object.keys(c.byDeptProjects)) {
+      const pm = c.byDeptProjects[d];
+      for (const pn of Object.keys(pm)) pm[pn] = Math.round(pm[pn] * 100) / 100;
+    }
   }
   return map;
 }

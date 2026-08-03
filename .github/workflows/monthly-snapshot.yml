@@ -8,7 +8,15 @@ name: Monthly data snapshot
 
 on:
   schedule:
-    - cron: "0 6 * * *"      # 06:00 UTC every day
+    # TWO runs a day, and the EARLY one is the important one.
+    # 06:00 UTC was chosen as "23:00 Phoenix the previous day" so the last run of a closing
+    # month would capture its final day. In practice GitHub defers scheduled jobs 2-3.5h under
+    # load — observed 08:05-09:25 UTC — which lands 01:00-02:30 Phoenix the NEXT day, i.e.
+    # after the month already flipped. So the closing month's final day was never captured
+    # (July 2026 froze at ~11:00 Phoenix on the 31st only because of a manual run).
+    # 01:00 UTC = 18:00 Phoenix the previous day; even with a 3.5h slip it stays on that day.
+    - cron: "0 1 * * *"      # 18:00 Phoenix (previous day) — the month-end capture
+    - cron: "0 6 * * *"      # second pass, keeps the live burn fresh through the day
   workflow_dispatch: {}       # allow manual runs from the Actions tab
 
 jobs:
