@@ -61,7 +61,22 @@ Deno.serve(async (req) => {
     .select("ts,client_id,scope,actor_email,actor_name,actor_role,action,summary,changes,n")
     .gte("ts", since).order("ts", { ascending: false }).limit(2000);
   if (error) return json(req, 500, { error: error.message });
-  const rows = (data || []) as Row[];
+  const all = (data || []) as Row[];
+  /* PEOPLE vs AUTOMATION. The point of this digest is "what did my team change", and the
+     unattended crons (plan re-pulls, WMJ syncs, snapshots) out-write humans by orders of
+     magnitude — the first live send was 229 automated plan re-pulls against 7 real edits.
+     Left mixed, the thing you actually want is buried and the email stops being read.
+     People lead; automation collapses to a per-action count at the bottom. */
+  const isBot = (r: Row) => r.actor_role === "system" || !r.actor_email;
+  // actor breakdown on the response — makes "why is this row counted as a person?" answerable
+  // without shell access to the table.
+  const byRole: Record<string, number> = {};
+  for (const r of all) {
+    const k = `${r.actor_role || "(null)"}|${r.actor_email ? "email" : "no-email"}|${r.action}`;
+    byRole[k] = (byRole[k] || 0) + 1;
+  }
+  const rows = all.filter((r) => !isBot(r));
+  const botRows = all.filter(isBot);
 
   // client_id → display name, so the email reads "Circle the City", not "circle-the-city"
   const { data: reg } = await svc.from("app_state").select("data")
@@ -73,6 +88,18 @@ Deno.serve(async (req) => {
     const c = roster.find((x) => String(x.id) === id);
     return (c && c.name) || id;
   };
+
+  // one line per automated action, e.g. "plan.refreshed — 229"
+  const botCounts = new Map<string, number>();
+  for (const r of botRows) botCounts.set(r.action, (botCounts.get(r.action) || 0) + 1);
+  const botBlock = botRows.length
+    ? `<div style="margin:22px 0 0;padding-top:14px;border-top:1px solid #e6e6e6">
+         <div style="font-size:13px;font-weight:bold;color:#666;margin-bottom:6px">Automation
+           <span style="font-weight:normal;color:#999">· ${botRows.length} event${botRows.length === 1 ? "" : "s"}, no human involved</span></div>
+         ${[...botCounts.entries()].sort((a, b) => b[1] - a[1])
+             .map(([a, n]) => `<div style="font-size:12px;color:#666">${esc(a)} — ${n}</div>`).join("")}
+       </div>`
+    : "";
 
   const isLast = today === DIGEST_UNTIL;
   const when = phoenix(new Date()).toISOString().slice(0, 10);
@@ -86,18 +113,22 @@ Deno.serve(async (req) => {
 
   /* NOTHING CHANGED is worth sending too: a silent day is indistinguishable from a broken
      cron, and the entire point of this fortnight is knowing the record is intact. */
+  if (new URL(req.url).searchParams.get("inspect") === "1") {
+    return json(req, 200, { ok: true, inspect: true, total: all.length,
+      people: rows.length, automation: botRows.length, byRole });
+  }
   if (!rows.length) {
     const html = portalEmail({
-      preheader: `No portal changes in the last ${WINDOW_HOURS} hours.`,
+      preheader: `Nobody changed anything in the portal in the last ${WINDOW_HOURS} hours.`,
       heading: "No changes yesterday",
-      bodyHtml: `<p style="margin:0">Nobody edited anything in the portal in the last
-        ${WINDOW_HOURS} hours. This email confirms the log is being watched — a quiet day and a
-        broken digest would otherwise look identical.</p>${tail}`,
+      bodyHtml: `<p style="margin:0">No one on the team edited anything in the portal in the last
+        ${WINDOW_HOURS} hours. This email is sent on quiet days too — a silent day and a broken
+        digest would otherwise look identical.</p>${botBlock}${tail}`,
       metaRows: [["Window", `${WINDOW_HOURS} hours to ${when}`]],
       ctaText: "Open edit history", ctaUrl: PORTAL_URL,
     });
-    const sent = await send(`TJA Portal — no changes (${when})`, html);
-    return json(req, 200, { ok: true, rows: 0, sent, last: isLast });
+    const sent = await send(`TJA Portal — no team changes (${when})`, html);
+    return json(req, 200, { ok: true, people: 0, automation: botRows.length, sent, last: isLast });
   }
 
   // ---- group by client, then summarise per person ----
@@ -144,18 +175,20 @@ Deno.serve(async (req) => {
   }).join("");
 
   const html = portalEmail({
-    preheader: `${rows.length} change${rows.length === 1 ? "" : "s"} across ${byClient.size} client${byClient.size === 1 ? "" : "s"}.`,
+    preheader: `${rows.length} change${rows.length === 1 ? "" : "s"} by the team across ${byClient.size} client${byClient.size === 1 ? "" : "s"}.`,
     heading: "Portal changes yesterday",
-    bodyHtml: `<p style="margin:0 0 16px">${rows.length} change${rows.length === 1 ? "" : "s"} across
-      ${byClient.size} client${byClient.size === 1 ? "" : "s"} in the last ${WINDOW_HOURS} hours.</p>
-      ${sections}${tail}`,
+    bodyHtml: `<p style="margin:0 0 16px"><b>${rows.length} change${rows.length === 1 ? "" : "s"}</b> by
+      the team across ${byClient.size} client${byClient.size === 1 ? "" : "s"} in the last
+      ${WINDOW_HOURS} hours${botRows.length ? `, plus ${botRows.length} automated event${botRows.length === 1 ? "" : "s"} (listed at the bottom)` : ""}.</p>
+      ${sections}${botBlock}${tail}`,
     metaRows: [["Window", `${WINDOW_HOURS} hours to ${when}`], ["Who", whoLine || "—"]],
     ctaText: "Open edit history", ctaUrl: PORTAL_URL,
   });
 
   const sent = await send(
-    `TJA Portal — ${rows.length} change${rows.length === 1 ? "" : "s"} (${when})`, html);
-  return json(req, 200, { ok: true, rows: rows.length, clients: byClient.size, sent, last: isLast });
+    `TJA Portal — ${rows.length} team change${rows.length === 1 ? "" : "s"} (${when})`, html);
+  return json(req, 200, { ok: true, people: rows.length, automation: botRows.length,
+    clients: byClient.size, sent, last: isLast });
 
   async function send(subject: string, body: string): Promise<boolean> {
     try {

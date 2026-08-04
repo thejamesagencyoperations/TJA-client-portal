@@ -12,7 +12,12 @@ on:
     # scheduled jobs by up to a few hours under load; the digest covers a rolling 24h window
     # rather than a calendar day, so a late run still reports everything exactly once.
     - cron: "0 14 * * *"
-  workflow_dispatch: {}       # send one on demand from the Actions tab
+  workflow_dispatch:          # send one on demand from the Actions tab
+    inputs:
+      inspect:
+        description: "Report the actor breakdown instead of sending an email"
+        type: boolean
+        default: false
 
 jobs:
   digest:
@@ -23,7 +28,8 @@ jobs:
           SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
           ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
         run: |
-          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/audit-digest" \
+          Q=""; [ "${{ inputs.inspect }}" = "true" ] && Q="?inspect=1"
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/audit-digest${Q}" \
             -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
             -H "Authorization: Bearer ${ANON_KEY}" \
             --retry 3 --retry-delay 20 --retry-all-errors \
