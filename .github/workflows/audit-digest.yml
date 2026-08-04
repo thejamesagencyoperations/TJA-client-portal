@@ -6,12 +6,14 @@ name: Audit digest email (temporary)
 # even if this workflow is left in place. Deleting this file after 17 Aug 2026 is tidy-up, not
 # a requirement — the last email in the window says as much.
 
+# SCHEDULE INTENTIONALLY DISABLED (Cameron 2026-08-03). He wants emails about PUSHES TO MAIN,
+# not portal data edits — see .github/workflows/push-digest.yml for the one that's live.
+# The function stays deployed and this stays runnable ON DEMAND because the per-client grouping
+# here is the foundation for a planned client-activity tracker (spotting accounts whose
+# deadlines keep slipping). Re-enable by uncommenting the cron.
 on:
-  schedule:
-    # 14:00 UTC = 07:00 America/Phoenix, so it's in the inbox first thing. GitHub defers
-    # scheduled jobs by up to a few hours under load; the digest covers a rolling 24h window
-    # rather than a calendar day, so a late run still reports everything exactly once.
-    - cron: "0 14 * * *"
+  # schedule:
+  #   - cron: "0 14 * * *"    # 07:00 America/Phoenix
   workflow_dispatch:          # send one on demand from the Actions tab
     inputs:
       inspect:
