@@ -62,11 +62,13 @@ Deno.serve(async (req) => {
     .gte("ts", since).order("ts", { ascending: false }).limit(2000);
   if (error) return json(req, 500, { error: error.message });
   const all = (data || []) as Row[];
-  /* PEOPLE vs AUTOMATION. The point of this digest is "what did my team change", and the
-     unattended crons (plan re-pulls, WMJ syncs, snapshots) out-write humans by orders of
-     magnitude — the first live send was 229 automated plan re-pulls against 7 real edits.
-     Left mixed, the thing you actually want is buried and the email stops being read.
-     People lead; automation collapses to a per-action count at the bottom. */
+  /* PEOPLE vs AUTOMATION. The point of this digest is "what did my team change", so the
+     unattended crons (plan re-pulls, WMJ syncs, assignment syncs) are separated out rather
+     than interleaved: they can spike arbitrarily — plan.refreshed fires per client per changed
+     sheet — and on a chatty day they would bury the human edits. People lead; automation
+     collapses to a per-action count at the bottom.
+     (Measured on the first live send: 228 human edits vs 8 automated. Automation is the
+     smaller share on a normal day; the split is about it not being ABLE to dominate.) */
   const isBot = (r: Row) => r.actor_role === "system" || !r.actor_email;
   // actor breakdown on the response — makes "why is this row counted as a person?" answerable
   // without shell access to the table.
