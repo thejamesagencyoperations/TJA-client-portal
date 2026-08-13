@@ -234,6 +234,15 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid transparent;
   transition: all .14s ease;
 }
+/* "Executive Summary" is the one nav label that outgrew its row after the 18px text bump:
+   it needs 147px and the row leaves 145px (232px sidebar − padding − icon − gap), so it wrapped
+   to two lines while every neighbour stayed on one. Trimmed to .8rem for THIS item only —
+   138px, i.e. 7px of headroom, and the system fallback font fits too (137px) in case Inter
+   doesn't load. nowrap makes one line a guarantee rather than a near-miss.
+   Measured, not guessed: .84rem lands exactly on 145px, which is a wrap waiting to happen the
+   moment a font or zoom level shifts. ("Media Creative Asset Request" still wraps by design —
+   it's far too long for one line at any readable size.) */
+.nav-item[data-page="exec"] { font-size: .8rem; white-space: nowrap; }
 .nav-item:hover { background: var(--panel-2); color: var(--text); }
 .nav-item.active {
   background: var(--panel-2);
