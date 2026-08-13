@@ -56,10 +56,13 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body { height: 100%; }
-/* Global readability bump (Cameron 2026-07-22): base text ~1pt larger everywhere. All the
-   portal's rem-based sizes scale from this root; the goal banner is pinned in px (see
-   .ns-banner-text) so it's the one thing excluded, as asked. */
-html { font-size: 17px; }
+/* Global readability bump. Base text ~1pt larger everywhere; SECOND pass (Cameron 2026-08-06)
+   took it 17px → 18px, so body copy is now ~12% up on the browser default. Nearly every size in
+   this file is rem, so this one value drives the whole type scale — change it here, not in 300
+   places. STILL EXCLUDED, as asked in the first pass: the goal banner (.ns-banner-text /
+   .ns-banner-label) stays pinned in px, and the cursive signature preview (56px) is a graphic,
+   not text. */
+html { font-size: 18px; }
 
 body {
   font-family: var(--font);
@@ -2002,24 +2005,24 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
   flex-wrap:wrap; margin:4px 0 22px; }
 .hz-summary { display:flex; gap:8px; flex-wrap:wrap; }
 .hz-bar-right { display:flex; align-items:center; gap:12px; }
-.hz-stamp { font-size:11.5px; color:var(--text-dim); }
-.hz-pill { font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px;
+.hz-stamp { font-size:.68rem; color:var(--text-dim); }
+.hz-pill { font-size:.71rem; font-weight:600; padding:5px 11px; border-radius:999px;
   border:1px solid var(--line); background:var(--panel); }
 .hz-pill.hz-error { color:#c0392b; border-color:rgba(192,57,43,.35); background:rgba(192,57,43,.07); }
 .hz-pill.hz-warn  { color:#9a6a00; border-color:rgba(154,106,0,.32);  background:rgba(154,106,0,.07); }
 .hz-pill.hz-ok    { color:#1e7d46; border-color:rgba(30,125,70,.32); background:rgba(30,125,70,.07); }
 
-.hz-section-title { font-size:11px; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+.hz-section-title { font-size:.65rem; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
   color:var(--text-dim); margin:26px 0 10px; }
 
 .hz-jobs { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
 .hz-job { border:1px solid var(--line); background:var(--panel); border-radius:10px; padding:13px 15px; }
 .hz-job-bad { border-color:rgba(192,57,43,.38); background:rgba(192,57,43,.05); }
 .hz-job-top { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
-.hz-job-name { font-size:13.5px; font-weight:600; }
-.hz-job-when { font-size:11.5px; color:var(--text-dim); white-space:nowrap; }
-.hz-job-sub { font-size:12px; color:var(--text-dim); margin-top:4px; line-height:1.45; }
-.hz-job-meta { font-size:11.5px; color:var(--text-dim); margin-top:7px; padding-top:7px;
+.hz-job-name { font-size:.79rem; font-weight:600; }
+.hz-job-when { font-size:.68rem; color:var(--text-dim); white-space:nowrap; }
+.hz-job-sub { font-size:.71rem; color:var(--text-dim); margin-top:4px; line-height:1.45; }
+.hz-job-meta { font-size:.68rem; color:var(--text-dim); margin-top:7px; padding-top:7px;
   border-top:1px solid var(--line); }
 
 .hz-card { border:1px solid var(--line); border-left-width:3px; background:var(--panel);
@@ -2030,15 +2033,15 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 .hz-dot { width:7px; height:7px; border-radius:50%; flex:0 0 auto; }
 .hz-card.hz-error .hz-dot { background:#c0392b; }
 .hz-card.hz-warn  .hz-dot { background:#d79a1e; }
-.hz-title { font-size:14px; font-weight:600; }
-.hz-area { font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+.hz-title { font-size:.82rem; font-weight:600; }
+.hz-area { font-size:.62rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
   color:var(--text-dim); border:1px solid var(--line); border-radius:999px; padding:2px 8px; }
-.hz-detail { font-size:12.5px; color:var(--text-dim); line-height:1.55; margin-top:7px; }
+.hz-detail { font-size:.74rem; color:var(--text-dim); line-height:1.55; margin-top:7px; }
 .hz-list { margin:10px 0 0; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:6px; }
-.hz-list li { font-size:11.5px; padding:3px 9px; border-radius:6px;
+.hz-list li { font-size:.68rem; padding:3px 9px; border-radius:6px;
   background:var(--panel-2); border:1px solid var(--line); }
 .hz-list li.hz-more { border-style:dashed; color:var(--text-dim); }
-.hz-empty { font-size:13px; color:var(--text-dim); padding:18px 2px; }
+.hz-empty { font-size:.76rem; color:var(--text-dim); padding:18px 2px; }
 
 @media (max-width:720px) {
   .hz-jobs { grid-template-columns:1fr; }
