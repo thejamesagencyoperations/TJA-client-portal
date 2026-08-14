@@ -219,6 +219,40 @@ window.ExecSummary = (function () {
   }
   // An orange pill showing M/D that opens a native date picker on click (admin); a plain
   // read-only pill for the client. The picker lives in a hidden sibling <input type=date>.
+  /* 🔗 LINK BUTTON — attach a reference URL to a to-do / dependency (Cameron 2026-08-06).
+     A BUTTON rather than hyperlinked text, deliberately: the row text is contenteditable for
+     an AM/PM, and browsers put a CARET in editable text instead of following a link, so an
+     inline anchor would be unclickable for the very people who write these. A separate control
+     sits outside the editable span and works for everyone.
+
+     Visibility mirrors dateBtn: an AM/PM always sees it (so any row can gain a link), a client
+     sees it ONLY when a link exists — no empty affordances in the client view.
+
+     When set it renders as a REAL <a>, so middle-click, "open in new tab" and "copy link
+     address" all behave natively. Alt-click (admin) edits instead of opening; the tooltip says
+     so, since a hidden gesture nobody is told about may as well not exist. */
+  function safeUrl(raw) {
+    const v = String(raw || "").trim();
+    if (!v) return "";
+    // Only ever emit http(s). Everything here is admin-entered and otherwise escaped, so
+    // introducing an href means javascript:/data: must be refused outright, not sanitised.
+    const withProto = /^[a-z][a-z0-9+.-]*:/i.test(v) ? v : "https://" + v;
+    try {
+      const u = new URL(withProto);
+      return (u.protocol === "http:" || u.protocol === "https:") ? u.href : "";
+    } catch (e) { return ""; }
+  }
+  function linkBtn(list, i, raw) {
+    const href = safeUrl(raw);
+    if (href) {
+      const tip = canAdmin() ? `Open ${href} · Alt-click to edit` : `Open ${href}`;
+      return `<a class="link-pill is-set" href="${esc(href)}" target="_blank" rel="noopener noreferrer"` +
+        ` data-linkedit="${list}.${i}" title="${esc(tip)}">🔗</a>`;
+    }
+    if (!canAdmin()) return "";                 // client sees nothing until a link exists
+    return `<button type="button" class="link-pill" data-linkadd="${list}.${i}" title="Add a link">🔗</button>`;
+  }
+
   function dateBtn(list, i, v) {
     const iso = toISODate(v);
     if (!canAdmin()) return iso ? `<span class="date-pill is-set">${esc(shortDate(iso))}</span>` : "";
@@ -722,6 +756,7 @@ window.ExecSummary = (function () {
         ${todoCheck(t, i)}
         ${tag(t, i)}
         <span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text")}</span>
+        ${linkBtn("todos", i, t.link)}
         ${listDel("todos", i)}
       </div>`).join("");
     const colorPick = canAdmin()
@@ -736,7 +771,7 @@ window.ExecSummary = (function () {
 
   function dependencyModule(e) {
     const rows = (e.dependencies || []).map((d, i) => `
-      <div class="tile-item"><span class="dep-mark">▴</span><span style="flex:1">${ed(d.text, "dependencies." + i + ".text")}</span>${listDel("dependencies", i)}</div>`).join("");
+      <div class="tile-item"><span class="dep-mark">▴</span><span style="flex:1">${ed(d.text, "dependencies." + i + ".text")}</span>${linkBtn("dependencies", i, d.link)}${listDel("dependencies", i)}</div>`).join("");
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.dep}Dependencies</span></div>
       <div class="tile-list">${rows || `<div class="pr-date">No open dependencies.</div>`}</div>
@@ -756,7 +791,7 @@ window.ExecSummary = (function () {
       return `<span class="owner-tag ${owners(o)} ${canAdmin() ? "admin-edit" : ""}" ${attr}="${i}"${style} ${canAdmin() ? `title="${esc(ownerTitle())}"` : ""}>${esc(ownerLabel(o))}</span>`;
     };
     const todoRows = (e.todos || []).map((t, i) => `
-      <div class="tile-item${t.done ? " done" : ""}" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${todoCheck(t, i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
+      <div class="tile-item${t.done ? " done" : ""}" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${todoCheck(t, i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${linkBtn("todos", i, t.link)}${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
     // Dependencies get the SAME client-visibility toggle as Project Plan phases (Cameron):
     // an eye button flips d.internal; an internal dependency is hidden from the client view.
     const clientViewDep = (typeof effectiveRole === "function") && effectiveRole() === "client";
@@ -765,7 +800,7 @@ window.ExecSummary = (function () {
       : "";
     const depRows = (e.dependencies || []).map((d, i) => {
       if (clientViewDep && d.internal) return "";                 // hidden from the client
-      return `<div class="tile-item${d.internal ? " is-internal" : ""}" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${depEye(d, i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}${d.internal && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`;
+      return `<div class="tile-item${d.internal ? " is-internal" : ""}" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${depEye(d, i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}${d.internal && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>${linkBtn("dependencies", i, d.link)}${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`;
     }).join("");
     const colorPick = canAdmin()
       ? `<label class="todo-colorpick" title="Set the colour used for ${esc(ownerLabel("Client"))} tasks"><input type="color" data-todocolor value="${cc}"><span>${esc(ownerLabel("Client"))}</span></label>` : "";
@@ -1565,6 +1600,36 @@ window.ExecSummary = (function () {
       const svcset = e.target.closest("[data-svcset]");
       if (svcset && canAdmin()) { const [idx, val] = svcset.dataset.svcset.split(":"); eng.serviceLines[+idx].status = val; window.DASH.saveState(); rerender(); return; }
 
+      /* 🔗 add / edit / clear. A SET link is a real <a>, so a plain click is left alone and
+         navigates natively — we only intervene on Alt-click (edit) or when there's no link yet.
+         Clearing is just submitting an empty value, so there's no extra control to find. */
+      const linkAdd = e.target.closest("[data-linkadd]");
+      const linkEdit = e.target.closest("[data-linkedit]");
+      if ((linkAdd || (linkEdit && e.altKey)) && canAdmin()) {
+        e.preventDefault(); e.stopPropagation();
+        const ref = (linkAdd || linkEdit).dataset.linkadd || linkEdit.dataset.linkedit;
+        const dot = ref.lastIndexOf(".");
+        const list = ref.slice(0, dot), idx = +ref.slice(dot + 1);
+        const item = (eng[list] || [])[idx];
+        if (!item) return;
+        (async () => {
+          const val = await window.TJA_UI.prompt(
+            "Link for this item — paste a URL (leave empty to remove):",
+            { value: item.link || "", placeholder: "https://docs.google.com/…", okText: "Save link" });
+          if (val === null) return;                       // cancelled
+          const clean = String(val).trim();
+          if (!clean) { delete item.link; window.DASH.saveState(); rerender(); return; }
+          const ok = safeUrl(clean);
+          if (!ok) {
+            window.TJA_UI.alert("That doesn't look like a web address. Links must start with http:// or https://.",
+              { title: "Couldn't save that link" });
+            return;
+          }
+          item.link = ok;                                  // store NORMALISED (protocol added)
+          window.DASH.saveState(); rerender();
+        })();
+        return;
+      }
       const own = e.target.closest("[data-owner]");
       if (own && canAdmin()) { const t = eng.todos[+own.dataset.owner]; t.owner = t.owner === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
       const depOwn = e.target.closest("[data-depowner]");
