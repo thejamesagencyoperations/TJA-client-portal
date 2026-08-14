@@ -1632,6 +1632,12 @@ button.date-pill:not(.is-set) { background: rgba(255,120,0,.16); color: var(--or
 .link-pill:hover { opacity: 1; background: rgba(255,120,0,.26); }
 a.link-pill.is-set { opacity: 1; background: var(--orange); }
 a.link-pill.is-set:hover { filter: brightness(1.08); }
+/* the edit/remove pencil — only rendered for an admin when a link exists. Deliberately legible:
+   this replaced a hidden Alt-click, so a control nobody notices would repeat the same mistake. */
+.link-edit { flex: none; font-family: inherit; font-size: .74rem; line-height: 1; border: none;
+  background: rgba(255,120,0,.10); color: var(--text-dim); cursor: pointer;
+  border-radius: 20px; padding: 4px 7px; margin-left: 3px; }
+.link-edit:hover { background: rgba(255,120,0,.26); color: var(--orange); }
 
 .date-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; inset: 100% auto auto 0; }
 /* date pill moved BENEATH the item text (Cameron 2026-07-22) so the lines aren't cramped:

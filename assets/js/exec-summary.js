@@ -245,9 +245,14 @@ window.ExecSummary = (function () {
   function linkBtn(list, i, raw) {
     const href = safeUrl(raw);
     if (href) {
-      const tip = canAdmin() ? `Open ${href} · Alt-click to edit` : `Open ${href}`;
-      return `<a class="link-pill is-set" href="${esc(href)}" target="_blank" rel="noopener noreferrer"` +
-        ` data-linkedit="${list}.${i}" title="${esc(tip)}">🔗</a>`;
+      const open = `<a class="link-pill is-set" href="${esc(href)}" target="_blank" rel="noopener noreferrer"` +
+        ` title="${esc("Open " + href)}">🔗</a>`;
+      // Editing/removing was originally an Alt-click on the link itself. That was too hidden to
+      // count as a feature (Cameron 2026-08-06), so it's now its own visible control. The link
+      // stays a one-click open — that's the common action — and ✎ is the rarer one beside it.
+      return canAdmin()
+        ? `${open}<button type="button" class="link-edit" data-linkedit="${list}.${i}" title="Edit or remove this link">✎</button>`
+        : open;
     }
     if (!canAdmin()) return "";                 // client sees nothing until a link exists
     return `<button type="button" class="link-pill" data-linkadd="${list}.${i}" title="Add a link">🔗</button>`;
@@ -1605,7 +1610,7 @@ window.ExecSummary = (function () {
          Clearing is just submitting an empty value, so there's no extra control to find. */
       const linkAdd = e.target.closest("[data-linkadd]");
       const linkEdit = e.target.closest("[data-linkedit]");
-      if ((linkAdd || (linkEdit && e.altKey)) && canAdmin()) {
+      if ((linkAdd || linkEdit) && canAdmin()) {
         e.preventDefault(); e.stopPropagation();
         const ref = (linkAdd || linkEdit).dataset.linkadd || linkEdit.dataset.linkedit;
         const dot = ref.lastIndexOf(".");
@@ -1614,8 +1619,11 @@ window.ExecSummary = (function () {
         if (!item) return;
         (async () => {
           const val = await window.TJA_UI.prompt(
-            "Link for this item — paste a URL (leave empty to remove):",
-            { value: item.link || "", placeholder: "https://docs.google.com/…", okText: "Save link" });
+            item.link
+              ? "Edit the link — or clear the box and save to REMOVE it:"
+              : "Link for this item — paste a URL:",
+            { value: item.link || "", placeholder: "https://docs.google.com/…",
+              okText: item.link ? "Save" : "Add link" });
           if (val === null) return;                       // cancelled
           const clean = String(val).trim();
           if (!clean) { delete item.link; window.DASH.saveState(); rerender(); return; }
