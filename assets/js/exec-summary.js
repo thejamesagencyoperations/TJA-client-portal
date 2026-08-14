@@ -717,6 +717,7 @@ window.ExecSummary = (function () {
           <div class="tl-label">${ed(m.label, "milestones." + i + ".label", { add: "milestones" })}</div>
           ${isRet ? `<div class="ms-meta">${sprintTag(m, i)}</div>` : ""}
         </div>
+        ${linkBtn("milestones", i, m.link)}
         ${dateBtn("milestones", i, m.date)}
       </div>`).join("");
     // No "View plan" link here — the dedicated Project Plan tile already carries it
@@ -810,11 +811,11 @@ window.ExecSummary = (function () {
     const colorPick = canAdmin()
       ? `<label class="todo-colorpick" title="Set the colour used for ${esc(ownerLabel("Client"))} tasks"><input type="color" data-todocolor value="${cc}"><span>${esc(ownerLabel("Client"))}</span></label>` : "";
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.todo}To Do's / Dependencies</span>${colorPick}</div>
+      <div class="module-head"><span class="module-title">${IC.todo}To Do's${depsOn(e) ? " / Dependencies" : ""}</span>${colorPick}</div>
       <div class="td-sub"><span>To-Do's</span>${listAdd("todos", "Add to-do")}</div>
       <div class="tile-list">${todoRows || `<div class="pr-date">Nothing outstanding.</div>`}</div>
-      <div class="td-sub td-sub-dep"><span>Dependencies</span>${listAdd("dependencies", "Add dependency")}</div>
-      <div class="tile-list">${depRows || `<div class="pr-date">No open dependencies.</div>`}</div>
+      ${depsOn(e) ? `<div class="td-sub td-sub-dep"><span>Dependencies</span>${listAdd("dependencies", "Add dependency")}</div>
+      <div class="tile-list">${depRows || `<div class="pr-date">No open dependencies.</div>`}</div>` : ""}
     </div>`;
   }
 
@@ -965,6 +966,16 @@ window.ExecSummary = (function () {
      The signal is the SOW (contracted PR hours), NOT actuals — a PR client with nothing logged
      yet this month still has PR. Auto-detect is only the DEFAULT: an explicit admin choice
      (e.prTile true/false, set by the buttons) always wins, so the auto-rule can never undo it. */
+  /* PROJECT-ONLY tile toggles, same shape as the PR Coverage one (Cameron 2026-08-06).
+     Both default ON, so nothing changes for an existing project until someone opts out:
+       milestonesTile — the far-right Milestones column. Off ⇒ To Do's / Dependencies widens
+                        right to swallow the space, so no gap is left behind.
+       depsSection    — the Dependencies half INSIDE the merged tile. Off ⇒ the To-Do's list
+                        simply runs the full height; that's a section, not a tile, so it needs
+                        no layout change at all. */
+  const msTileOn = (e) => e.milestonesTile !== false;
+  const depsOn = (e) => e.depsSection !== false;
+
   function prInSow(e) {
     const canon = window.tjaCanonDiscipline;
     const contracted = (e.serviceDisciplines || []).some(d => canon && canon(d.name) === "pr" && (+d.contracted || 0) > 0);
@@ -975,7 +986,19 @@ window.ExecSummary = (function () {
     return prInSow(e);
   }
   function defaultLayout(e) {
-    if (e.type === "project") return { free: JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE)), hidden: PROJECT_HIDDEN.slice() };
+    if (e.type === "project") {
+      const free = JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE));
+      const hidden = PROJECT_HIDDEN.slice();
+      if (!msTileOn(e)) {
+        // Milestones is the far-right column. Grow To Do's / Dependencies rightwards to its
+        // outer edge — width only, so every other tile keeps its geometry and the canvas
+        // height is unchanged (same discipline as the retainer PR-tile removal).
+        const P = DEFAULT_PROJECT_FREE;
+        free.todosdep.w = (P.milestones.x + P.milestones.w) - P.todosdep.x;
+        hidden.push("milestones");
+      }
+      return { free, hidden };
+    }
     const free = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
     if (!prTileOn(e)) {
       // No PR: drop the tile and let Service Lines take the whole middle column. Width is
@@ -1027,6 +1050,17 @@ window.ExecSummary = (function () {
       ctl.push(prTileOn(e)
         ? `<button class="exec-actuals-btn" data-prtile="off" title="Hide the PR Coverage tile — Service Lines extends to fill the column">✕ Remove PR Coverage</button>`
         : `<button class="exec-actuals-btn" data-prtile="on" title="Show the PR Coverage tile — Service Lines shrinks back to make room">＋ Add PR Coverage</button>`);
+    /* Project-only equivalents of "Remove PR Coverage". Deliberately not offered on Monthly
+       Services: the retainer layout has no far-right Milestones column to reclaim, and Sprint
+       Goals is that view's spine. */
+    if (canAdmin() && e.type === "project") {
+      ctl.push(msTileOn(e)
+        ? `<button class="exec-actuals-btn" data-mstile="off" title="Hide the Milestones tile — To Do's / Dependencies widens to fill the space">✕ Remove Milestones</button>`
+        : `<button class="exec-actuals-btn" data-mstile="on" title="Show the Milestones tile — To Do's / Dependencies shrinks back to make room">＋ Add Milestones</button>`);
+      ctl.push(depsOn(e)
+        ? `<button class="exec-actuals-btn" data-depsec="off" title="Hide the Dependencies section — the To-Do's list runs the full height">✕ Remove Dependencies</button>`
+        : `<button class="exec-actuals-btn" data-depsec="on" title="Show the Dependencies section beneath the To-Do's">＋ Add Dependencies</button>`);
+    }
     // Media Requests tab — admin on/off override (for clients the auto-detect misses, e.g. DCS).
     // Monthly-Services view only (the media tab is a retainer thing) — not on the project view.
     if (canAdmin() && e.type !== "project" && window.DASH.mediaTabShown) {
@@ -1648,6 +1682,10 @@ window.ExecSummary = (function () {
       if (spr && canAdmin()) { const m = eng.milestones[+spr.dataset.sprint]; m.sprint = (+m.sprint === 2) ? 1 : 2; window.DASH.saveState(); rerender(); return; }
       const prT = e.target.closest("[data-prtile]");
       if (prT && canAdmin()) { eng.prTile = prT.dataset.prtile === "on"; window.DASH.saveState(); rerender(); return; }
+      const msT = e.target.closest("[data-mstile]");
+      if (msT && canAdmin()) { eng.milestonesTile = msT.dataset.mstile === "on"; window.DASH.saveState(); rerender(); return; }
+      const depS = e.target.closest("[data-depsec]");
+      if (depS && canAdmin()) { eng.depsSection = depS.dataset.depsec === "on"; window.DASH.saveState(); rerender(); return; }
       const mediaT = e.target.closest("[data-mediatoggle]");
       if (mediaT && canAdmin()) { window.DASH.setMediaTab(mediaT.dataset.mediatoggle === "on"); rerender(); return; }
 
