@@ -1268,10 +1268,10 @@ body[data-role="client"] .staff-only { display: none !important; }
 }
 .placeholder-note b { color: var(--text); }
 
-@media (max-width: 860px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; }
-}
+/* The ≤860px shell rules that used to live here were incomplete (they stacked the sidebar
+   but left the 100vh/overflow:hidden grid intact, which clipped the page). They now live in
+   the PHONE LAYOUT block at the end of this file, which must come after the unconditional
+   `.content { padding: 22px 30px }` in the v1.14 section to be able to override it. */
 
 /* ============================================================
    ENGAGEMENT TOGGLE (Retainer / Project) — top bar
@@ -2071,4 +2071,83 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 @media (max-width:720px) {
   .hz-jobs { grid-template-columns:1fr; }
   .hz-bar { align-items:flex-start; }
+}
+
+
+/* ============================================================
+   PHONE / SMALL-TABLET LAYOUT  (≤860px)
+   ============================================================
+   The desktop shell is a fixed-height app: `.app` is a 100vh grid with `overflow:hidden`,
+   and `.main` does its own scrolling beside a full-height sidebar column.
+
+   Collapsing that to one column stacked a 419px-tall sidebar ON TOP of a still-100vh
+   `.main`, so `.main` ran from y=419 to y=1231 inside an 812px clipping box. Measured on
+   a 375x812 viewport: the bottom ~340px of every page was CUT OFF AND UNREACHABLE —
+   `.main` had nothing to scroll (scrollHeight === clientHeight, it wasn't overflowing,
+   it was positioned off-screen) and the body couldn't scroll either. Usable content area
+   was 393px, under half the phone.
+
+   The fix is to stop pretending it's a viewport-height app on phones: the shell grows to
+   fit its content and the PAGE scrolls normally, with the nav condensed from a wrapped
+   block of full-width buttons into a single sticky horizontally-scrolling row.
+   (`.clients-page` pages — clients, admin-center, health, history, notifications — were
+   never affected; that shell is a plain div that already scrolls with the body.) */
+@media (max-width: 860px) {
+  /* minmax(0,1fr), not 1fr: a grid column defaults to min-width:auto, so it refuses to go
+     narrower than its content's min-content width. That let the one-row nav stretch the
+     column instead of scrolling inside it — 619px of horizontal overflow on a 375px screen.
+     The same min-width:0 has to be repeated on the flex children down the chain. */
+  .app  { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 100dvh; overflow: visible; }
+  .app > .sidebar, .app > .main { min-width: 0; }
+  .main { height: auto; overflow: visible; }
+  /* Only one element may be sticky at top:0 or they stack on each other. The nav is the
+     more useful one to keep in reach on a phone. */
+  /* The desktop "squeeze" rule pins the action cluster and makes the client identity absorb
+     all the lost width. At 375px the cluster alone is wider than the screen, so identity was
+     squeezed to nothing: the client NAME — the one thing telling you which client you're
+     looking at — rendered at zero width and the engagement toggle sat on top of the avatar.
+     On a phone the topbar becomes two rows instead of one squeezed row. */
+  /* Only inside .app is the topbar un-stuck — there the sidebar holds top:0 and two sticky
+     elements would stack. The .clients-page shell (clients / admin-center / health / history /
+     notifications) has no sidebar, so its topbar keeps its stickiness. */
+  .app .topbar { position: static; }
+  .topbar { padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
+  .topbar-left  { flex: 1 1 100%; min-width: 0; }
+  .topbar-right { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .client-id-text { max-width: none; }
+  .eng-toggle { flex: 0 1 auto; min-width: 0; }
+
+  .sidebar {
+    position: sticky; top: 0; z-index: 6;
+    height: auto;
+    flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    border-right: none; border-bottom: 1px solid var(--line);
+  }
+  .sidebar .brand-logo { width: 44px; margin: 0; flex: none; }
+  .sidebar .brand-mark { padding: 0; }
+  .sidebar-foot { margin-top: 0; padding: 0; flex: none; }
+
+  /* nowrap is what holds this to one row high; the scrollbar is hidden so it doesn't eat
+     vertical space on touch laptops, which still report a pointer but render one. */
+  .nav {
+    flex: 1; min-width: 0;
+    flex-direction: row; flex-wrap: nowrap; gap: 4px; margin-top: 0;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav-item { flex: none; white-space: nowrap; min-height: 44px; padding: 10px 12px; }
+  /* The .8rem trim exists to fit a 232px sidebar row; there's no such row here. */
+  .nav-item[data-page="exec"] { font-size: .85rem; }
+
+  .content { padding: 18px 16px; }
+}
+
+/* Touch devices: the chrome controls were sized for a mouse and sit under Apple's 44px
+   minimum (measured: theme toggle 34px, engagement segments 29px). Grown only where the
+   chrome has room. The dense in-row pills (link/date) are deliberately left alone — padding
+   those out would reflow every list on the page, and that belongs in the full mobile pass. */
+@media (pointer: coarse) {
+  .icon-btn { min-width: 40px; min-height: 40px; }
+  .eng-seg  { min-height: 38px; }
 }
