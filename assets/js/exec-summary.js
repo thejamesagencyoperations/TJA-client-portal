@@ -941,83 +941,120 @@ window.ExecSummary = (function () {
     kpis:         { label: "KPIs",          fn: kpiModule },
     pr:           { label: "PR Coverage",   fn: prModule },
   };
-  // FIXED, LOCKED layouts — Cameron's final arrangement (captured 2026-07-09). Single source
-  // of truth; changed only here in code, and only when Cameron specifically asks. Tiles are
-  // absolutely positioned; they scroll internally if content exceeds their height.
-  const DEFAULT_RETAINER_FREE = {
-    burn:         { x: 0,    y: 0,   w: 491, h: 377 },
-    service:      { x: 506,  y: 0,   w: 704, h: 451 },
-    // Sprint Goals (milestones) moved into the old Dependencies slot (bottom-left);
-    // the merged To Do's / Dependencies tile takes the old Sprint Goals + To-Do's column.
-    milestones:   { x: 0,    y: 393, w: 489, h: 368 },
-    todosdep:     { x: 1226, y: 0,   w: 405, h: 522 },
-    kpis:         { x: 1226, y: 537, w: 407, h: 225 },
-    pr:           { x: 507,  y: 467, w: 703, h: 293 },
-  };
-  const PROJECT_HIDDEN = ["pr", "kpis"];   // PR Coverage + KPIs hidden on projects
-  const DEFAULT_PROJECT_FREE = {
-    burn:         { x: 0,    y: 0,   w: 809, h: 306 },
-    service:      { x: 0,    y: 322, w: 808, h: 434 },
-    // merged To Do's / Dependencies fills the whole right-of-service column
-    todosdep:     { x: 823,  y: 0,   w: 424, h: 758 },
-    milestones:   { x: 1263, y: 0,   w: 363, h: 760 },
-  };
-  /* ---- Does this retainer carry PR? ----
-     The signal is the SOW (contracted PR hours), NOT actuals — a PR client with nothing logged
-     yet this month still has PR. Auto-detect is only the DEFAULT: an explicit admin choice
-     (e.prTile true/false, set by the buttons) always wins, so the auto-rule can never undo it. */
-  /* PROJECT-ONLY tile toggles, same shape as the PR Coverage one (Cameron 2026-08-06).
-     Both default ON, so nothing changes for an existing project until someone opts out:
-       milestonesTile — the far-right Milestones column. Off ⇒ To Do's / Dependencies widens
-                        right to swallow the space, so no gap is left behind.
-       depsSection    — the Dependencies half INSIDE the merged tile. Off ⇒ the To-Do's list
-                        simply runs the full height; that's a section, not a tile, so it needs
-                        no layout change at all. */
-  const msTileOn = (e) => e.milestonesTile !== false;
-  const depsOn = (e) => e.depsSection !== false;
+  /* ---- Tile visibility ----------------------------------------------------
+     Every tile is independently addable/removable from the Customize popup, which the old
+     approach could never support: each removal was a hand-written special case ("PR off ⇒
+     grow Service Lines to exactly 760"), and six independent toggles is 64 combinations per
+     view. Visibility is now a plain flag map, and the LAYOUT ENGINE below reflows whatever
+     survives.
 
+     REMOVING A TILE NEVER TOUCHES ITS DATA. e.prCoverage, e.milestones, e.kpis and the rest
+     stay exactly where they are on the engagement, so switching a tile back on brings its
+     content back untouched. Nothing in the save path prunes hidden keys — that is a property
+     worth protecting, so there's a regression test for it in tests/.
+
+     Legacy: prTile / milestonesTile were the original bespoke toggles and are live in
+     production data. tileOn() still reads them as a fallback so existing clients keep their
+     choices on first load; setTile() then writes the general map AND mirrors the legacy key,
+     so the two can never drift apart. */
+  const TILE_DEFAULT = {
+    // null = "decide from the data" (see tileOn). Everything else is a literal default.
+    retainer: { burn: true, service: true, milestones: true, todosdep: true, kpis: true,  pr: null  },
+    project:  { burn: true, service: true, milestones: true, todosdep: true, kpis: false, pr: false },
+  };
+  const LEGACY_TILE_KEY = { pr: "prTile", milestones: "milestonesTile" };
+  const engType = (e) => (e.type === "project" ? "project" : "retainer");
+
+  /* Does this retainer carry PR? The signal is the SOW (contracted PR hours), NOT actuals —
+     a PR client with nothing logged yet this month still has PR. This is only the DEFAULT:
+     an explicit choice in Customize is stored and always wins, so auto-detect can never
+     undo what someone deliberately set. */
   function prInSow(e) {
-    const canon = window.tjaCanonDiscipline;
-    const contracted = (e.serviceDisciplines || []).some(d => canon && canon(d.name) === "pr" && (+d.contracted || 0) > 0);
+    const canonFn = window.tjaCanonDiscipline;
+    const contracted = (e.serviceDisciplines || []).some(d => canonFn && canonFn(d.name) === "pr" && (+d.contracted || 0) > 0);
     return contracted || (e.prCoverage || []).length > 0;
   }
-  function prTileOn(e) {
-    if (e.prTile === true || e.prTile === false) return e.prTile;   // admin override
-    return prInSow(e);
+  /* Dependencies is a SECTION inside the To Do's tile, not a tile of its own, so it needs no
+     layout involvement at all — off just means the To-Do's list runs the full height. */
+  const depsOn = (e) => e.depsSection !== false;
+
+  function tileOn(e, k) {
+    if (e.tileVis && typeof e.tileVis[k] === "boolean") return e.tileVis[k];
+    const lk = LEGACY_TILE_KEY[k];
+    if (lk && typeof e[lk] === "boolean") return e[lk];
+    const def = (TILE_DEFAULT[engType(e)] || {})[k];
+    if (def === null) return prInSow(e);      // PR on a retainer: auto-detect from the SOW
+    return def !== false;
   }
-  function defaultLayout(e) {
-    if (e.type === "project") {
-      const free = JSON.parse(JSON.stringify(DEFAULT_PROJECT_FREE));
-      const hidden = PROJECT_HIDDEN.slice();
-      if (!msTileOn(e)) {
-        // Milestones is the far-right column. Grow To Do's / Dependencies rightwards to its
-        // outer edge — width only, so every other tile keeps its geometry and the canvas
-        // height is unchanged (same discipline as the retainer PR-tile removal).
-        const P = DEFAULT_PROJECT_FREE;
-        free.todosdep.w = (P.milestones.x + P.milestones.w) - P.todosdep.x;
-        hidden.push("milestones");
-      }
-      return { free, hidden };
-    }
-    const free = JSON.parse(JSON.stringify(DEFAULT_RETAINER_FREE));
-    if (!prTileOn(e)) {
-      // No PR: drop the tile and let Service Lines take the whole middle column. Width is
-      // untouched — only the height grows, down to the exact floor the PR tile used to reach,
-      // so every other tile keeps its geometry and the canvas height is unchanged.
-      const R = DEFAULT_RETAINER_FREE;
-      free.service.h = R.pr.y + R.pr.h - R.service.y;   // 467 + 293 - 0 = 760
-      return { free, hidden: ["pr"] };
-    }
-    return { free, hidden: [] };
+  function setTile(e, k, on) {
+    e.tileVis = e.tileVis || {};
+    e.tileVis[k] = !!on;
+    const lk = LEGACY_TILE_KEY[k];
+    if (lk) e[lk] = !!on;                     // keep the legacy flag in agreement
   }
-  // Always return the fixed layout — stored/Supabase layouts are ignored entirely, so nothing
-  // can drift or be changed by saved state. Layout changes happen in code only, on request.
+
+  /* ---- Layout engine ------------------------------------------------------
+     The canvas is three columns and each column stacks its tiles. Both views are described
+     purely as column specs; everything else is derived:
+
+       • a tile removed from a column → the survivors in that column absorb its height,
+         split in proportion to their natural heights;
+       • a column emptied completely  → the column disappears and the surviving columns
+         absorb its width, in proportion to theirs.
+
+     The last column, and the last tile in each column, are handed the exact REMAINDER rather
+     than a rounded share. That is what guarantees the tiles meet the canvas edge exactly for
+     every combination — otherwise rounding leaves a thin gap at the right or the bottom, and
+     the page stops looking full.
+
+     The numbers are Cameron's fixed arrangement (captured 2026-07-09), so the everything-on
+     case still renders the layout everyone already knows, to within a pixel. */
+  const CANVAS = { retainer: { W: 1631, H: 762 }, project: { W: 1626, H: 760 } };
+  const GAP = 16;
+  const COLUMNS = {
+    retainer: [
+      { w: 491, tiles: [["burn", 377], ["milestones", 368]] },
+      { w: 704, tiles: [["service", 451], ["pr", 293]] },
+      { w: 405, tiles: [["todosdep", 522], ["kpis", 225]] },
+    ],
+    /* PR and KPIs are off by default on a project, but Customize offers them, so they need a
+       home in the spec for the day someone switches one on: PR under the wide left column,
+       KPIs under To Do's. Until then the filter below drops them and nothing shifts. */
+    project: [
+      { w: 809, tiles: [["burn", 306], ["service", 434], ["pr", 293]] },
+      { w: 424, tiles: [["todosdep", 758], ["kpis", 225]] },
+      { w: 363, tiles: [["milestones", 760]] },
+    ],
+  };
+
+  function computeLayout(type, isOn) {
+    const spec = CANVAS[type];
+    const cols = COLUMNS[type]
+      .map(c => ({ w: c.w, tiles: c.tiles.filter(t => isOn(t[0])) }))
+      .filter(c => c.tiles.length);
+    const out = {};
+    if (!cols.length) return out;                     // everything switched off
+    const totalW = cols.reduce((s, c) => s + c.w, 0);
+    const availW = spec.W - GAP * (cols.length - 1);
+    let x = 0;
+    cols.forEach((c, ci) => {
+      const w = (ci === cols.length - 1) ? spec.W - x : Math.round(availW * (c.w / totalW));
+      const totalH = c.tiles.reduce((s, t) => s + t[1], 0);
+      const availH = spec.H - GAP * (c.tiles.length - 1);
+      let y = 0;
+      c.tiles.forEach((t, ti) => {
+        const h = (ti === c.tiles.length - 1) ? spec.H - y : Math.round(availH * (t[1] / totalH));
+        out[t[0]] = { x, y, w, h };
+        y += h + GAP;
+      });
+      x += w + GAP;
+    });
+    return out;
+  }
+
   function getLayout(e) {
-    const L = defaultLayout(e);
-    const valid = Object.keys(MODULES);
-    L.hidden = L.hidden.filter(k => valid.includes(k));
-    Object.keys(L.free).forEach(k => { if (!valid.includes(k) || L.hidden.includes(k)) delete L.free[k]; });
-    return L;
+    const free = computeLayout(engType(e), (k) => tileOn(e, k));
+    return { free, hidden: Object.keys(MODULES).filter(k => !free[k]) };
   }
 
   /* ---- Goal banner (full-width strip across all 3 columns) ----
@@ -1042,37 +1079,24 @@ window.ExecSummary = (function () {
       const style = `left:${p.x}px;top:${p.y}px;width:${p.w}px;${p.h ? `height:${p.h}px;` : ""}`;
       return `<div class="exec-tile" data-key="${k}" style="${style}">${MODULES[k].fn(e)}</div>`;
     }).join("");
-    // Admin-only control bar. Both controls are data/visibility overrides, not layout drag.
+    /* Admin-only control bar. This used to hold one bespoke "✕ Remove X" button per toggle
+       and had grown to four, each with its own hand-coded layout fix-up. They all live in the
+       Customize dialog now, which the reflow engine lets cover every tile uniformly.
+       "Reset to actuals" stays out here: it changes DATA (clears manual % adjustments), not
+       what's on the page, and it only appears when there is something to reset. */
     const ctl = [];
     if (canAdmin() && hasActualsOverride(e))
       ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>`);
-    if (canAdmin() && e.type !== "project")
-      ctl.push(prTileOn(e)
-        ? `<button class="exec-actuals-btn" data-prtile="off" title="Hide the PR Coverage tile — Service Lines extends to fill the column">✕ Remove PR Coverage</button>`
-        : `<button class="exec-actuals-btn" data-prtile="on" title="Show the PR Coverage tile — Service Lines shrinks back to make room">＋ Add PR Coverage</button>`);
-    /* Project-only equivalents of "Remove PR Coverage". Deliberately not offered on Monthly
-       Services: the retainer layout has no far-right Milestones column to reclaim, and Sprint
-       Goals is that view's spine. */
-    if (canAdmin() && e.type === "project") {
-      ctl.push(msTileOn(e)
-        ? `<button class="exec-actuals-btn" data-mstile="off" title="Hide the Milestones tile — To Do's / Dependencies widens to fill the space">✕ Remove Milestones</button>`
-        : `<button class="exec-actuals-btn" data-mstile="on" title="Show the Milestones tile — To Do's / Dependencies shrinks back to make room">＋ Add Milestones</button>`);
-      ctl.push(depsOn(e)
-        ? `<button class="exec-actuals-btn" data-depsec="off" title="Hide the Dependencies section — the To-Do's list runs the full height">✕ Remove Dependencies</button>`
-        : `<button class="exec-actuals-btn" data-depsec="on" title="Show the Dependencies section beneath the To-Do's">＋ Add Dependencies</button>`);
-    }
-    // Media Requests tab — admin on/off override (for clients the auto-detect misses, e.g. DCS).
-    // Monthly-Services view only (the media tab is a retainer thing) — not on the project view.
-    if (canAdmin() && e.type !== "project" && window.DASH.mediaTabShown) {
-      const on = window.DASH.mediaTabShown();
-      ctl.push(`<button class="exec-actuals-btn" data-mediatoggle="${on ? "off" : "on"}" title="Show or hide the Media Creative Asset Request tab for this client">${on ? "✕ Remove Media Requests tab" : "＋ Add Media Requests tab"}</button>`);
-    }
+    if (canAdmin())
+      ctl.push(`<button class="exec-actuals-btn" data-customize title="Add or remove tiles, sections and tabs on this page">⚙ Customize</button>`);
     const controls = ctl.length ? `<div class="exec-controls">${ctl.join("")}</div>` : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
     ${e.type === "project" ? goalBanner(e) : ""}
     ${controls}
-    <div class="exec-canvas-wrap"><div class="exec-canvas locked">${tiles}</div></div>`;
+    <div class="exec-canvas-wrap"><div class="exec-canvas locked">${tiles}</div></div>
+    ${visible.length ? "" : `<div class="exec-empty">Every tile on this page is switched off.
+      Open <b>⚙ Customize</b> to put one back — nothing was deleted, the content is still there.</div>`}`;
   }
   function rerender() {
     const s = section(); if (!s) return;
@@ -1081,6 +1105,86 @@ window.ExecSummary = (function () {
     s.innerHTML = render(window.DASH.getEng());
     fitCanvas();
     if (m && m.scrollTop !== y) m.scrollTop = y;
+  }
+
+  /* ---- Customize popup ----------------------------------------------------
+     One button, one dialog, everything on the page addable and removable. It replaces a row
+     of bespoke "✕ Remove X" buttons that could only ever cover the cases someone had
+     hand-coded a layout for.
+
+     Every switch applies IMMEDIATELY — the canvas behind the dialog reflows as you toggle, so
+     you can see what a layout looks like before committing to it. That also removes the need
+     for cancel/revert semantics: there is no pending state to get wrong, and closing the
+     dialog is just closing the dialog.
+
+     The lead line says removals keep their data, deliberately: "remove" reads as "delete",
+     and someone hiding PR Coverage on a client with 40 logged hits needs to know those hits
+     are still there. */
+  function openCustomizePopup() {
+    const eng = window.DASH.getEng();
+    const isProj = eng.type === "project";
+    const old = document.getElementById("custPop"); if (old) old.remove();
+
+    // Milestones is the one module whose name changes by view — the tile itself renders as
+    // "Sprint Goals" on a retainer — so the dialog has to follow suit or they won't match up.
+    const tileLabel = (k) => (k === "milestones" && !isProj) ? "Sprint Goals" : MODULES[k].label;
+    const DESC = {
+      burn:       "Hours used against the contracted total, with the gauge.",
+      service:    "Hours and share of the retainer, per discipline.",
+      milestones: isProj ? "The milestone list with target dates." : "The two-week sprint goal list.",
+      todosdep:   "The action list, and the dependencies beneath it.",
+      kpis:       "The KPI number tiles.",
+      pr:         "Press hits, outlets and estimated impressions.",
+    };
+    const row = (attr, val, label, desc, on) => `
+      <label class="cz-row">
+        <input type="checkbox" class="cz-check" ${attr}="${val}" ${on ? "checked" : ""}>
+        <span class="cz-text"><span class="cz-name">${esc(label)}</span><span class="cz-desc">${esc(desc)}</span></span>
+      </label>`;
+
+    const tiles = Object.keys(MODULES).map(k => row("data-cztile", k, tileLabel(k), DESC[k] || "", tileOn(eng, k))).join("");
+    const sections = row("data-czdeps", "1", "Dependencies",
+      "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(eng));
+    // The media tab is a retainer feature and it lives on the engagement's own tab bar rather
+    // than on the canvas, so it gets its own group instead of reading as another tile.
+    const tabs = (!isProj && window.DASH.mediaTabShown)
+      ? `<div class="cz-group">Tabs</div><div class="cz-rows">${row("data-czmedia", "1",
+          "Media Creative Asset Request", "The client's paid-media asset request tab.",
+          window.DASH.mediaTabShown())}</div>`
+      : "";
+
+    const ov = document.createElement("div");
+    ov.id = "custPop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop burn-pop--wide" role="dialog" aria-modal="true" aria-label="Customize this page">
+      <div class="bp-head">Customize · ${esc(isProj ? "Project" : "Monthly Services")}</div>
+      <p class="bp-lead">The remaining tiles resize to fill the page, so it stays full whatever you
+        pick. <b>Switching something off keeps its data</b> — turn it back on and it returns as it was.</p>
+      <div class="cz-body">
+        <div class="cz-group">Tiles</div>
+        <div class="cz-rows">${tiles}</div>
+        <div class="cz-group">Sections</div>
+        <div class="cz-rows">${sections}</div>
+        ${tabs}
+      </div>
+      <div class="bp-actions"><button type="button" class="btn btn-primary" data-czdone>Done</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+
+    const close = () => ov.remove();
+    ov.querySelector("[data-czdone]").addEventListener("click", close);
+    ov.addEventListener("click", (ev) => { if (ev.target === ov) close(); });
+    ov.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
+
+    ov.addEventListener("change", (ev) => {
+      const cb = ev.target.closest(".cz-check"); if (!cb || !canAdmin()) return;
+      const e2 = window.DASH.getEng();
+      if (cb.dataset.cztile) setTile(e2, cb.dataset.cztile, cb.checked);
+      else if (cb.dataset.czdeps) e2.depsSection = cb.checked;
+      else if (cb.dataset.czmedia) { window.DASH.setMediaTab(cb.checked); rerender(); return; }
+      window.DASH.saveState();
+      rerender();          // the dialog is in document.body, so rerendering the page leaves it open
+    });
+    setTimeout(() => { const f = ov.querySelector(".cz-check"); if (f) f.focus(); }, 30);
   }
 
   /* ---- burn → disciplines distribution popup ----
@@ -1680,14 +1784,9 @@ window.ExecSummary = (function () {
       if (depEyeBtn && canAdmin()) { const d = eng.dependencies[+depEyeBtn.dataset.depeye]; if (d) { d.internal = !d.internal; window.DASH.saveState(); rerender(); } return; }
       const spr = e.target.closest("[data-sprint]");
       if (spr && canAdmin()) { const m = eng.milestones[+spr.dataset.sprint]; m.sprint = (+m.sprint === 2) ? 1 : 2; window.DASH.saveState(); rerender(); return; }
-      const prT = e.target.closest("[data-prtile]");
-      if (prT && canAdmin()) { eng.prTile = prT.dataset.prtile === "on"; window.DASH.saveState(); rerender(); return; }
-      const msT = e.target.closest("[data-mstile]");
-      if (msT && canAdmin()) { eng.milestonesTile = msT.dataset.mstile === "on"; window.DASH.saveState(); rerender(); return; }
-      const depS = e.target.closest("[data-depsec]");
-      if (depS && canAdmin()) { eng.depsSection = depS.dataset.depsec === "on"; window.DASH.saveState(); rerender(); return; }
-      const mediaT = e.target.closest("[data-mediatoggle]");
-      if (mediaT && canAdmin()) { window.DASH.setMediaTab(mediaT.dataset.mediatoggle === "on"); rerender(); return; }
+      // The four separate tile/section/tab toggles are all inside the Customize dialog now.
+      const cz = e.target.closest("[data-customize]");
+      if (cz && canAdmin()) { openCustomizePopup(); return; }
 
       const ms = e.target.closest("[data-mstoggle]");
       if (ms && canAdmin()) { const m = eng.milestones[+ms.dataset.mstoggle]; m.done = !m.done; window.DASH.saveState(); rerender(); return; }

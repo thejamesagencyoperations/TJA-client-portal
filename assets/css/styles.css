@@ -1716,6 +1716,43 @@ a.link-pill.is-set:hover { filter: brightness(1.08); }
 .bp-total-bad { color: #ef5350; }
 .bp-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .bp-actions .btn-primary:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ---- Customize dialog (exec canvas: add/remove tiles, sections, tabs) ----
+   Wider than the standard .burn-pop because each row carries a description line, and capped
+   in height with the list scrolling: six tiles plus sections plus tabs overflows a short
+   laptop window otherwise, and the Done button must never be pushed off-screen. */
+.burn-pop--wide { width: min(520px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
+/* .btn-primary carries width:100% from the login form. The sibling dialogs get away with it
+   because they pair it with a Cancel button, but this one has a single control — and since
+   every switch applies immediately, "Done" only closes the dialog. A full-width orange bar
+   overstates it, so it sizes to its label and sits right, like the other dialogs' actions. */
+.burn-pop--wide .bp-actions { margin-top: 14px; }
+.burn-pop--wide .bp-actions .btn-primary { width: auto; padding: 10px 22px; margin-top: 0; }
+.cz-group { font-size: .64rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-faint); margin: 10px 2px 4px; }
+.cz-group:first-of-type { margin-top: 2px; }
+/* ONE scroller around all the groups, not one per group. Making each .cz-rows its own
+   overflow:auto meant the flex column squeezed every group when the dialog hit its
+   max-height — including the single-row Sections and Tabs groups, which then scrolled a
+   list of one. min-height:0 is what actually lets a flex child scroll instead of growing. */
+.cz-body { overflow-y: auto; min-height: 0; margin: 0 -4px; padding: 0 4px; }
+.cz-rows { display: flex; flex-direction: column; gap: 1px; }
+/* Rows are tight on purpose: eight of them plus two group headings has to clear a short
+   laptop viewport, or the last group's heading strands at the bottom edge with its row below
+   the fold — which reads as a rendering bug rather than as "scroll down". */
+.cz-row { display: flex; align-items: flex-start; gap: 11px; padding: 7px 10px; border-radius: 9px;
+  cursor: pointer; transition: background .12s ease; }
+.cz-row:hover { background: var(--input); }
+.cz-check { flex: none; width: 17px; height: 17px; margin-top: 1px; accent-color: var(--orange); cursor: pointer; }
+.cz-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cz-name { font-size: .86rem; font-weight: 600; color: var(--text); }
+.cz-desc { font-size: .74rem; color: var(--text-dim); line-height: 1.4; }
+
+/* Shown when every tile is switched off — otherwise the page is a blank rectangle with no
+   hint that the content still exists or how to get it back. */
+.exec-empty { border: 1px dashed var(--line); border-radius: var(--radius); padding: 26px 22px;
+  text-align: center; color: var(--text-dim); font-size: .88rem; line-height: 1.55; }
+.exec-empty b { color: var(--text); }
 /* interactive speedometer */
 .gauge-drag { cursor: grab; }
 .gauge-drag:active { cursor: grabbing; }
