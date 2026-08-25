@@ -275,7 +275,23 @@ window.DASH = { getEng, saveState, setPath, badge, refreshPRSheet,
   projectBack: () => (!isRetainer() && getProjects().length > 1 && selectedProject()) ? `<button class="pp-back" data-allprojects>← All projects</button>` : "",
   // media tab admin override — force the Media Requests tab on/off for this client
   mediaTabShown: () => mediaTabShown(),
-  setMediaTab: (on) => { const r = STATE.engagements && STATE.engagements.retainer; if (!r) return; r.mediaForce = on; saveState(); applyEngagement(); } };
+  setMediaTab: (on) => { const r = STATE.engagements && STATE.engagements.retainer; if (!r) return; r.mediaForce = on; saveState(); applyEngagement(); },
+  /* The Customize dialog configures BOTH views from one place, so it needs the actual
+     engagement OBJECTS rather than just the active one — writing through getEng() would make
+     a tick on the Project header land on whichever engagement happened to be on screen.
+     Only engagements the client actually has are returned, so the dialog never offers a
+     header for a view nobody can navigate to.
+     With several projects this targets the one in context (selected, else the first) and
+     hands back the sibling count so the dialog can say which project it is editing. */
+  customizeScopes: () => {
+    const out = [];
+    const r = STATE.engagements && STATE.engagements.retainer;
+    if (r && retainerEnabled() && !retainerHidden()) out.push({ key: "retainer", title: "Monthly Services", eng: r });
+    const ps = getProjects();
+    const p = selectedProject() || ps[0];
+    if (p) out.push({ key: "project", title: "Project", name: p.label || p.name || "", eng: p, siblings: ps.length });
+    return out;
+  } };
 
 /* ---------- Projects folder (tiles + archive + two-step delete) ---------- */
 const ppAdmin = () => (typeof canEdit === "function" ? canEdit() : true);

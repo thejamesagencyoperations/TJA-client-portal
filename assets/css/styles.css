@@ -1726,11 +1726,19 @@ a.link-pill.is-set:hover { filter: brightness(1.08); }
    because they pair it with a Cancel button, but this one has a single control — and since
    every switch applies immediately, "Done" only closes the dialog. A full-width orange bar
    overstates it, so it sizes to its label and sits right, like the other dialogs' actions. */
-.burn-pop--wide .bp-actions { margin-top: 14px; }
+/* Undo left, Done right — Undo is the escape hatch for switches that already applied, and
+   pairing them on the same side invites hitting the wrong one. */
+.burn-pop--wide .bp-actions { margin-top: 14px; justify-content: space-between; align-items: center; }
 .burn-pop--wide .bp-actions .btn-primary { width: auto; padding: 10px 22px; margin-top: 0; }
-.cz-group { font-size: .64rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--text-faint); margin: 10px 2px 4px; }
-.cz-group:first-of-type { margin-top: 2px; }
+/* One header per engagement view. Deliberately strong: the two blocks are INDEPENDENT sets
+   of switches for two different engagements, and shared tiles appear under both, so the
+   header is what tells you which one you are actually changing. */
+.cz-scope { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  font-size: .76rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--accent-text); margin: 16px 2px 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.cz-scope:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.cz-scope-name { font-size: .72rem; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-dim); }
+.cz-note { font-size: .72rem; color: var(--text-faint); line-height: 1.4; margin: 0 2px 6px; }
 /* ONE scroller around all the groups, not one per group. Making each .cz-rows its own
    overflow:auto meant the flex column squeezed every group when the dialog hit its
    max-height — including the single-row Sections and Tabs groups, which then scrolled a

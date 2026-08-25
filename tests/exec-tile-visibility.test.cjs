@@ -2,7 +2,7 @@
    REMOVING A TILE MUST NOT TOUCH ITS DATA. Functions are lifted out of the real file. */
 const fs = require("fs");
 const src = fs.readFileSync(__dirname + "/../assets/js/exec-summary.js", "utf8");
-const a = src.indexOf("  const TILE_DEFAULT = {");
+const a = src.indexOf("  const VIEW_TILES = {");
 const b = src.indexOf("  /* ---- Layout engine");
 if (a < 0 || b < 0) throw new Error("markers not found");
 global.window = { tjaCanonDiscipline: (n) => String(n).toLowerCase().includes("pr") ? "pr" : "other" };
@@ -38,8 +38,30 @@ setTile(e1, "milestones", false);
 is([tileOn(e1, "milestones"), e1.milestonesTile], [false, false], "setTile writes map and mirrors legacy");
 setTile(e1, "milestones", true);
 is([tileOn(e1, "milestones"), e1.milestonesTile], [true, true], "setTile back on");
-setTile(e1, "kpis", true);
-is([tileOn(e1, "kpis"), "milestonesTile" in e1], [true, true], "non-legacy key needs no mirror but leaves others alone");
+const e2 = { type: "retainer", serviceDisciplines: [] };
+setTile(e2, "kpis", false);
+is([tileOn(e2, "kpis"), "milestonesTile" in e2], [false, false], "non-legacy key writes the map without inventing a legacy mirror");
+
+// ---- VIEW_TILES is authoritative: a project never shows KPIs or PR, whatever is stored
+is(tileOn({ type: "project", tileVis: { kpis: true, pr: true } }, "kpis"), false, "stored kpis:true cannot resurrect KPIs on a project");
+is(tileOn({ type: "project", tileVis: { pr: true } }, "pr"), false, "stored pr:true cannot resurrect PR on a project");
+is(tileOn({ type: "project", prTile: true }, "pr"), false, "legacy prTile:true cannot resurrect PR on a project");
+setTile({ type: "project" }, "pr", true);   // must not throw
+pass++;
+
+// ---- THE INDEPENDENCE GUARANTEE: the two views are separate engagement objects, so a
+// switch on one must never move the other. This is what the Customize dialog's two headers
+// promise, and it is the whole reason the dialog writes through the scope's engagement
+// rather than through whichever view is on screen.
+const ret2 = { type: "retainer", serviceDisciplines: [] };
+const proj2 = { type: "project" };
+setTile(ret2, "milestones", false);           // hide Sprint Goals on Monthly Services
+is(tileOn(proj2, "milestones"), true, "hiding Sprint Goals on the retainer leaves the project's Milestones on");
+setTile(proj2, "todosdep", false);            // hide To Do's on the project
+is(tileOn(ret2, "todosdep"), true, "hiding To Do's on the project leaves the retainer's To Do's on");
+ret2.depsSection = false;
+is(depsOn(proj2), true, "the Dependencies section is per-engagement too");
+is([tileOn(ret2, "milestones"), tileOn(proj2, "todosdep")], [false, false], "each view kept its own choice");
 
 // ---- THE DATA RETENTION GUARANTEE
 const rich = {

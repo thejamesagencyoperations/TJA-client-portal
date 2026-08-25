@@ -957,10 +957,19 @@ window.ExecSummary = (function () {
      production data. tileOn() still reads them as a fallback so existing clients keep their
      choices on first load; setTile() then writes the general map AND mirrors the legacy key,
      so the two can never drift apart. */
+  /* WHICH TILES EACH VIEW MAY SHOW AT ALL. This is the distinction between the two views and
+     it is deliberate, not an oversight: KPIs and PR Coverage are retainer instruments (a
+     retainer reports on ongoing performance and press), and a project has no use for either.
+     They are therefore not offered on a project — not merely defaulted off. Anything absent
+     here is absent from the layout and from the Customize dialog for that view. */
+  const VIEW_TILES = {
+    retainer: ["burn", "service", "milestones", "todosdep", "kpis", "pr"],
+    project:  ["burn", "service", "milestones", "todosdep"],
+  };
   const TILE_DEFAULT = {
     // null = "decide from the data" (see tileOn). Everything else is a literal default.
-    retainer: { burn: true, service: true, milestones: true, todosdep: true, kpis: true,  pr: null  },
-    project:  { burn: true, service: true, milestones: true, todosdep: true, kpis: false, pr: false },
+    retainer: { burn: true, service: true, milestones: true, todosdep: true, kpis: true, pr: null },
+    project:  { burn: true, service: true, milestones: true, todosdep: true },
   };
   const LEGACY_TILE_KEY = { pr: "prTile", milestones: "milestonesTile" };
   const engType = (e) => (e.type === "project" ? "project" : "retainer");
@@ -979,10 +988,15 @@ window.ExecSummary = (function () {
   const depsOn = (e) => e.depsSection !== false;
 
   function tileOn(e, k) {
+    const view = engType(e);
+    // VIEW_TILES is authoritative and checked FIRST, so a stored flag can never resurrect a
+    // tile the view doesn't offer — e.g. a project that was configured while PR Coverage was
+    // briefly on the project menu must not keep rendering a PR tile now that it isn't.
+    if (!(VIEW_TILES[view] || []).includes(k)) return false;
     if (e.tileVis && typeof e.tileVis[k] === "boolean") return e.tileVis[k];
     const lk = LEGACY_TILE_KEY[k];
     if (lk && typeof e[lk] === "boolean") return e[lk];
-    const def = (TILE_DEFAULT[engType(e)] || {})[k];
+    const def = (TILE_DEFAULT[view] || {})[k];
     if (def === null) return prInSow(e);      // PR on a retainer: auto-detect from the SOW
     return def !== false;
   }
@@ -1017,12 +1031,10 @@ window.ExecSummary = (function () {
       { w: 704, tiles: [["service", 451], ["pr", 293]] },
       { w: 405, tiles: [["todosdep", 522], ["kpis", 225]] },
     ],
-    /* PR and KPIs are off by default on a project, but Customize offers them, so they need a
-       home in the spec for the day someone switches one on: PR under the wide left column,
-       KPIs under To Do's. Until then the filter below drops them and nothing shifts. */
+    // No pr / kpis row here — see VIEW_TILES. A project view cannot place them at all.
     project: [
-      { w: 809, tiles: [["burn", 306], ["service", 434], ["pr", 293]] },
-      { w: 424, tiles: [["todosdep", 758], ["kpis", 225]] },
+      { w: 809, tiles: [["burn", 306], ["service", 434]] },
+      { w: 424, tiles: [["todosdep", 758]] },
       { w: 363, tiles: [["milestones", 760]] },
     ],
   };
@@ -1112,61 +1124,97 @@ window.ExecSummary = (function () {
      of bespoke "✕ Remove X" buttons that could only ever cover the cases someone had
      hand-coded a layout for.
 
-     Every switch applies IMMEDIATELY — the canvas behind the dialog reflows as you toggle, so
-     you can see what a layout looks like before committing to it. That also removes the need
-     for cancel/revert semantics: there is no pending state to get wrong, and closing the
-     dialog is just closing the dialog.
+     TWO VIEWS, TWO INDEPENDENT SETS OF SWITCHES. Monthly Services and a Project are separate
+     engagement objects, so their flags never touch: unticking Sprint Goals on the retainer
+     leaves the project's Milestones exactly as it was. The dialog shows both under their own
+     headers so you can set them up in one sitting, and each header writes to ITS OWN
+     engagement — not to whichever view happens to be on screen. Shared tiles (To Do's, Burn,
+     Service Lines) therefore appear under both headers on purpose; they are two different
+     switches that happen to share a name.
+
+     Each view offers only the tiles it can actually place (VIEW_TILES) — a project is never
+     offered KPIs or PR Coverage, because it would never use them.
+
+     Every switch applies IMMEDIATELY: the canvas behind the dialog reflows as you toggle, so
+     you can see a layout before committing to it. Undo steps back through those changes one
+     at a time, which is what makes immediate application safe to offer.
 
      The lead line says removals keep their data, deliberately: "remove" reads as "delete",
-     and someone hiding PR Coverage on a client with 40 logged hits needs to know those hits
+     and someone hiding PR Coverage on a client with 40 logged hits needs to know the hits
      are still there. */
   function openCustomizePopup() {
-    const eng = window.DASH.getEng();
-    const isProj = eng.type === "project";
+    const scopes = (window.DASH.customizeScopes ? window.DASH.customizeScopes() : [])
+      .filter(sc => sc && sc.eng);
+    if (!scopes.length) return;
     const old = document.getElementById("custPop"); if (old) old.remove();
 
-    // Milestones is the one module whose name changes by view — the tile itself renders as
-    // "Sprint Goals" on a retainer — so the dialog has to follow suit or they won't match up.
-    const tileLabel = (k) => (k === "milestones" && !isProj) ? "Sprint Goals" : MODULES[k].label;
-    const DESC = {
-      burn:       "Hours used against the contracted total, with the gauge.",
-      service:    "Hours and share of the retainer, per discipline.",
-      milestones: isProj ? "The milestone list with target dates." : "The two-week sprint goal list.",
-      todosdep:   "The action list, and the dependencies beneath it.",
-      kpis:       "The KPI number tiles.",
-      pr:         "Press hits, outlets and estimated impressions.",
+    /* Label + description PER VIEW, matching the words the tile's own header uses, so a row
+       is recognisable as the thing it switches. Three of these genuinely rename between the
+       two views — burn is "Monthly Burn" on a retainer but "Project Progress" on a project,
+       service is "Service Lines" vs "Project Plan", milestones is "Sprint Goals" vs
+       "Milestones" — which is exactly why the dialog can't label by the current page. */
+    const TILE_UI = {
+      burn: {
+        retainer: ["Monthly Burn", "Hours used against the contracted total, with the gauge."],
+        project:  ["Project Progress", "The phase tracker and the completion percentage."],
+      },
+      service: {
+        retainer: ["Service Lines", "Hours and share of the retainer, per discipline."],
+        project:  ["Project Plan", "Phases and tasks from the project plan sheet."],
+      },
+      milestones: {
+        retainer: ["Sprint Goals", "The two-week sprint goal list."],
+        project:  ["Milestones", "The milestone list with target dates."],
+      },
+      todosdep: {
+        retainer: ["To Do's / Dependencies", "The action list, and the dependencies beneath it."],
+        project:  ["To Do's / Dependencies", "The action list, and the dependencies beneath it."],
+      },
+      kpis: { retainer: ["KPIs / Goals", "The KPI number tiles."] },
+      pr:   { retainer: ["PR Coverage", "Press hits, outlets and estimated impressions."] },
     };
-    const row = (attr, val, label, desc, on) => `
+    const ui = (k, view) => (TILE_UI[k] && TILE_UI[k][view]) || [(MODULES[k] || {}).label || k, ""];
+
+    const row = (scope, attr, val, label, desc, on) => `
       <label class="cz-row">
-        <input type="checkbox" class="cz-check" ${attr}="${val}" ${on ? "checked" : ""}>
+        <input type="checkbox" class="cz-check" data-czscope="${scope}" ${attr}="${val}" ${on ? "checked" : ""}>
         <span class="cz-text"><span class="cz-name">${esc(label)}</span><span class="cz-desc">${esc(desc)}</span></span>
       </label>`;
 
-    const tiles = Object.keys(MODULES).map(k => row("data-cztile", k, tileLabel(k), DESC[k] || "", tileOn(eng, k))).join("");
-    const sections = row("data-czdeps", "1", "Dependencies",
-      "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(eng));
-    // The media tab is a retainer feature and it lives on the engagement's own tab bar rather
-    // than on the canvas, so it gets its own group instead of reading as another tile.
-    const tabs = (!isProj && window.DASH.mediaTabShown)
-      ? `<div class="cz-group">Tabs</div><div class="cz-rows">${row("data-czmedia", "1",
-          "Media Creative Asset Request", "The client's paid-media asset request tab.",
-          window.DASH.mediaTabShown())}</div>`
-      : "";
+    const block = (sc) => {
+      const view = sc.key, e = sc.eng;
+      const tiles = (VIEW_TILES[view] || []).map(k => {
+        const [label, desc] = ui(k, view);
+        return row(view, "data-cztile", k, label, desc, tileOn(e, k));
+      }).join("");
+      const deps = row(view, "data-czdeps", "1", "Dependencies",
+        "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(e));
+      // The media tab is a retainer feature and lives on the tab bar, not the canvas.
+      const media = (view === "retainer" && window.DASH.mediaTabShown)
+        ? row(view, "data-czmedia", "1", "Media Creative Asset Request",
+            "The client's paid-media asset request tab.", window.DASH.mediaTabShown())
+        : "";
+      // Name the project when there is more than one, so it's never ambiguous which one these
+      // switches belong to — the others are configured from their own page.
+      const sub = (view === "project" && sc.name)
+        ? `<span class="cz-scope-name">${esc(sc.name)}</span>` : "";
+      const note = (view === "project" && sc.siblings > 1)
+        ? `<div class="cz-note">Applies to this project only — open another project to set up its own.</div>` : "";
+      return `<div class="cz-scope">${esc(sc.title)}${sub}</div>${note}<div class="cz-rows">${tiles}${deps}${media}</div>`;
+    };
 
     const ov = document.createElement("div");
     ov.id = "custPop"; ov.className = "burn-pop-overlay";
     ov.innerHTML = `<div class="burn-pop burn-pop--wide" role="dialog" aria-modal="true" aria-label="Customize this page">
-      <div class="bp-head">Customize · ${esc(isProj ? "Project" : "Monthly Services")}</div>
+      <div class="bp-head">Customize</div>
       <p class="bp-lead">The remaining tiles resize to fill the page, so it stays full whatever you
-        pick. <b>Switching something off keeps its data</b> — turn it back on and it returns as it was.</p>
-      <div class="cz-body">
-        <div class="cz-group">Tiles</div>
-        <div class="cz-rows">${tiles}</div>
-        <div class="cz-group">Sections</div>
-        <div class="cz-rows">${sections}</div>
-        ${tabs}
+        pick. <b>Switching something off keeps its data</b> — turn it back on and it returns as it was.
+        ${scopes.length > 1 ? "Monthly Services and Projects are set up separately; a change to one never affects the other." : ""}</p>
+      <div class="cz-body">${scopes.map(block).join("")}</div>
+      <div class="bp-actions">
+        <button type="button" class="btn btn-ghost" data-czundo disabled>↺ Undo</button>
+        <button type="button" class="btn btn-primary" data-czdone>Done</button>
       </div>
-      <div class="bp-actions"><button type="button" class="btn btn-primary" data-czdone>Done</button></div>
     </div>`;
     document.body.appendChild(ov);
 
@@ -1175,15 +1223,51 @@ window.ExecSummary = (function () {
     ov.addEventListener("click", (ev) => { if (ev.target === ov) close(); });
     ov.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
 
+    /* Undo. Switches apply on the spot, so without this the only way back from a misclick is
+       to remember what you hit and hit it again — and after several toggles that's a guess.
+       The stack records the value each switch held BEFORE the change, so repeated clicks walk
+       back through the session one step at a time, across both scopes. It is deliberately not
+       persisted: it undoes what you did in THIS sitting, not the client's history. */
+    const undo = [];
+    const undoBtn = ov.querySelector("[data-czundo]");
+    const syncUndo = () => {
+      undoBtn.disabled = !undo.length;
+      undoBtn.title = undo.length ? `Undo the last change (${undo.length} to step back through)` : "Nothing to undo yet";
+    };
+    syncUndo();
+
+    const engOf = (view) => (scopes.find(x => x.key === view) || {}).eng;
+    // Applies one switch. Returns the value it held before, which is what the undo stack needs.
+    const apply = (view, kind, key, on) => {
+      const e = engOf(view); if (!e) return null;
+      if (kind === "tile")  { const was = tileOn(e, key); setTile(e, key, on); return was; }
+      if (kind === "deps")  { const was = depsOn(e); e.depsSection = on; return was; }
+      if (kind === "media") { const was = window.DASH.mediaTabShown(); window.DASH.setMediaTab(on); return was; }
+      return null;
+    };
+
     ov.addEventListener("change", (ev) => {
       const cb = ev.target.closest(".cz-check"); if (!cb || !canAdmin()) return;
-      const e2 = window.DASH.getEng();
-      if (cb.dataset.cztile) setTile(e2, cb.dataset.cztile, cb.checked);
-      else if (cb.dataset.czdeps) e2.depsSection = cb.checked;
-      else if (cb.dataset.czmedia) { window.DASH.setMediaTab(cb.checked); rerender(); return; }
-      window.DASH.saveState();
-      rerender();          // the dialog is in document.body, so rerendering the page leaves it open
+      const view = cb.dataset.czscope;
+      const kind = cb.dataset.cztile ? "tile" : cb.dataset.czdeps ? "deps" : "media";
+      const key = cb.dataset.cztile || "";
+      const was = apply(view, kind, key, cb.checked);
+      if (was !== null) { undo.push({ view, kind, key, was }); syncUndo(); }
+      if (kind !== "media") window.DASH.saveState();
+      rerender();          // the dialog lives in document.body, so rerendering leaves it open
     });
+
+    undoBtn.addEventListener("click", () => {
+      const step = undo.pop(); if (!step) return;
+      apply(step.view, step.kind, step.key, step.was);
+      // put the checkbox back in step with the value it just returned to
+      const sel = step.kind === "tile" ? `[data-cztile="${step.key}"]` : step.kind === "deps" ? "[data-czdeps]" : "[data-czmedia]";
+      const cb = ov.querySelector(`[data-czscope="${step.view}"]${sel}`);
+      if (cb) cb.checked = step.was;
+      if (step.kind !== "media") window.DASH.saveState();
+      syncUndo(); rerender();
+    });
+
     setTimeout(() => { const f = ov.querySelector(".cz-check"); if (f) f.focus(); }, 30);
   }
 
