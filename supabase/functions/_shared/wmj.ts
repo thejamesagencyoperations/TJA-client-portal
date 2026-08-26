@@ -64,16 +64,71 @@ export interface ClientActuals {
   total: number;
 }
 
-export async function fetchRetainerActuals(): Promise<Map<string, ClientActuals>> {
-  /* Timed + retried, NOT a bare fetch. This exact call hung mid-transfer on 2026-08-26 and
-     took the whole snapshot run down with a Supabase 150s IDLE_TIMEOUT (see _shared/http.ts).
-     Failing fast here matters twice over: the caller's catch can then report it to _health,
-     and the 1am run — the one that captures a closing month's final day — gets its retries
-     in rather than burning the window on one stalled socket. */
+/* ---- Where the retainer CSV actually comes from -------------------------------
+   TWO PATHS, and which one runs depends only on whether the WMJ secrets are set.
+
+   DIRECT (preferred). Calls the Workamajig Report Endpoint with a `reportKey` plus two
+   tokens, all of which are STABLE. This exists because the legacy path below is fed by a
+   Google-Sheets `=IMPORTDATA(...linkKey=...)` formula, and Workamajig confirmed those
+   linkKeys EXPIRE. When one does the sheet fills with #N/A, the parser reads zero rows, and
+   — because of the month roll-forward — EVERY retainer client rolls to 0 hours with the burn
+   gauge reading 0%. It kept breaking around month boundaries. Cutting out the sheet removes
+   the expiring credential entirely.
+
+   SHEET (legacy fallback). Still used when the secrets aren't configured, so this file can
+   ship before the tokens exist and switch over by itself the moment they do — no flag day.
+
+   Deliberately NO fallback from direct → sheet on error. Falling back would mean a broken
+   direct path is invisible, and the sheet's own failure mode is silent zeros: the two
+   together would hide exactly what this change exists to expose. If the direct call fails it
+   throws, snapshot-months catches it, records it to _health and returns 502. Loud beats
+   quietly wrong. */
+const wmjEnv = () => ({
+  sub: Deno.env.get("WMJ_SUBDOMAIN"),
+  aat: Deno.env.get("WMJ_API_ACCESS_TOKEN"),
+  ut:  Deno.env.get("WMJ_USER_TOKEN"),
+  rk:  Deno.env.get("WMJ_RETAINER_REPORTKEY"),
+});
+export const wmjDirectConfigured = () => { const e = wmjEnv(); return !!(e.sub && e.aat && e.ut && e.rk); };
+
+/* A response can be HTTP 200 and still be useless: an expired linkKey yields a sheet of
+   #N/A, and an API error can arrive as a JSON envelope. Both used to parse as "no rows",
+   which is indistinguishable from a quiet weekend — the single reason these outages went
+   unnoticed for so long. Anything that doesn't look like the timesheet export is an ERROR now. */
+function assertLooksLikeTimesheetCsv(text: string, source: string): void {
+  const head = text.slice(0, 2000);
+  if (/^\s*[[{]/.test(text)) throw new Error(`${source} returned JSON, not CSV: ${head.slice(0, 200)}`);
+  if (/#N\/A|#REF!|#ERROR!|Could not fetch url/i.test(head))
+    throw new Error(`${source} is broken upstream — the sheet is full of #N/A, which usually means its IMPORTDATA linkKey has EXPIRED: ${head.slice(0, 200)}`);
+  if (!/client_name/i.test(head))
+    throw new Error(`${source} has no Client_Name column — not the expected timesheet export: ${head.slice(0, 200)}`);
+}
+
+async function fetchRetainerCsv(): Promise<string> {
+  const e = wmjEnv();
+  if (wmjDirectConfigured()) {
+    const url = `https://${e.sub}.workamajig.com/api/beta1/reports`
+      + `?reportKey=${encodeURIComponent(e.rk!)}&output=csv`;
+    const res = await fetchT(url, {
+      headers: { "Content-Type": "application/json", APIAccessToken: e.aat!, UserToken: e.ut! },
+    }, { timeoutMs: 30_000, retries: 2, label: "WMJ retainer report (direct API)" });
+    if (!res.ok) throw new Error(`WMJ retainer report failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const text = await res.text();
+    assertLooksLikeTimesheetCsv(text, "WMJ retainer report (direct API)");
+    return text;
+  }
+  /* Timed + retried, NOT a bare fetch. This call hung mid-transfer on 2026-08-26 and took the
+     whole snapshot down with a Supabase 150s IDLE_TIMEOUT (see _shared/http.ts). */
   const res = await fetchT(RET_CSV_URL, { headers: { "cache-control": "no-cache" } },
     { timeoutMs: 20_000, retries: 2, label: "WMJ retainer actuals sheet" });
   if (!res.ok) throw new Error(`WMJ retainer fetch failed: ${res.status}`);
-  const rows = parseCSV(await res.text());
+  const text = await res.text();
+  assertLooksLikeTimesheetCsv(text, "WMJ retainer actuals sheet");
+  return text;
+}
+
+export async function fetchRetainerActuals(): Promise<Map<string, ClientActuals>> {
+  const rows = parseCSV(await fetchRetainerCsv());
   const map = new Map<string, ClientActuals>();
   for (const r of rows) {
     if (isNonBillable(r)) continue;
