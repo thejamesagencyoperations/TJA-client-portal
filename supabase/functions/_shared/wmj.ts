@@ -12,6 +12,8 @@
    needs billable hours by discipline.
    ============================================================ */
 
+import { fetchT } from "./http.ts";
+
 const RET_SHEET_ID = "1d-iwYnkA_rmdZyysRPz_b1X7zSucBBviIBwhzdlrj00";
 const RET_CSV_URL = `https://docs.google.com/spreadsheets/d/${RET_SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
 
@@ -63,7 +65,13 @@ export interface ClientActuals {
 }
 
 export async function fetchRetainerActuals(): Promise<Map<string, ClientActuals>> {
-  const res = await fetch(RET_CSV_URL, { headers: { "cache-control": "no-cache" } });
+  /* Timed + retried, NOT a bare fetch. This exact call hung mid-transfer on 2026-08-26 and
+     took the whole snapshot run down with a Supabase 150s IDLE_TIMEOUT (see _shared/http.ts).
+     Failing fast here matters twice over: the caller's catch can then report it to _health,
+     and the 1am run — the one that captures a closing month's final day — gets its retries
+     in rather than burning the window on one stalled socket. */
+  const res = await fetchT(RET_CSV_URL, { headers: { "cache-control": "no-cache" } },
+    { timeoutMs: 20_000, retries: 2, label: "WMJ retainer actuals sheet" });
   if (!res.ok) throw new Error(`WMJ retainer fetch failed: ${res.status}`);
   const rows = parseCSV(await res.text());
   const map = new Map<string, ClientActuals>();

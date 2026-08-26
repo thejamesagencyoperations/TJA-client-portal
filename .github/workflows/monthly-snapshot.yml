@@ -29,8 +29,32 @@ jobs:
           # (it already ships in the portal) and only satisfies the API gateway.
           SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
           ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        # RETRY, added 2026-08-26. The 06:00 run died on a Supabase 504 IDLE_TIMEOUT: the
+        # function's Google-Sheets read stalled and the whole request was killed at 150s, on a
+        # run that normally takes ~20s. The function now times out and retries that fetch
+        # internally (_shared/http.ts); this is the outer net for the case where the function
+        # itself is unreachable or slow to boot.
+        #
+        # --max-time 170 gives curl its own ceiling just past Supabase's 150s, so a hang can
+        # never hold the job open. Three attempts, 30s apart. The whole function is idempotent
+        # (it upserts the current calendar month), so a repeat is always safe.
         run: |
-          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/snapshot-months" \
-            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
-            -H "Authorization: Bearer ${ANON_KEY}" \
-            -w "\nHTTP %{http_code}\n" --fail-with-body
+          set -o pipefail
+          for attempt in 1 2 3; do
+            echo "── attempt $attempt of 3"
+            if curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/snapshot-months" \
+                 -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+                 -H "Authorization: Bearer ${ANON_KEY}" \
+                 --max-time 170 \
+                 -w "\nHTTP %{http_code}\n" --fail-with-body; then
+              echo "snapshot ok on attempt $attempt"
+              exit 0
+            fi
+            echo "attempt $attempt failed"
+            # An explicit if, not `[ ... ] && sleep`. GitHub runs this with `bash -e`, where
+            # that && form only survives because set -e exempts the left side of an AND-list —
+            # true here, but far too subtle a thing to leave load-bearing.
+            if [ "$attempt" -lt 3 ]; then sleep 30; fi
+          done
+          echo "::error::snapshot-months failed all 3 attempts"
+          exit 1
