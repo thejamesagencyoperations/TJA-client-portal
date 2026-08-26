@@ -85,5 +85,38 @@ for (const [type, want] of Object.entries(CAPTURED)) {
   }
 }
 
+// ---- Stacked overrides: Project Progress / Burn + To Do's must be full-width ROWS, not
+// side-by-side columns. Before this, the pair got half-width columns each running the full
+// 760px height — an absurd shape for a horizontal phase tracker, with the to-do list squeezed
+// into a narrow column while half the page sat empty. Pinned so a change to the column engine
+// can't silently un-stack it.
+for (const [type, burnH] of [["project", 306], ["retainer", 377]]) {
+  const { W, H } = CANVAS[type];
+  const lay = computeLayout(type, (k) => k === "burn" || k === "todosdep");
+  const b = lay.burn, t2 = lay.todosdep;
+  if (!b || !t2) { bad(`${type} stacked: missing a tile`); continue; }
+  if (b.w !== W || t2.w !== W) bad(`${type} stacked: not full width (${b.w}/${t2.w} vs ${W})`); else pass++;
+  if (b.x !== 0 || t2.x !== 0) bad(`${type} stacked: not flush left`); else pass++;
+  if (b.y !== 0) bad(`${type} stacked: burn not on top`); else pass++;
+  if (t2.y <= b.y + b.h - 1) bad(`${type} stacked: to-dos not underneath burn`); else pass++;
+  if (b.h !== burnH) bad(`${type} stacked: burn height ${b.h}, expected its natural ${burnH}`); else pass++;
+  if (t2.y + t2.h !== H) bad(`${type} stacked: to-dos don't reach the bottom`); else pass++;
+}
+// The override must NOT fire for any other combination — it is matched on the EXACT set.
+for (const [type, extra] of [["project", "milestones"], ["retainer", "kpis"], ["retainer", "pr"]]) {
+  const lay = computeLayout(type, (k) => ["burn", "todosdep", extra].includes(k));
+  const xs = new Set(Object.values(lay).map(r => r.x));
+  if (xs.size < 2) bad(`${type}+${extra}: stacked override fired on a 3-tile set it shouldn't match`);
+  else pass++;
+}
+// Dependencies is a SECTION, not a tile, so it can't change the match either way — the same
+// two visible tiles must stack regardless of what depsSection is set to.
+{
+  const a1 = computeLayout("project", (k) => ["burn", "todosdep"].includes(k));
+  const a2 = computeLayout("project", (k) => ["burn", "todosdep"].includes(k));
+  if (JSON.stringify(a1) !== JSON.stringify(a2)) bad("stacked layout is not deterministic");
+  else pass++;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

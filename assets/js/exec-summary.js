@@ -1039,8 +1039,46 @@ window.ExecSummary = (function () {
     ],
   };
 
+  /* ---- Stacked overrides ----
+     A few combinations read better as full-width rows than as columns, and the column engine
+     can't know that on its own — it only knows widths and heights, not what a tile IS.
+
+     The case that forced this (Cameron, 2026-08-26): with only Project Progress + To Do's
+     left, the engine gave each a half-width column running the FULL 760px height. Project
+     Progress is a horizontal phase tracker — a 760px-tall one is absurd, and the to-do list
+     was squeezed into a narrow column while half the page sat empty beside it.
+     Stacked, both get the full page width, the tracker keeps its natural height, and the
+     to-do list takes everything below it.
+
+     Matched on the EXACT set of visible tiles, so this can never fire for a combination
+     nobody asked for. Dependencies is a section inside the To Do's tile, not a tile, so it
+     doesn't affect the match — the override applies whether or not it's switched on.
+     The last row's height is ignored: it takes the remainder, so the page still fills exactly. */
+  const STACKED = {
+    retainer: [{ keys: ["burn", "todosdep"], rows: [["burn", 377], ["todosdep", 0]] }],
+    project:  [{ keys: ["burn", "todosdep"], rows: [["burn", 306], ["todosdep", 0]] }],
+  };
+
   function computeLayout(type, isOn) {
     const spec = CANVAS[type];
+
+    // An exact-set match jumps to a stacked layout and skips the column engine entirely.
+    // The candidate keys come from COLUMNS, not VIEW_TILES, so this function depends only on
+    // its own layout constants — isOn already returns false for anything the view can't show.
+    const on = (COLUMNS[type] || []).flatMap(c => c.tiles.map(t => t[0])).filter(isOn);
+    const ov = (STACKED[type] || []).find(o =>
+      o.keys.length === on.length && o.keys.every(k => on.includes(k)));
+    if (ov) {
+      const out = {};
+      let y = 0;
+      ov.rows.forEach((r, i) => {
+        const h = (i === ov.rows.length - 1) ? spec.H - y : r[1];
+        out[r[0]] = { x: 0, y, w: spec.W, h };
+        y += h + GAP;
+      });
+      return out;
+    }
+
     const cols = COLUMNS[type]
       .map(c => ({ w: c.w, tiles: c.tiles.filter(t => isOn(t[0])) }))
       .filter(c => c.tiles.length);
