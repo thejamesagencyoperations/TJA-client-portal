@@ -7,7 +7,7 @@
    Lifted from the real file so it can't drift. */
 const fs = require("fs");
 const src = fs.readFileSync(__dirname + "/../assets/js/wmj-sync.js", "utf8");
-const a = src.indexOf("  async function wmjCsv(report, sheetUrl) {");
+const a = src.indexOf("  const PROXY_REPORTS = {");
 const b = src.indexOf("  const LAST_KEY =");
 if (a < 0 || b < 0) throw new Error("markers not found");
 const make = new Function("window", "fetch", "console", src.slice(a, b) + "\n return wmjCsv;");
@@ -74,8 +74,20 @@ function harness({ proxyStatus, proxyBody, session = "tok", sheetBody = "SHEET_D
     const win = { SUPABASE_CONFIG: { url: "https://x.supabase.co" },
       SUPA: { enabled: true, client: { auth: { getSession: async () => ({ data: { session: { access_token: "t" } } }) } } } };
     const fn = make(win, async (url, opts) => { calls.push(JSON.parse(opts.body).report); return { ok: true, status: 200, text: async () => "OK" }; }, quietConsole);
-    await fn("retainer", "https://s"); await fn("projects", "https://s");
-    ok(calls.join(",") === "retainer,projects", "report name is passed through: " + calls.join(","));
+    await fn("retainer", "https://s");
+    ok(calls.join(",") === "retainer", "report name is passed through: " + calls.join(","));
+  }
+
+  // PROXY_REPORTS is the switch that decides which feeds are trusted on the direct API.
+  // projects is deliberately OFF (its report names columns differently from the sheet and
+  // that broke the live sync on 2026-08-27), so it must bypass the proxy entirely — not even
+  // ask it — and read the sheet. Pinned, because silently flipping this back on would break
+  // every project page again.
+  {
+    const h = harness({ proxyStatus: 200 });
+    const out = await h.fn("projects", "https://sheet");
+    ok(out === "SHEET_DATA", "projects reads the sheet while PROXY_REPORTS.projects is false");
+    ok(!h.calls.some(u => String(u).includes("/wmj-report")), "projects does not even call the proxy");
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

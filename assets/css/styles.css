@@ -1179,11 +1179,32 @@ body[data-role="client"] .staff-only { display: none !important; }
 .ct-del:hover { color: var(--bad); border-color: var(--bad); background: rgba(239,83,80,.1); }
 
 /* Add / Edit client modal */
-.cl-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; padding: 24px; }
+/* ---- Add / Edit client modal ----
+   The card had NO max-height and NO overflow, inside an `align-items:center` overlay. Editing
+   a retainer client (which adds the contracted-hours rows) makes it ~1000px tall, so on a
+   1440x800 screen it centred at 1004px and hung 102px off the TOP and 102px off the BOTTOM —
+   measured, not estimated. Overflow above a centred flex item cannot be scrolled to, so the
+   title, the ✕ and the Save button were all unreachable: the form could be neither closed nor
+   saved. (Reported as "impossible to navigate that screen", 2026-08-27.)
+
+   Three things fix it, and each covers a different case:
+     • the card caps at the viewport and scrolls internally — nothing is ever off-screen;
+     • the overlay aligns to flex-start with `margin:auto` on the card, the standard pattern
+       that still centres a SHORT card but lets a tall one scroll instead of overflowing;
+     • the head and the actions are sticky, so ✕ and Save stay on screen at any scroll
+       position — the two controls whose absence made this unrecoverable. */
+.cl-overlay { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.5); display: flex;
+  align-items: flex-start; justify-content: center; padding: 24px; overflow-y: auto; }
 .cl-card { width: 560px; max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  box-shadow: 0 24px 70px rgba(0,0,0,.4); padding: 22px 24px 20px; }
+  box-shadow: 0 24px 70px rgba(0,0,0,.4); padding: 22px 24px 20px;
+  margin: auto; max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); overflow-y: auto; }
 .cl-card-sm { width: 440px; }
-.cl-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+/* Sticky against the card's own scrollport. The negative margin + matching padding pull the
+   sticky box up over the card's 22px top padding, so scrolled content passes BEHIND the head
+   rather than through the gap above it. */
+.cl-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+  position: sticky; top: -22px; z-index: 2; background: var(--panel);
+  margin-top: -22px; padding-top: 22px; margin-left: -24px; margin-right: -24px; padding-left: 24px; padding-right: 24px; }
 .cl-title { font-weight: 800; font-size: 1.12rem; letter-spacing: -.01em; }
 .cl-x { border: none; background: transparent; color: var(--text-faint); font-size: 1rem; cursor: pointer; line-height: 1; }
 .cl-x:hover { color: var(--bad); }
@@ -1209,6 +1230,10 @@ body[data-role="client"] .staff-only { display: none !important; }
 .cl-field-2 > .cl-field:not(.cl-field-sm) { flex: 1; }
 .cl-err { color: var(--bad); font-size: .78rem; min-height: 1em; margin: 10px 0 0; }
 .cl-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+/* Save/Cancel pinned to the bottom of the scrollport, for the same reason as the head. */
+.cl-card .cl-actions { position: sticky; bottom: -20px; background: var(--panel); z-index: 2;
+  margin-bottom: -20px; padding-bottom: 20px; margin-left: -24px; margin-right: -24px; padding-left: 24px; padding-right: 24px;
+  padding-top: 12px; border-top: 1px solid var(--line); }
 /* Monthly-Services discipline setup (contracted hours) */
 .cl-svc-setup { margin-top: 6px; }
 .cl-svc-total { float: right; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text-dim); }
