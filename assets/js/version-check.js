@@ -27,6 +27,7 @@
   if (!MINE) return;                         // loaded without a version tag — nothing to compare
   const EVERY = 4 * 60 * 1000;               // 4 minutes
   const KEY = "tja_vreload_target";
+  const RETRY_AFTER = 11 * 60 * 1000;        // just past Pages' 10-minute HTML cache
 
   function busyEditing() {
     const a = document.activeElement;
@@ -42,8 +43,22 @@
       const target = +j.v || 0;
       if (target <= MINE) return;
       if (!document.hidden && busyEditing()) return;                 // don't yank the page mid-edit
-      if (sessionStorage.getItem(KEY) === String(target)) return;    // already tried for this version
-      try { sessionStorage.setItem(KEY, String(target)); } catch (e) {}
+
+      /* ONE RETRY, NOT ONE ATTEMPT (2026-08-27).
+         GitHub Pages serves the HTML with `cache-control: max-age=600`, so a reload fired
+         soon after a deploy can come back with the OLD page. The original guard recorded
+         "tried version N" and never revisited it, which left that tab stuck on stale code
+         for the rest of the session — the failure mode Cameron hit: told to hard-refresh
+         for a fix the page should have picked up by itself.
+         The attempt is now stamped, and a second one is allowed once the 10-minute cache
+         window has certainly passed. Two attempts 11 minutes apart cannot become a loop,
+         and by the second the CDN can no longer be serving the old document. */
+      let prev = null;
+      try { prev = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) {}
+      // tolerate the old format, which stored the bare version number as a string
+      if (prev && typeof prev !== "object") prev = { v: +prev, at: 0 };
+      if (prev && prev.v === target && (Date.now() - (prev.at || 0)) < RETRY_AFTER) return;
+      try { sessionStorage.setItem(KEY, JSON.stringify({ v: target, at: Date.now() })); } catch (e) {}
       location.reload();
     } catch (e) { /* offline / blocked — try again next tick */ }
   }
