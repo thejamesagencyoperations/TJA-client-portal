@@ -65,6 +65,20 @@ window.WMJ_SYNC = (function () {
     return res.text();
   }
 
+  /* WHY FAILURES ARE RECORDED, NOT JUST LOGGED (2026-08-27)
+     Every step below used to end in `.catch(err => console.warn(...))`, and the chain then
+     stamped LAST_KEY regardless — so a sync where every step failed looked exactly like a
+     sync that worked, and the only evidence was a console nobody has open. Cameron hit this
+     precisely: a failed run showed a stale "Projects synced <yesterday>" and said nothing.
+     Errors now survive the run so the UI can show them. */
+  let lastErrors = [];
+  function syncErrors() { return lastErrors.slice(); }
+  const noteErr = (where, err) => {
+    const msg = (err && err.message) ? err.message : String(err);
+    lastErrors.push(where + ": " + msg);
+    console.warn("WMJ " + where, err);
+  };
+
   const LAST_KEY = "tja_wmj_last_sync";
   const HOUR = 3600 * 1000;
   const T = () => window.WMJ_TRANSFORM;
@@ -468,23 +482,26 @@ window.WMJ_SYNC = (function () {
     const muteAudit = (on) => { try { if (window.SUPA && window.SUPA.setAuditMuted) window.SUPA.setAuditMuted(on); } catch (e) {} };
     const run = () =>
       Promise.resolve(muteAudit(true))
+        .then(() => { lastErrors = []; })
         .then(() => sync())
         .then(pv => { window.__wmjProjResult = pv; })
-        .catch(err => { console.warn("WMJ projects sync", err); })
+        .catch(err => { noteErr("projects sync", err); })
         .then(() => syncRetainers())
-        .catch(err => { console.warn("WMJ retainers sync", err); })
+        .catch(err => { noteErr("retainers sync", err); })
         .then(() => syncPR())
-        .catch(err => { console.warn("PR sync", err); })
+        .catch(err => { noteErr("PR sync", err); })
         .then(() => syncRetainerValue())
-        .catch(err => { console.warn("retainer-value sync", err); })
+        .catch(err => { noteErr("retainer-value sync", err); })
         .then(() => syncAccountManagers())
-        .catch(err => { console.warn("account-manager sync", err); })
+        .catch(err => { noteErr("account-manager sync", err); })
         // the AM/PM assignment sheet runs LAST so its manager tags win over the
         // WMJ-derived seed for any client it names (it's the team-owned truth)
         .then(() => (window.MGR_SHEET ? window.MGR_SHEET.sync() : null))
-        .catch(err => { console.warn("mgr-sheet sync", err); })
+        .catch(err => { noteErr("mgr-sheet sync", err); })
         .then(() => {
-          try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
+          // Only stamp "synced at" when the run actually brought data in. Stamping after a
+          // total failure is what made a broken sync indistinguishable from a working one.
+          if (!lastErrors.length) { try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {} }
           muteAudit(false);
           // one line on the record that the machine sync ran (not 50 per-client diffs)
           try {
@@ -494,10 +511,10 @@ window.WMJ_SYNC = (function () {
           } catch (e) {}
           if (onDone) { try { onDone(window.__wmjProjResult || null); } catch (e) {} }
         })
-        .catch(err => { muteAudit(false); console.warn("WMJ sync chain", err); });
+        .catch(err => { muteAudit(false); noteErr("sync chain", err); if (onDone) { try { onDone(null); } catch (e) {} } });
     run();
     if (!timer) timer = setInterval(run, HOUR);
   }
 
-  return { sync, syncRetainers, syncPR, syncRetainerValue, syncAccountManagers, fetchCSV, lastSync, startAuto, CSV_URL, RET_CSV_URL };
+  return { sync, syncRetainers, syncPR, syncRetainerValue, syncAccountManagers, fetchCSV, lastSync, syncErrors, startAuto, CSV_URL, RET_CSV_URL };
 })();
