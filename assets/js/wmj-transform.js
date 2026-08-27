@@ -105,26 +105,60 @@
     return statuses[0] || "Production";
   }
 
+  /* A COLUMN THAT ISN'T THERE MUST NOT LOOK LIKE A NULL-POINTER BUG.
+     Reading r.Task_Full_Name.trim() straight off the row meant a feed whose header used a
+     different name for that column crashed the whole sync with
+     "Cannot read properties of undefined (reading 'trim')" — a message that says nothing
+     about the actual problem, and which cost real diagnosis time on 2026-08-27 when the
+     projects feed briefly moved to the WMJ API (whose reports name some columns differently
+     from the sheet; the retainer one says Task_Name where the sheet says "Task Full Name").
+     col() reads the first name that IS present, so known aliases just work, and
+     requireCols() fails ONCE, up front, naming exactly what is missing and what did arrive. */
+  const COL_ALIASES = {
+    Client_Name:    ["Client_Name", "Client"],
+    Campaign_Name:  ["Campaign_Name", "Campaign"],
+    Project_Name:   ["Project_Name", "Project"],
+    Task_Full_Name: ["Task_Full_Name", "Task_Name", "Task"],
+    Allocated_Hours:["Allocated_Hours", "Allocated"],
+    Project_Status: ["Project_Status", "Status"],
+  };
+  function col(r, logical) {
+    const names = COL_ALIASES[logical] || [logical];
+    for (const n of names) { const v = r[n]; if (v != null) return String(v); }
+    return "";
+  }
+  function requireCols(rows) {
+    if (!rows.length) return;
+    const have = Object.keys(rows[0]);
+    const missing = ["Client_Name", "Campaign_Name", "Project_Name", "Task_Full_Name"]
+      .filter((k) => !(COL_ALIASES[k] || [k]).some((n) => have.indexOf(n) > -1));
+    if (missing.length)
+      throw new Error("WMJ projects feed is missing column(s) [" + missing.join(", ")
+        + "]. Columns received: " + have.join(", "));
+  }
+
   /* ---------- main transform ---------- */
   function transform(rows) {
+    requireCols(rows);
     const bill = rows.filter(r => !isNonBillable(r));
 
     // group: client → campaign → project_name → tasks(aggregated by clean name)
     const clients = new Map();
     bill.forEach(r => {
-      const cl = r.Client_Name.trim();
+      const cl = col(r, "Client_Name").trim();
       const key = normName(cl);
       if (!clients.has(key)) clients.set(key, { wmjName: cl, normName: key, code: "", _camps: new Map() });
       const C = clients.get(key);
-      const cm = r.Campaign_Name.trim();
+      const cm = col(r, "Campaign_Name").trim();
       if (!C.code) C.code = cm.split(/\s+/)[0] || "";   // client code = leading token of Campaign_Name
       if (!C._camps.has(cm)) C._camps.set(cm, new Map());
       const P = C._camps.get(cm);
-      const pn = r.Project_Name.trim() || "General";
+      const pn = col(r, "Project_Name").trim() || "General";
       if (!P.has(pn)) P.set(pn, new Map());
       const T = P.get(pn);
-      const tname = cleanTaskName(r.Task_Full_Name) || r.Task_Full_Name.trim() || "Task";
-      if (!T.has(tname)) T.set(tname, { name: tname, raw: r.Task_Full_Name.trim(), hours: 0, statuses: [], services: new Set(), start: null, end: null, internal: isInternalTask(r.Task_Full_Name) });
+      const tfull = col(r, "Task_Full_Name");
+      const tname = cleanTaskName(tfull) || tfull.trim() || "Task";
+      if (!T.has(tname)) T.set(tname, { name: tname, raw: tfull.trim(), hours: 0, statuses: [], services: new Set(), start: null, end: null, internal: isInternalTask(tfull) });
       const t = T.get(tname);
       t.hours += num(r.Allocated_Hours);
       t.statuses.push(r.Project_Status);

@@ -33,7 +33,26 @@ window.WMJ_SYNC = (function () {
      feed is broken. A 502 means the guard caught #N/A or a JSON error envelope, and quietly
      reading the sheet instead would restore exactly the silent-wrong-data behaviour this
      work exists to remove, so that case throws. */
+  /* WHICH FEEDS ARE ON THE DIRECT API YET.
+     retainer: YES — verified client-by-client against the sheet (21 clients, 20 totals
+       identical, the one difference being a sheet row the API gets RIGHT), and running in
+       production via snapshot-months.
+     projects: NOT YET. Switching it on 2026-08-27 broke the manual sync with
+       "Cannot read properties of undefined (reading 'trim')": the projects report returns
+       at least one column under a different name than the sheet does (the retainer report,
+       for instance, calls it Task_Name where the sheet says "Task Full Name"), and
+       wmj-transform reads r.Task_Full_Name / r.Client_Name unguarded.
+     Flipped back to the sheet rather than guessed at, because this portal is live for
+     clients and the projects feed drives every project page. Flip to true once the report's
+     real header has been read and wmj-transform maps it. */
+  const PROXY_REPORTS = { retainer: true, projects: false };
+
   async function wmjCsv(report, sheetUrl) {
+    if (!PROXY_REPORTS[report]) {
+      const legacy = await fetch(sheetUrl, { cache: "no-store" });
+      if (!legacy.ok) throw new Error("WMJ sheet fetch failed: " + legacy.status);
+      return legacy.text();
+    }
     try {
       const cfg = window.SUPABASE_CONFIG || {};
       const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
