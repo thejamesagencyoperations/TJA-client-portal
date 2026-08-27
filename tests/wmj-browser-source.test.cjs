@@ -10,7 +10,7 @@ const src = fs.readFileSync(__dirname + "/../assets/js/wmj-sync.js", "utf8");
 const a = src.indexOf("  const PROXY_REPORTS = {");
 const b = src.indexOf("  const LAST_KEY =");
 if (a < 0 || b < 0) throw new Error("markers not found");
-const make = new Function("window", "fetch", "console", src.slice(a, b) + "\n return wmjCsv;");
+const make = new Function("window", "fetch", "console", src.slice(a, b) + "\n return { wmjCsv, syncErrors };");
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  ok  " + m); } else { fail++; console.log("  FAIL " + m); } };
@@ -33,7 +33,8 @@ function harness({ proxyStatus, proxyBody, session = "tok", sheetBody = "SHEET_D
     }
     return { ok: true, status: 200, text: async () => sheetBody };
   };
-  return { fn: make(win, fetchStub, quietConsole), calls };
+  const mod = make(win, fetchStub, quietConsole);
+  return { fn: mod.wmjCsv, calls, errors: mod.syncErrors };
 }
 
 (async () => {
@@ -73,21 +74,37 @@ function harness({ proxyStatus, proxyBody, session = "tok", sheetBody = "SHEET_D
     const calls = [];
     const win = { SUPABASE_CONFIG: { url: "https://x.supabase.co" },
       SUPA: { enabled: true, client: { auth: { getSession: async () => ({ data: { session: { access_token: "t" } } }) } } } };
-    const fn = make(win, async (url, opts) => { calls.push(JSON.parse(opts.body).report); return { ok: true, status: 200, text: async () => "OK" }; }, quietConsole);
+    const fn = make(win, async (url, opts) => { calls.push(JSON.parse(opts.body).report); return { ok: true, status: 200, text: async () => "OK" }; }, quietConsole).wmjCsv;
     await fn("retainer", "https://s");
     ok(calls.join(",") === "retainer", "report name is passed through: " + calls.join(","));
   }
 
-  // PROXY_REPORTS is the switch that decides which feeds are trusted on the direct API.
-  // projects is deliberately OFF (its report names columns differently from the sheet and
-  // that broke the live sync on 2026-08-27), so it must bypass the proxy entirely — not even
-  // ask it — and read the sheet. Pinned, because silently flipping this back on would break
-  // every project page again.
+  /* THE PROJECTS SWITCH-OVER IS SELF-VERIFYING.
+     The first reportKey supplied for projects was the TIMESHEET report — missing five of the
+     columns the transform reads — and it broke every project page. So the response is checked
+     against the real column list before being used, and anything short falls back to the sheet
+     with the reason RECORDED (red on the Clients page), never silently. */
+  const FULL = "Client_Name,Campaign_Name,Project_Name,Task_Full_Name,Allocated_Hours,Project_Status,Plan_Start_Date,Plan_Completion_Date,Service\nAcme,A,B,C,1,Production,,,Web\n";
+  const SHEET_STYLE = FULL.replace(/_/g, " ");
+  const TIMESHEET = "Client_Name,Campaign_Name,Project_Name,Task_Name,Comments,Actual_Billable_Hours\nAcme,A,B,C,,1\n";
   {
-    const h = harness({ proxyStatus: 200 });
+    const h = harness({ proxyStatus: 200, proxyBody: FULL });
+    ok(await h.fn("projects", "https://sheet") === FULL, "a COMPLETE projects report is used");
+  }
+  {
+    // the same check must accept the sheet's space-separated spelling, or a correct feed
+    // would be rejected purely on punctuation
+    const h = harness({ proxyStatus: 200, proxyBody: SHEET_STYLE });
+    ok(await h.fn("projects", "https://sheet") === SHEET_STYLE, "space-separated headers are accepted too");
+  }
+  {
+    const h = harness({ proxyStatus: 200, proxyBody: TIMESHEET });
     const out = await h.fn("projects", "https://sheet");
-    ok(out === "SHEET_DATA", "projects reads the sheet while PROXY_REPORTS.projects is false");
-    ok(!h.calls.some(u => String(u).includes("/wmj-report")), "projects does not even call the proxy");
+    ok(out === "SHEET_DATA", "the WRONG report falls back to the sheet instead of breaking the page");
+    const errs = h.errors();
+    ok(errs.length === 1, "and the fallback is recorded, not silent");
+    ok(errs[0] && /Task_Full_Name/.test(errs[0]), "the record names a missing column: " + errs[0]);
+    ok(errs[0] && /wrong report/.test(errs[0]), "and says what to check");
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

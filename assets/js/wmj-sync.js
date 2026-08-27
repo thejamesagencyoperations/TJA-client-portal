@@ -45,14 +45,33 @@ window.WMJ_SYNC = (function () {
      Flipped back to the sheet rather than guessed at, because this portal is live for
      clients and the projects feed drives every project page. Flip to true once the report's
      real header has been read and wmj-transform maps it. */
-  const PROXY_REPORTS = { retainer: true, projects: false };
+  const PROXY_REPORTS = { retainer: true, projects: true };
+
+  /* SELF-VERIFYING SWITCH-OVER for the projects feed.
+     The projects report has to carry every column the transform reads; the first reportKey
+     supplied for it turned out to be the TIMESHEET report, which is missing five of them and
+     broke the live sync. Rather than trust the key, the response is checked against the real
+     column list before it is used. If anything is missing we drop back to the sheet — which
+     is exactly today's working behaviour — and RECORD the reason, so it surfaces in red on
+     the Clients page instead of silently degrading.
+     This is a loud fallback, not the silent one rejected for the retainer feed: the retainer
+     numbers had a verified-correct source to fail to, whereas here the sheet IS the incumbent
+     and the API is the thing on trial. */
+  const PROJECT_COLS = ["Client_Name", "Campaign_Name", "Project_Name", "Task_Full_Name",
+    "Allocated_Hours", "Project_Status", "Plan_Start_Date", "Plan_Completion_Date", "Service"];
+  function missingProjectCols(csv) {
+    const head = (csv.split(/\r?\n/)[0] || "");
+    // headers arrive space-separated from the sheet and underscore-separated from the API
+    return PROJECT_COLS.filter((c) => !new RegExp(c.replace(/_/g, "[ _]"), "i").test(head));
+  }
 
   async function wmjCsv(report, sheetUrl) {
-    if (!PROXY_REPORTS[report]) {
+    const sheet = async () => {
       const legacy = await fetch(sheetUrl, { cache: "no-store" });
       if (!legacy.ok) throw new Error("WMJ sheet fetch failed: " + legacy.status);
       return legacy.text();
-    }
+    };
+    if (!PROXY_REPORTS[report]) return sheet();
     try {
       const cfg = window.SUPABASE_CONFIG || {};
       const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
@@ -65,7 +84,19 @@ window.WMJ_SYNC = (function () {
             headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
             body: JSON.stringify({ report }),
           });
-          if (r.ok) return r.text();
+          if (r.ok) {
+            const csv = await r.text();
+            if (report === "projects") {
+              const miss = missingProjectCols(csv);
+              if (miss.length) {
+                noteErr("projects feed", new Error("WMJ projects report is missing ["
+                  + miss.join(", ") + "] — using the Google Sheet instead. The reportKey is "
+                  + "probably pointing at the wrong report."));
+                return sheet();
+              }
+            }
+            return csv;
+          }
           // 503 = not configured yet → fall through to the sheet. Anything else is the feed
           // actually being broken, and must be loud.
           if (r.status !== 503) {
@@ -79,9 +110,7 @@ window.WMJ_SYNC = (function () {
       if (String(e && e.message).indexOf("wmj-report (") === 0) throw e;   // a real feed failure
       console.warn("wmj-report unreachable; using the legacy sheet for " + report, e);
     }
-    const res = await fetch(sheetUrl, { cache: "no-store" });
-    if (!res.ok) throw new Error("WMJ sheet fetch failed: " + res.status);
-    return res.text();
+    return sheet();
   }
 
   /* WHY FAILURES ARE RECORDED, NOT JUST LOGGED (2026-08-27)
