@@ -47,16 +47,16 @@ window.WMJ_SYNC = (function () {
      real header has been read and wmj-transform maps it. */
   const PROXY_REPORTS = { retainer: true, projects: true };
 
-  /* SELF-VERIFYING SWITCH-OVER for the projects feed.
-     The projects report has to carry every column the transform reads; the first reportKey
-     supplied for it turned out to be the TIMESHEET report, which is missing five of them and
-     broke the live sync. Rather than trust the key, the response is checked against the real
-     column list before it is used. If anything is missing we drop back to the sheet — which
-     is exactly today's working behaviour — and RECORD the reason, so it surfaces in red on
-     the Clients page instead of silently degrading.
-     This is a loud fallback, not the silent one rejected for the retainer feed: the retainer
-     numbers had a verified-correct source to fail to, whereas here the sheet IS the incumbent
-     and the API is the thing on trial. */
+  /* The projects report must carry every column the transform reads. The FIRST reportKey
+     supplied for this feed was the timesheet report, which is missing five of them and broke
+     every project page — so the response is checked rather than the key trusted.
+
+     A shortfall THROWS; it does not fall back to the sheet. Verified 2026-08-27 against the
+     live feeds: identical column sets, and all 38 clients the sheet contains produce
+     identical projects and hours through the API (which additionally carries 4 clients the
+     sheet had gone stale on). With the API confirmed correct, a quiet drop back to the sheet
+     would only hide a regression behind the very feed this work exists to retire — the same
+     reasoning already applied to the retainer. */
   const PROJECT_COLS = ["Client_Name", "Campaign_Name", "Project_Name", "Task_Full_Name",
     "Allocated_Hours", "Project_Status", "Plan_Start_Date", "Plan_Completion_Date", "Service"];
   function missingProjectCols(csv) {
@@ -88,12 +88,8 @@ window.WMJ_SYNC = (function () {
             const csv = await r.text();
             if (report === "projects") {
               const miss = missingProjectCols(csv);
-              if (miss.length) {
-                noteErr("projects feed", new Error("WMJ projects report is missing ["
-                  + miss.join(", ") + "] — using the Google Sheet instead. The reportKey is "
-                  + "probably pointing at the wrong report."));
-                return sheet();
-              }
+              if (miss.length) throw new Error("wmj-report (projects): report is missing ["
+                + miss.join(", ") + "] — WMJ_PROJECTS_REPORTKEY is pointing at the wrong report.");
             }
             return csv;
           }

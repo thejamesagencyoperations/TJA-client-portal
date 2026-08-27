@@ -98,13 +98,16 @@ function harness({ proxyStatus, proxyBody, session = "tok", sheetBody = "SHEET_D
     ok(await h.fn("projects", "https://sheet") === SHEET_STYLE, "space-separated headers are accepted too");
   }
   {
+    // The API is verified correct (identical output to the sheet across all 38 shared
+    // clients), so a shortfall means the KEY is wrong — and must be loud, not papered over
+    // with the very feed this work exists to retire. Same rule as the retainer.
     const h = harness({ proxyStatus: 200, proxyBody: TIMESHEET });
-    const out = await h.fn("projects", "https://sheet");
-    ok(out === "SHEET_DATA", "the WRONG report falls back to the sheet instead of breaking the page");
-    const errs = h.errors();
-    ok(errs.length === 1, "and the fallback is recorded, not silent");
-    ok(errs[0] && /Task_Full_Name/.test(errs[0]), "the record names a missing column: " + errs[0]);
-    ok(errs[0] && /wrong report/.test(errs[0]), "and says what to check");
+    let threw = null;
+    try { await h.fn("projects", "https://sheet"); } catch (e) { threw = e; }
+    ok(!!threw, "the WRONG report THROWS rather than falling back to the sheet");
+    ok(threw && /Task_Full_Name/.test(threw.message), "the error names a missing column");
+    ok(threw && /WMJ_PROJECTS_REPORTKEY/.test(threw.message), "and names the secret to fix: " + (threw && threw.message || "").slice(0, 90));
+    ok(!h.calls.some(u => u === "https://sheet"), "and the sheet is NOT consulted");
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);
