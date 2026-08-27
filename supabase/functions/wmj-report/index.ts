@@ -32,7 +32,12 @@ import { assertLooksLikeWmjCsv, wmjReportRequest } from "../_shared/wmj.ts";
 // Which report, and the column that proves we got the right one back.
 const REPORTS: Record<string, { env: string; label: string; requiredCol: string }> = {
   retainer: { env: "WMJ_RETAINER_REPORTKEY", label: "WMJ retainer actuals", requiredCol: "Client_Name" },
-  projects: { env: "WMJ_PROJECTS_REPORTKEY", label: "WMJ projects allocated hours", requiredCol: "Campaign_Name" },
+  /* Task_Full_Name, not Campaign_Name. Both reports carry Campaign_Name, so checking that
+     let a WRONG reportKey through: on 2026-08-27 WMJ_PROJECTS_REPORTKEY turned out to point
+     at the same TIMESHEET report as the retainer key, passed this guard, and then broke the
+     browser sync deep in the parser. Task_Full_Name exists ONLY in the projects report, so
+     it actually distinguishes the two. */
+  projects: { env: "WMJ_PROJECTS_REPORTKEY", label: "WMJ projects allocated hours", requiredCol: "Task_Full_Name" },
 };
 
 Deno.serve(async (req) => {
