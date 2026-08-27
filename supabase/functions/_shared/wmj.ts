@@ -95,23 +95,33 @@ export const wmjDirectConfigured = () => { const e = wmjEnv(); return !!(e.sub &
    #N/A, and an API error can arrive as a JSON envelope. Both used to parse as "no rows",
    which is indistinguishable from a quiet weekend — the single reason these outages went
    unnoticed for so long. Anything that doesn't look like the timesheet export is an ERROR now. */
-function assertLooksLikeTimesheetCsv(text: string, source: string): void {
+export function assertLooksLikeWmjCsv(text: string, source: string, requiredCol = "Client_Name"): void {
   const head = text.slice(0, 2000);
   if (/^\s*[[{]/.test(text)) throw new Error(`${source} returned JSON, not CSV: ${head.slice(0, 200)}`);
   if (/#N\/A|#REF!|#ERROR!|Could not fetch url/i.test(head))
     throw new Error(`${source} is broken upstream — the sheet is full of #N/A, which usually means its IMPORTDATA linkKey has EXPIRED: ${head.slice(0, 200)}`);
-  if (!/client_name/i.test(head))
-    throw new Error(`${source} has no Client_Name column — not the expected timesheet export: ${head.slice(0, 200)}`);
+  if (!new RegExp(requiredCol.replace(/_/g, "[ _]"), "i").test(head))
+    throw new Error(`${source} has no ${requiredCol} column — not the expected export: ${head.slice(0, 200)}`);
+}
+const assertLooksLikeTimesheetCsv = (text: string, source: string) => assertLooksLikeWmjCsv(text, source);
+
+/* ONE place that knows how to address a WMJ report, so the scheduled snapshot and the
+   browser proxy can never drift onto different subdomains or header shapes. */
+export function wmjReportRequest(reportKey: string): { url: string; init: RequestInit } | null {
+  const e = wmjEnv();
+  if (!e.sub || !e.aat || !e.ut || !reportKey) return null;
+  return {
+    url: `https://${e.sub}.workamajig.com/api/beta1/reports?reportKey=${encodeURIComponent(reportKey)}&output=csv`,
+    init: { headers: { "Content-Type": "application/json", APIAccessToken: e.aat, UserToken: e.ut } },
+  };
 }
 
 async function fetchRetainerCsv(): Promise<string> {
   const e = wmjEnv();
-  if (wmjDirectConfigured()) {
-    const url = `https://${e.sub}.workamajig.com/api/beta1/reports`
-      + `?reportKey=${encodeURIComponent(e.rk!)}&output=csv`;
-    const res = await fetchT(url, {
-      headers: { "Content-Type": "application/json", APIAccessToken: e.aat!, UserToken: e.ut! },
-    }, { timeoutMs: 30_000, retries: 2, label: "WMJ retainer report (direct API)" });
+  const direct = wmjReportRequest(e.rk || "");
+  if (direct) {
+    const res = await fetchT(direct.url, direct.init,
+      { timeoutMs: 30_000, retries: 2, label: "WMJ retainer report (direct API)" });
     if (!res.ok) throw new Error(`WMJ retainer report failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
     const text = await res.text();
     assertLooksLikeTimesheetCsv(text, "WMJ retainer report (direct API)");

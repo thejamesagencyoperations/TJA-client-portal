@@ -17,6 +17,54 @@ window.WMJ_SYNC = (function () {
   const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
   const RET_SHEET_ID = "1d-iwYnkA_rmdZyysRPz_b1X7zSucBBviIBwhzdlrj00";    // RETAINERS sheet (separate)
   const RET_CSV_URL = `https://docs.google.com/spreadsheets/d/${RET_SHEET_ID}/gviz/tq?tqx=out:csv&gid=0`;
+  /* ---- WHERE WMJ DATA COMES FROM (browser side) ----------------------------------
+     PREFERRED: the wmj-report Edge Function, which calls the Workamajig Report Endpoint
+     with server-held tokens. FALLBACK: the published Google Sheets above.
+
+     Why this changed (2026-08-26): the sheets are fed by an =IMPORTDATA(...linkKey=...)
+     formula whose linkKey EXPIRES, and they also mangle rows whose Comments contain a
+     comma — measured, A New Leaf read 98.8h from the sheet against 100.1h from the API
+     because a column-shifted row lost 1.25 billable hours. snapshot-months had already
+     moved to the API, so the browser reading the sheet meant TWO writers disagreeing about
+     the same numbers, with whoever ran last winning.
+
+     The fallback is kept deliberately, and ONLY for "the proxy isn't available" (it is not
+     deployed, or the browser has no session) — never for a proxy that answered and said the
+     feed is broken. A 502 means the guard caught #N/A or a JSON error envelope, and quietly
+     reading the sheet instead would restore exactly the silent-wrong-data behaviour this
+     work exists to remove, so that case throws. */
+  async function wmjCsv(report, sheetUrl) {
+    try {
+      const cfg = window.SUPABASE_CONFIG || {};
+      const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
+      if (base && window.SUPA && window.SUPA.enabled && window.SUPA.client) {
+        const { data } = await window.SUPA.client.auth.getSession();
+        const token = data && data.session ? data.session.access_token : null;
+        if (token) {
+          const r = await fetch(base + "/wmj-report", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+            body: JSON.stringify({ report }),
+          });
+          if (r.ok) return r.text();
+          // 503 = not configured yet → fall through to the sheet. Anything else is the feed
+          // actually being broken, and must be loud.
+          if (r.status !== 503) {
+            const j = await r.json().catch(() => ({}));
+            throw new Error("wmj-report (" + report + "): " + (j.error || ("HTTP " + r.status)));
+          }
+          console.warn("wmj-report not configured; using the legacy sheet for " + report);
+        }
+      }
+    } catch (e) {
+      if (String(e && e.message).indexOf("wmj-report (") === 0) throw e;   // a real feed failure
+      console.warn("wmj-report unreachable; using the legacy sheet for " + report, e);
+    }
+    const res = await fetch(sheetUrl, { cache: "no-store" });
+    if (!res.ok) throw new Error("WMJ sheet fetch failed: " + res.status);
+    return res.text();
+  }
+
   const LAST_KEY = "tja_wmj_last_sync";
   const HOUR = 3600 * 1000;
   const T = () => window.WMJ_TRANSFORM;
@@ -124,9 +172,7 @@ window.WMJ_SYNC = (function () {
   }
 
   async function fetchCSV() {
-    const res = await fetch(CSV_URL, { cache: "no-store" });
-    if (!res.ok) throw new Error("WMJ fetch failed: " + res.status);
-    return res.text();
+    return wmjCsv("projects", CSV_URL);
   }
 
   // main entry — returns a summary
@@ -167,9 +213,7 @@ window.WMJ_SYNC = (function () {
 
   /* ---------- RETAINERS (separate sheet → Monthly Services engagement) ---------- */
   async function fetchRetCSV() {
-    const res = await fetch(RET_CSV_URL, { cache: "no-store" });
-    if (!res.ok) throw new Error("WMJ retainer fetch failed: " + res.status);
-    return res.text();
+    return wmjCsv("retainer", RET_CSV_URL);
   }
   // fold retainer data onto a client's retainer engagement (WMJ owns service-line
   // hours + burn; manual fields — North Star, condition note, milestones, to-dos,
@@ -363,9 +407,12 @@ window.WMJ_SYNC = (function () {
   // Never creates clients — only annotates existing ones (match by normName).
   async function syncAccountManagers() {
     try {
+      // Same source as the syncs above — reading the sheet here would put the account-manager
+      // derivation back on the feed everything else just moved off. Soft-failing (→ "") is
+      // deliberate and pre-existing: this only annotates, so no data is written on failure.
       const [pc, rc] = await Promise.all([
-        fetch(CSV_URL, { cache: "no-store" }).then(r => r.ok ? r.text() : "").catch(() => ""),
-        fetch(RET_CSV_URL, { cache: "no-store" }).then(r => r.ok ? r.text() : "").catch(() => ""),
+        wmjCsv("projects", CSV_URL).catch(() => ""),
+        wmjCsv("retainer", RET_CSV_URL).catch(() => ""),
       ]);
       if (!T()) return { clients: 0 };
       const tally = {};   // normClient -> { userName: hours }
