@@ -65,7 +65,26 @@ window.WMJ_SYNC = (function () {
     return PROJECT_COLS.filter((c) => !new RegExp(c.replace(/_/g, "[ _]"), "i").test(head));
   }
 
+  /* ONE FETCH PER REPORT PER RUN.
+     A sync run asks for each report TWICE — once for its own step, once more for the
+     account-manager derivation. That was nearly free when both were published-CSV reads;
+     since the move to the API each is a real WMJ round-trip (~0.8MB retainer, ~1.7MB
+     projects), so the run was pulling ~5MB and doing four API calls to get two reports.
+     The in-flight promise is reused for the duration of a run, which halves both. Cleared
+     by startAuto at the start of every run, so a sync never serves the previous run's data. */
+  let csvRun = {};
+  function resetCsvCache() { csvRun = {}; }
+
   async function wmjCsv(report, sheetUrl) {
+    if (csvRun[report]) return csvRun[report];
+    const p = wmjCsvUncached(report, sheetUrl);
+    csvRun[report] = p;
+    // a failed fetch must not be cached as the answer for the rest of the run
+    p.catch(() => { if (csvRun[report] === p) delete csvRun[report]; });
+    return p;
+  }
+
+  async function wmjCsvUncached(report, sheetUrl) {
     const sheet = async () => {
       const legacy = await fetch(sheetUrl, { cache: "no-store" });
       if (!legacy.ok) throw new Error("WMJ sheet fetch failed: " + legacy.status);
@@ -526,7 +545,7 @@ window.WMJ_SYNC = (function () {
     const muteAudit = (on) => { try { if (window.SUPA && window.SUPA.setAuditMuted) window.SUPA.setAuditMuted(on); } catch (e) {} };
     const run = () =>
       Promise.resolve(muteAudit(true))
-        .then(() => { lastErrors = []; })
+        .then(() => { lastErrors = []; resetCsvCache(); })
         .then(() => sync())
         .then(pv => { window.__wmjProjResult = pv; })
         .catch(err => { noteErr("projects sync", err); })

@@ -10,7 +10,7 @@ const src = fs.readFileSync(__dirname + "/../assets/js/wmj-sync.js", "utf8");
 const a = src.indexOf("  const PROXY_REPORTS = {");
 const b = src.indexOf("  const LAST_KEY =");
 if (a < 0 || b < 0) throw new Error("markers not found");
-const make = new Function("window", "fetch", "console", src.slice(a, b) + "\n return { wmjCsv, syncErrors };");
+const make = new Function("window", "fetch", "console", src.slice(a, b) + "\n return { wmjCsv, syncErrors, resetCsvCache };");
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  ok  " + m); } else { fail++; console.log("  FAIL " + m); } };
@@ -34,7 +34,7 @@ function harness({ proxyStatus, proxyBody, session = "tok", sheetBody = "SHEET_D
     return { ok: true, status: 200, text: async () => sheetBody };
   };
   const mod = make(win, fetchStub, quietConsole);
-  return { fn: mod.wmjCsv, calls, errors: mod.syncErrors };
+  return { fn: mod.wmjCsv, calls, errors: mod.syncErrors, reset: mod.resetCsvCache };
 }
 
 (async () => {
@@ -108,6 +108,40 @@ function harness({ proxyStatus, proxyBody, session = "tok", sheetBody = "SHEET_D
     ok(threw && /Task_Full_Name/.test(threw.message), "the error names a missing column");
     ok(threw && /WMJ_PROJECTS_REPORTKEY/.test(threw.message), "and names the secret to fix: " + (threw && threw.message || "").slice(0, 90));
     ok(!h.calls.some(u => u === "https://sheet"), "and the sheet is NOT consulted");
+  }
+
+  /* ONE FETCH PER REPORT PER RUN. A run asks for each report twice (its own step, plus the
+     account-manager derivation). Cheap when both were sheet reads; since the API move each is
+     a real round-trip, so this halves a ~5MB run. Must NOT leak across runs, and must not
+     cache a failure as the answer. */
+  {
+    const h = harness({ proxyStatus: 200, proxyBody: FULL });
+    await h.fn("projects", "https://sheet");
+    await h.fn("projects", "https://sheet");
+    const proxyCalls = h.calls.filter(u => String(u).includes("/wmj-report")).length;
+    ok(proxyCalls === 1, `two asks in a run = one fetch (saw ${proxyCalls})`);
+    h.reset();
+    await h.fn("projects", "https://sheet");
+    ok(h.calls.filter(u => String(u).includes("/wmj-report")).length === 2, "a new run fetches again — no stale data across runs");
+  }
+  {
+    // A failure must not be remembered as this run's answer, or one blip poisons the whole
+    // run. Proxy fails the FIRST time, succeeds the second.
+    let n = 0;
+    const win = { SUPABASE_CONFIG: { url: "https://x.supabase.co" },
+      SUPA: { enabled: true, client: { auth: { getSession: async () => ({ data: { session: { access_token: "t" } } }) } } } };
+    const mod = make(win, async (url) => {
+      if (!String(url).includes("/wmj-report")) return { ok: true, status: 200, text: async () => "SHEET" };
+      n++;
+      return n === 1
+        ? { ok: false, status: 502, json: async () => ({ error: "boom" }), text: async () => "boom" }
+        : { ok: true, status: 200, text: async () => "RECOVERED" };
+    }, quietConsole);
+    let threw = false;
+    try { await mod.wmjCsv("retainer", "https://sheet"); } catch (e) { threw = true; }
+    ok(threw, "a failing fetch throws");
+    const second = await mod.wmjCsv("retainer", "https://sheet").catch(() => "THREW");
+    ok(second === "RECOVERED", "and is NOT cached — a later ask retries rather than replaying the failure");
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);
