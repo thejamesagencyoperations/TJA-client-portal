@@ -1,0 +1,47 @@
+name: Project data sync
+
+# Refreshes every client's PROJECT data from Workamajig with nobody's browser open.
+#
+# Until 2026-09-03 this ran ONLY in the browser: clients.html starts wmj-sync.js on page load
+# and hourly while that page stays open. Nothing refreshed it on a schedule, so project pages —
+# which CLIENTS look at — silently froze whenever no admin had the Clients page open. Found
+# seven days stale. The retainer side never had this problem because snapshot-months is on a
+# cron; projects were simply never given the same treatment.
+#
+# Hourly, not */5: GitHub drops high-frequency schedules under load (plan-refresh is configured
+# */5 and actually manages ~12 runs a day), and WMJ project structure changes on the order of
+# days, not minutes.
+
+on:
+  schedule:
+    - cron: "25 * * * *"      # hourly, off the hour so it doesn't queue behind the :00 crowd
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the projects sync
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        # Same shape as monthly-snapshot: 3 attempts, curl capped just past Supabase's 150s
+        # idle limit so a hang can never hold the job open. The function is idempotent — it
+        # overwrites each client's WMJ projects from the report — so a repeat is always safe.
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            echo "── attempt $attempt of 3"
+            if curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/sync-projects" \
+                 -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+                 -H "Authorization: Bearer ${ANON_KEY}" \
+                 --max-time 170 \
+                 -w "\nHTTP %{http_code}\n" --fail-with-body; then
+              echo "projects sync ok on attempt $attempt"
+              exit 0
+            fi
+            echo "attempt $attempt failed"
+            if [ "$attempt" -lt 3 ]; then sleep 30; fi
+          done
+          echo "::error::sync-projects failed all 3 attempts"
+          exit 1

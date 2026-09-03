@@ -16,7 +16,17 @@ on:
     # (July 2026 froze at ~11:00 Phoenix on the 31st only because of a manual run).
     # 01:00 UTC = 18:00 Phoenix the previous day; even with a 3.5h slip it stays on that day.
     - cron: "0 1 * * *"      # 18:00 Phoenix (previous day) — the month-end capture
-    - cron: "0 6 * * *"      # second pass, keeps the live burn fresh through the day
+    - cron: "0 6 * * *"      # 23:00 Phoenix (previous day) — second month-end safety net
+    # HOURLY, added 2026-09-03. The two runs above are month-BOUNDARY insurance and, with
+    # GitHub's deferral, both land in the middle of the night Phoenix time — observed 22:35
+    # and 03:25. Nothing refreshed the burn during the working day, so at 2pm the gauge was
+    # showing 3am's hours: Cameron saw a retainer reading 8h when 14.6h had been logged.
+    # The browser sync used to paper over this hourly, but only while an admin had the
+    # Clients page open, and it had been dormant for a week.
+    # snapshot-months is idempotent (it upserts the CURRENT month and rewrites this month's
+    # actuals), takes ~20s, and its `suspect` guard already refuses to zero a client on an
+    # empty feed — so running it hourly is safe and simply keeps the number honest.
+    - cron: "40 * * * *"     # hourly, off the hour to avoid the :00 queue
   workflow_dispatch: {}       # allow manual runs from the Actions tab
 
 jobs:
