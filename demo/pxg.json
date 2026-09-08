@@ -1,0 +1,328 @@
+{
+  "registry": {
+    "id": "pxg",
+    "name": "PXG",
+    "initials": "PXG",
+    "code": "PXG",
+    "tagline": "Prospect \u2014 pitch preview",
+    "logo": "",
+    "kind": "both",
+    "engagements": "Monthly Services \u00b7 2 projects",
+    "managers": [],
+    "integrations": {},
+    "demo": true
+  },
+  "state": {
+    "demo": true,
+    "client": {
+      "name": "PXG",
+      "initials": "PXG",
+      "code": "PXG",
+      "logo": ""
+    },
+    "files": [],
+    "engagements": {
+      "retainer": {
+        "type": "retainer",
+        "label": "Retainer",
+        "name": "PXG \u2014 Monthly Services",
+        "northStar": "",
+        "dueDate": "",
+        "burn": {
+          "usedHours": 54,
+          "contractedHours": 200,
+          "periodLabel": "September 2026"
+        },
+        "condition": {
+          "level": "green",
+          "note": ""
+        },
+        "serviceDisciplines": [
+          {
+            "name": "Paid Media",
+            "contracted": 56
+          },
+          {
+            "name": "Creative",
+            "contracted": 50
+          },
+          {
+            "name": "Organic Social",
+            "contracted": 36
+          },
+          {
+            "name": "Public Relations",
+            "contracted": 30
+          },
+          {
+            "name": "Email",
+            "contracted": 14
+          },
+          {
+            "name": "Strategic Oversight",
+            "contracted": 14
+          }
+        ],
+        "wmjServiceLines": [
+          {
+            "name": "Paid Media",
+            "billable": 17
+          },
+          {
+            "name": "Creative",
+            "billable": 14
+          },
+          {
+            "name": "Organic Social",
+            "billable": 9
+          },
+          {
+            "name": "Public Relations",
+            "billable": 8
+          },
+          {
+            "name": "Email",
+            "billable": 4
+          },
+          {
+            "name": "Strategic Oversight",
+            "billable": 2
+          }
+        ],
+        "serviceLines": [],
+        "mom": [],
+        "milestones": [],
+        "todos": [],
+        "dependencies": [],
+        "kpis": [],
+        "prCoverage": [
+          {
+            "outlet": "Golf Post",
+            "date": "8/29/26",
+            "headline": "Beat Phoenix's Heat Arizona Biltmore's Club 37 Indoor Golf",
+            "link": "https://www.golfpost.com/beat-phoenixs-heat-arizona-biltmores-club-37-indoor-golf-888232024/",
+            "impressions": "29,793"
+          },
+          {
+            "outlet": "The AZ Insider",
+            "date": "8/11/26",
+            "headline": "The Biltmore's Other Kind Of Tee Time",
+            "link": "https://theazinsider.com/the-biltmores-other-kind-of-tee-time/",
+            "impressions": "4,928"
+          },
+          {
+            "outlet": "ABC15",
+            "date": "7/28/26",
+            "headline": "August Discounts Freebies And Deals Around The Valley",
+            "link": "https://www.abc15.com/news/smart-shopper/august-discounts-freebies-and-deals-around-the-valley",
+            "impressions": "2,045,000",
+            "adValue": "2,045,000"
+          },
+          {
+            "outlet": "The Golf Post",
+            "date": "7/28/26",
+            "headline": "Arizona Biltmore Country Club Launches Summer Memberships In Phoenix",
+            "link": "https://www.golfpost.com/arizona-biltmore-country-club-launches-summer-memberships-in-phoenix-888228096/",
+            "impressions": "29,793"
+          },
+          {
+            "outlet": "Arizona Digital Free Press",
+            "date": "7/8/26",
+            "headline": "Wigwam Golf Launches Summer Six Pass Introduces Youth Option For 2026",
+            "link": "https://arizonadigitalfreepress.com/wigwam-golf-launches-summer-six-pass-introduces-youth-option-for-2026/",
+            "impressions": "7,601",
+            "adValue": "7,601"
+          },
+          {
+            "outlet": "Phoenix New Times",
+            "date": "9/4/26",
+            "headline": "Phoenix Restaurants Labor Day Food Drinks Specials",
+            "link": "https://www.phoenixnewtimes.com/food-drink/phoenix-restaurants-labor-day-food-drinks-specials-40695094/",
+            "impressions": "849,042"
+          }
+        ],
+        "backlog": [],
+        "status": {
+          "groups": []
+        },
+        "projectPlan": {
+          "outcome": "",
+          "startDate": "",
+          "endDate": "",
+          "status": {
+            "level": "green",
+            "pct": 0,
+            "note": ""
+          },
+          "criticalPath": [],
+          "phases": [],
+          "risks": []
+        }
+      },
+      "projects": [
+        {
+          "id": "pxg_stratagem",
+          "type": "project",
+          "label": "Stratagem",
+          "name": "PXG \u2014 Stratagem",
+          "northStar": "",
+          "dueDate": "",
+          "pizza": {
+            "manual": true,
+            "phases": [
+              {
+                "label": "Discovery",
+                "done": true
+              },
+              {
+                "label": "Strategy",
+                "done": true
+              },
+              {
+                "label": "Creative",
+                "done": false
+              },
+              {
+                "label": "Production",
+                "done": false
+              },
+              {
+                "label": "Launch",
+                "done": false
+              }
+            ]
+          },
+          "condition": {
+            "level": "green",
+            "note": ""
+          },
+          "serviceLines": [],
+          "milestones": [],
+          "todos": [],
+          "dependencies": [],
+          "kpis": [],
+          "prCoverage": [],
+          "backlog": [],
+          "status": {
+            "groups": []
+          },
+          "projectPlan": {
+            "outcome": "Brand and channel strategy foundation ahead of the 2027 season.",
+            "startDate": "",
+            "endDate": "",
+            "status": {
+              "level": "green",
+              "pct": 0,
+              "note": ""
+            },
+            "criticalPath": [],
+            "phases": [
+              {
+                "name": "1 Discovery",
+                "tasks": []
+              },
+              {
+                "name": "2 Strategy",
+                "tasks": []
+              },
+              {
+                "name": "3 Creative",
+                "tasks": []
+              },
+              {
+                "name": "4 Production",
+                "tasks": []
+              },
+              {
+                "name": "5 Launch",
+                "tasks": []
+              }
+            ],
+            "risks": []
+          }
+        },
+        {
+          "id": "pxg_raptor",
+          "type": "project",
+          "label": "Raptor Campaign Launch",
+          "name": "PXG \u2014 Raptor Campaign Launch",
+          "northStar": "",
+          "dueDate": "2027-01-10",
+          "pizza": {
+            "manual": true,
+            "phases": [
+              {
+                "label": "Discovery",
+                "done": true
+              },
+              {
+                "label": "Strategy",
+                "done": false
+              },
+              {
+                "label": "Creative",
+                "done": false
+              },
+              {
+                "label": "Production",
+                "done": false
+              },
+              {
+                "label": "Launch",
+                "done": false
+              }
+            ]
+          },
+          "condition": {
+            "level": "green",
+            "note": ""
+          },
+          "serviceLines": [],
+          "milestones": [],
+          "todos": [],
+          "dependencies": [],
+          "kpis": [],
+          "prCoverage": [],
+          "backlog": [],
+          "status": {
+            "groups": []
+          },
+          "projectPlan": {
+            "outcome": "Full campaign launch for Raptor, live 10 January 2027.",
+            "startDate": "",
+            "endDate": "2027-01-10",
+            "status": {
+              "level": "green",
+              "pct": 0,
+              "note": ""
+            },
+            "criticalPath": [],
+            "phases": [
+              {
+                "name": "1 Discovery",
+                "tasks": []
+              },
+              {
+                "name": "2 Strategy",
+                "tasks": []
+              },
+              {
+                "name": "3 Creative",
+                "tasks": []
+              },
+              {
+                "name": "4 Production",
+                "tasks": []
+              },
+              {
+                "name": "5 Launch",
+                "tasks": []
+              }
+            ],
+            "risks": []
+          }
+        }
+      ]
+    }
+  }
+}

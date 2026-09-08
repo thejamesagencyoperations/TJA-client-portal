@@ -1,0 +1,35 @@
+name: Seed demo client
+
+# Manual only. Creates or refreshes a hand-authored PITCH workspace from a JSON file in
+# demo/, so new business can show a prospect what their portal would look like.
+# The function refuses to overwrite anything that isn't already a demo workspace.
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: "Payload file under demo/ (e.g. pxg.json)"
+        required: true
+        default: "pxg.json"
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Write the demo workspace
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+          FILE: ${{ inputs.payload }}
+        run: |
+          set -o pipefail
+          test -f "demo/$FILE" || { echo "::error::demo/$FILE not found"; exit 1; }
+          python3 -c "import json,sys; json.load(open('demo/$FILE'))" || { echo "::error::demo/$FILE is not valid JSON"; exit 1; }
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/seed-demo-client" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+            -H "Authorization: Bearer ${ANON_KEY}" \
+            -H "Content-Type: application/json" \
+            --data-binary "@demo/$FILE" \
+            --max-time 120 \
+            -w "\nHTTP %{http_code}\n" --fail-with-body

@@ -72,6 +72,13 @@ Deno.serve(async (req) => {
     const e = data?.engagements?.retainer;
     if (!e || !e.burn) { skipped++; continue; }
 
+    /* DEMO / PITCH workspaces are hand-authored and have NO Workamajig counterpart, so every
+       run would find no actuals, blank wmjServiceLines and roll the burn to 0 — silently
+       emptying a mock built for a new-business pitch, within the hour. They opt out entirely.
+       Set `demo: true` at the top of the workspace state; nothing else in the portal reads it,
+       so a demo workspace otherwise behaves exactly like a real one. */
+    if (data?.demo === true) { skipped++; continue; }
+
     // match this client to WMJ actuals by normalized name (name or wmjName)
     const nm = nameById[clientId] || { name: clientId, wmj: "" };
     const a = actuals.get(normName(nm.name)) || (nm.wmj && actuals.get(normName(nm.wmj))) || null;
