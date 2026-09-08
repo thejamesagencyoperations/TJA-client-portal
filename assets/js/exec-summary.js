@@ -1387,13 +1387,65 @@ window.ExecSummary = (function () {
     });
     setTimeout(() => ov.querySelector("#rlHrs").focus(), 30);
   }
-  function openBurnPopup(targetPct) {
+  /* ---- WHAT THE BURN POPUP IS EDITING -------------------------------------
+     The popup used to be hard-wired to the live month, so changing a FROZEN month's total
+     silently skipped it and just scaled every line proportionally (setHistPct). Cameron: the
+     allocation is the whole point — "it just defaults them". A past month is exactly when you
+     need to say where the hours actually went, because you are reconstructing what happened.
+
+     The two months store their numbers differently, which is why this needs an abstraction
+     rather than a flag:
+       LIVE   — disciplines live on eng.serviceDisciplines, actuals stream in from WMJ, and an
+                admin's allocation is a PRESENTATION override (svcUtilOverride, month-stamped
+                and expiring) laid over incoming actuals.
+       FROZEN — the snapshot's own m.lines[] IS the record. No actuals are arriving, nothing
+                needs preserving, so hours are written straight onto the lines.
+     One popup, one validation, one set of maths — only the source and the commit differ. */
+  function burnTarget(eng, idx) {
+    if (idx == null) {
+      const disc = eng.serviceDisciplines || [];
+      const actMap = actualByDiscipline(eng);
+      return {
+        rows: disc.map((d) => ({ name: d.name, used: round1(discUsed(eng, d, actMap)), contracted: +d.contracted || 0 })),
+        total: retainerTotalContracted(eng),
+        currentUsed: round1(retainerUsed(eng)),
+        label: "",
+        commit(newUsed) {
+          eng.svcUtilOverride = eng.svcUtilOverride || {}; stampOv(eng);
+          disc.forEach((d, i) => {
+            const c = +d.contracted || 0;
+            eng.svcUtilOverride[d.name] = c > 0 ? Math.round(newUsed[i] / c * 100) : 0;
+          });
+        },
+      };
+    }
+    const m = (eng.mom || [])[idx] || {};
+    const lines = histLines(m);
+    return {
+      rows: lines.map((l) => ({ name: l.name, used: round1(+l.billable || 0), contracted: +l.contracted || 0 })),
+      total: +m.contractedHours || 0,
+      currentUsed: round1(+m.usedHours || 0),
+      label: m.month ? `${m.month} ${m.year || ""}`.trim() : "",
+      commit(newUsed) {
+        lines.forEach((l, i) => { l.billable = round2(Math.max(0, newUsed[i])); });
+        m.usedHours = round2(lines.reduce((s, l) => s + (+l.billable || 0), 0));
+        m.adjusted = true;   // a presented figure is never mistaken for raw WMJ actuals
+      },
+    };
+  }
+
+  function openBurnPopup(targetPct, monthIdx) {
     const eng = window.DASH.getEng();
-    const disc = eng.serviceDisciplines || [];
-    if (!disc.length) { burnPreviewPct = null; rerender(); return; }
-    const total = retainerTotalContracted(eng);
-    const actMap = actualByDiscipline(eng);
-    const currentUsed = round1(retainerUsed(eng));
+    const tgt = burnTarget(eng, monthIdx == null ? null : monthIdx);
+    const disc = tgt.rows;
+    /* Nothing to allocate across — an old snapshot saved before lines[] existed, or a retainer
+       with no disciplines set up. Scale proportionally instead of showing an empty dialog. */
+    if (!disc.length) {
+      if (monthIdx != null) { const m = (eng.mom || [])[monthIdx]; if (m) setHistPct(m, targetPct); window.DASH.saveState(); }
+      burnPreviewPct = null; rerender(); return;
+    }
+    const total = tgt.total;
+    const currentUsed = tgt.currentUsed;
     const targetUsed = round1(Math.max(0, Math.min(100, targetPct)) / 100 * total);
     const delta = round1(targetUsed - currentUsed);
     const old = document.getElementById("burnPop"); if (old) old.remove();
@@ -1403,15 +1455,14 @@ window.ExecSummary = (function () {
     // absorbs the rounding remainder) — Apply is valid immediately, editing is optional.
     const evenBase = disc.length > 1 ? round1(delta / disc.length) : delta;
     const rowsHtml = disc.map((d, i) => {
-      const used = round1(discUsed(eng, d, actMap));
       const rowDelta = i === disc.length - 1 ? round1(delta - evenBase * (disc.length - 1)) : evenBase;
       return `<div class="bp-row">
-        <span class="bp-name">${esc(d.name)}</span><span class="bp-cur">${round1(used)} / ${round1(+d.contracted || 0)} hrs</span>
-        <input type="number" step="0.1" class="bp-delta" data-i="${i}" data-used="${used}" data-contracted="${+d.contracted || 0}" value="${rowDelta}">
+        <span class="bp-name">${esc(d.name)}</span><span class="bp-cur">${round1(d.used)} / ${round1(d.contracted)} hrs</span>
+        <input type="number" step="0.1" class="bp-delta" data-i="${i}" data-used="${d.used}" data-contracted="${d.contracted}" value="${rowDelta}">
       </div>`;
     }).join("");
     ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
-      <div class="bp-head">Adjust retainer burn</div>
+      <div class="bp-head">Adjust retainer burn${tgt.label ? ` · ${esc(tgt.label)}` : ""}</div>
       <p class="bp-lead">Total used <b>${currentUsed}</b> → <b>${targetUsed}</b> hrs (<b>${delta >= 0 ? "+" : ""}${delta}</b> hr${Math.abs(delta) === 1 ? "" : "s"}). Allocate the change across disciplines however it actually happened — the amounts must add up to the total.</p>
       <div class="bp-rows">${rowsHtml}</div>
       <div class="bp-total" data-bptotal></div>
@@ -1433,13 +1484,12 @@ window.ExecSummary = (function () {
     checkValid();
     const close = (commit) => {
       if (commit && checkValid()) {
-        eng.svcUtilOverride = eng.svcUtilOverride || {}; stampOv(eng);
+        const newUsed = disc.map((d) => d.used);
         ov.querySelectorAll(".bp-delta").forEach(inp => {
-          const i = +inp.dataset.i, d = disc[i], c = +d.contracted || 0;
-          const rowDelta = parseFloat(inp.value) || 0;
-          const newUsed = Math.max(0, round2(discUsed(eng, d, actMap) + rowDelta));
-          eng.svcUtilOverride[d.name] = c > 0 ? Math.round(newUsed / c * 100) : 0;
+          const i = +inp.dataset.i;
+          newUsed[i] = Math.max(0, round2(disc[i].used + (parseFloat(inp.value) || 0)));
         });
+        tgt.commit(newUsed);
         window.DASH.saveState();
       } else if (commit) { return; }   // invalid — Apply is disabled anyway, but guard direct calls
       burnPreviewPct = null; ov.remove(); rerender();
@@ -1589,12 +1639,10 @@ window.ExecSummary = (function () {
         /* Typing over the % while viewing a PAST month used to write the LIVE month and snap the
            view back to it (`viewMonthIdx = null`) — so the edit landed on the wrong month with no
            sign anything had gone wrong. Route it to the month actually on screen. */
-        if (viewMonthIdx != null) {
-          const m = (eng.mom || [])[viewMonthIdx];
-          if (m) setHistPct(m, pct);
-          window.DASH.saveState(); rerender(); return;
-        }
-        if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) { openBurnPopup(pct); return; }
+        // A past month gets the SAME allocate-across-disciplines popup as the live one — it
+        // is written to that month's own lines[], not to the live month (see burnTarget).
+        if (viewMonthIdx != null) { openBurnPopup(pct, viewMonthIdx); return; }
+        if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) { openBurnPopup(pct, null); return; }
         setBurnPct(eng, pct);
         viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return;
       }
@@ -1684,15 +1732,12 @@ window.ExecSummary = (function () {
       document.removeEventListener("pointermove", gaugeMove);
       document.removeEventListener("pointerup", gaugeUp);
       const eng = window.DASH.getEng();
-      /* A FROZEN month is written straight to its mom[] entry — no "distribute to disciplines"
-         popup, because there are no live actuals to reconcile: the lines are simply scaled to
-         the new total. The live month keeps its existing popup flow. */
-      if (viewMonthIdx != null) {
-        const m = (eng.mom || [])[viewMonthIdx];
-        if (m) setHistPct(m, burnPreviewPct);
-        burnPreviewPct = null; window.DASH.saveState(); rerender(); return;
-      }
-      if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) openBurnPopup(burnPreviewPct);   // distribute to disciplines
+      /* A frozen month gets the popup too. It used to write straight to mom[] and scale every
+         line proportionally, on the reasoning that there are no live actuals to reconcile —
+         but that removed the allocation step exactly where it matters most, since editing a
+         past month means reconstructing where the hours actually went. */
+      if (viewMonthIdx != null) { openBurnPopup(burnPreviewPct, viewMonthIdx); return; }
+      if (eng.source === "wmj" || (eng.serviceDisciplines || []).length) openBurnPopup(burnPreviewPct, null);   // distribute to disciplines
       else { setBurnPct(eng, burnPreviewPct); burnPreviewPct = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); }
     }
     s.addEventListener("pointerdown", ev => {
