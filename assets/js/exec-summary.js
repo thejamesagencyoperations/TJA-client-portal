@@ -203,7 +203,11 @@ window.ExecSummary = (function () {
   function listAdd(list, label) { return canAdmin() ? `<button class="row-add" data-listadd="${list}">＋ ${esc(label)}</button>` : ""; }
   // Drag-to-reorder grip (admins only) — drag starts only from here, so it never fights the
   // inline contenteditable text. The row it lives in carries data-row="<list>" as the drop target.
-  function dragHandle(list, i) { return canAdmin() ? `<span class="drag-handle" draggable="true" data-drag="${list}" data-idx="${i}" title="Drag to reorder">⠿</span>` : ""; }
+  /* Drag-to-reorder is GONE from these lists (2026-09-10). The order is now derived from the
+     due date, so a hand-dragged position would be undone by the next render — a handle that
+     silently snaps back is worse than no handle. The rows keep data-row/data-idx: those are
+     what the date picker, delete and inline edits address. */
+  function dragHandle() { return ""; }
   // Inline completion-date control. Stored as ISO (YYYY-MM-DD). Admin sees a native date picker
   // styled as an orange pill; the client sees a read-only orange pill (or nothing if unset).
   function toISODate(v) {
@@ -256,6 +260,41 @@ window.ExecSummary = (function () {
     }
     if (!canAdmin()) return "";                 // client sees nothing until a link exists
     return `<button type="button" class="link-pill" data-linkadd="${list}.${i}" title="Add a link">🔗</button>`;
+  }
+
+  /* ---- ORDER BY DUE DATE, not the order things were added -------------------
+     Sprint goals / milestones, to-do's and dependencies all carry a date, and reading them
+     in entry order meant the next thing due could sit anywhere in the list.
+
+     Sorted IN PLACE, before anything renders, and that matters: every row is addressed by
+     its ARRAY INDEX — data-idx, listDel("todos", i), ed(…, "todos." + i + ".text"),
+     data-datepick="todos.3". Sorting only the display would leave those indices pointing at
+     different items, so ticking, dating or deleting a row would hit the wrong one. Sorting
+     the array itself keeps index === identity, which is the property the whole tile relies on.
+
+     UNDATED ITEMS SORT LAST — something with no date isn't "due first", and floating a pile
+     of blank rows to the top of every list would be worse than the problem. Ties keep their
+     existing order (a stable sort on the original index), so a list doesn't reshuffle itself
+     between renders.
+
+     Not persisted on its own: this runs at render, and the new order is written the next time
+     anything else saves. Sorting is deterministic from the data, so a save isn't needed to
+     make it stick — and saving on every render would spray the audit log with reorder noise. */
+  const DATED_LISTS = ["milestones", "todos", "dependencies"];
+  function sortByDue(e) {
+    if (!e) return;
+    DATED_LISTS.forEach((k) => {
+      const list = e[k];
+      if (!Array.isArray(list) || list.length < 2) return;
+      const keyed = list.map((it, i) => ({ it, i, d: toISODate(it && it.date) }));
+      keyed.sort((a, b) => {
+        if (a.d && b.d) return a.d < b.d ? -1 : a.d > b.d ? 1 : a.i - b.i;
+        if (a.d) return -1;          // dated before undated
+        if (b.d) return 1;
+        return a.i - b.i;            // both undated — leave them where they were
+      });
+      keyed.forEach((x, n) => { list[n] = x.it; });
+    });
   }
 
   function dateBtn(list, i, v) {
@@ -1120,6 +1159,7 @@ window.ExecSummary = (function () {
 
   /* ---- assemble (free canvas: tiles absolutely positioned, drag anywhere) ---- */
   function render(e) {
+    sortByDue(e);   // due-date order for milestones / to-do's / dependencies, before indices are baked in
     // Layout is FIXED and locked — no drag / resize / add / remove / lock / copy controls.
     // The only control is "Reset to actuals" (data overrides, not layout). Code-only changes.
     const lay = getLayout(e);
@@ -1675,40 +1715,9 @@ window.ExecSummary = (function () {
       }
     });
 
-    // Drag-to-reorder (milestones / to-do's / dependencies). Drag begins only on the grip
-    // handle, so it never interferes with editing the row's text; the row is the drop target.
-    let dragSrc = null;
-    s.addEventListener("dragstart", e => {
-      const h = e.target.closest("[data-drag]"); if (!h) { return; }
-      dragSrc = { list: h.dataset.drag, idx: +h.dataset.idx };
-      e.dataTransfer.effectAllowed = "move";
-      try { e.dataTransfer.setData("text/plain", h.dataset.drag); } catch (_) {}
-      const row = h.closest("[data-row]"); if (row) row.classList.add("dragging");
-    });
-    const clearDrop = () => { const d = section(); if (d) d.querySelectorAll(".drop-above,.drop-below,.dragging").forEach(el => el.classList.remove("drop-above", "drop-below", "dragging")); };
-    s.addEventListener("dragover", e => {
-      if (!dragSrc) return;
-      const row = e.target.closest(`[data-row="${dragSrc.list}"]`); if (!row) return;
-      e.preventDefault(); e.dataTransfer.dropEffect = "move";
-      const to = +row.dataset.idx;
-      // orange line where the item will land: above the target when moving up, below when down
-      const cls = (to < dragSrc.idx) ? "drop-above" : (to > dragSrc.idx ? "drop-below" : "");
-      section().querySelectorAll(".drop-above,.drop-below").forEach(el => { if (el !== row) el.classList.remove("drop-above", "drop-below"); });
-      row.classList.remove("drop-above", "drop-below");
-      if (cls) row.classList.add(cls);
-    });
-    s.addEventListener("drop", e => {
-      if (!dragSrc) return;
-      const row = e.target.closest(`[data-row="${dragSrc.list}"]`);
-      const from = dragSrc.idx, to = row ? +row.dataset.idx : NaN, list = dragSrc.list; dragSrc = null; clearDrop();
-      if (!row) return;
-      e.preventDefault();
-      if (from === to || isNaN(to)) { rerender(); return; }
-      const arr = window.DASH.getEng()[list]; if (!arr || !arr[from]) { rerender(); return; }
-      const [moved] = arr.splice(from, 1); arr.splice(to, 0, moved);
-      window.DASH.saveState(); rerender();
-    });
-    s.addEventListener("dragend", () => { dragSrc = null; clearDrop(); });
+    // (Drag-to-reorder used to live here. Removed with the move to due-date ordering —
+    //  see dragHandle / sortByDue. The dragstart/dragover/drop listeners went with it rather
+    //  than being left behind to look load-bearing.)
 
     // drag the speedometer needle to set burn
     let gaugeDragging = false, pendingEv = null, raf = null;
