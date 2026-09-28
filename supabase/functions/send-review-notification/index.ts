@@ -338,7 +338,10 @@ Deno.serve(async (req) => {
       if (!want) return json(req, 400, { error: "client required" });
       const { data: reg } = await svc().from("app_state").select("data").eq("client_id", "_registry").eq("scope", "clients").maybeSingle();
       const roster: any[] = Array.isArray(reg?.data) ? reg!.data : [];
-      const hits = roster.filter((c) => lower(c.id).includes(want) || lower(c.name).includes(want));
+      const hits = roster.filter((c) => [c.id, c.name, c.code, c.integrations?.slackChannel, c.login?.email]
+        .some((x) => lower(x).includes(want)));
+      // internal (@thejamesagency.com) addresses are safe to print; anything external is only counted
+      const showAddr = (e: string) => /@thejamesagency\.com$/i.test(e) ? lower(e) : "<external>";
       const tracker = await trackerTxn((t) => ({ result: t, changed: false }));
       const since = Date.now() - Number(body.days || 14) * 24 * 3600_000;
       const out = [];
@@ -363,7 +366,13 @@ Deno.serve(async (req) => {
             _t: touched,
           });
         }
-        out.push({ client: c.id, slackChannelSet: !!(c.integrations && c.integrations.slackChannel),
+        const notifyOff = new Set((c.integrations?.notifyOff ?? []).map(lower));
+        const teamTo = [...new Set([...(c.login?.email ? [c.login.email] : []), ...(c.integrations?.emailRecipients ?? [])].filter(Boolean).map(lower))];
+        out.push({ client: c.id, name: c.name, code: c.code || null,
+          slackChannel: c.integrations?.slackChannel || null,
+          reviewEmailGoesTo: teamTo.filter((e) => !notifyOff.has(e)).map(showAddr),
+          mutedByNotifyOff: teamTo.filter((e) => notifyOff.has(e)).map(showAddr),
+          slackChannelSet: !!(c.integrations && c.integrations.slackChannel),
           deliverableEmails: c.integrations?.deliverableEmails !== false, rounds: rounds.slice(-12).map(({ _t, ...r }) => r) });
       }
       return json(req, 200, { ok: true, matches: out.length, clients: out });
