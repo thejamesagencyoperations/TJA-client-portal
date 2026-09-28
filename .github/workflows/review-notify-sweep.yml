@@ -1,0 +1,28 @@
+name: Present Docs review-notification sweep
+
+# Safety net for the "a completed review ALWAYS pings the team" guarantee. The submitting
+# client's browser fires the Slack + email itself the moment the review is saved; this sweep
+# re-checks every round completed in the last 3 days and sends anything that didn't land
+# (browser closed mid-call, Slack/Resend hiccup). The function is idempotent — a round that
+# already went out is skipped, so running often is harmless.
+
+on:
+  schedule:
+    - cron: "7,17,27,37,47,57 * * * *"   # every 10 min, off the congested :00/:30 slots
+  workflow_dispatch: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sweep completed review rounds
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        run: |
+          curl -sS --fail-with-body -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/send-review-notification" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
+            -H "Authorization: Bearer ${ANON_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"mode":"sweep"}' \
+            -w "\nHTTP %{http_code}\n"

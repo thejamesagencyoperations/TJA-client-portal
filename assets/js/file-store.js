@@ -49,7 +49,7 @@ window.TJA_FILES = (function () {
   /* items: [{ blob, name }] — one request per call. `subfolder` groups them inside the asset
      folder (a multi-page PDF's pages belong together under the deliverable's name, not scattered
      across Present Docs). Batching matters for speed too: one invocation, one folder lookup. */
-  async function putMany(items, { category, clientId, subfolder, folderId } = {}) {
+  async function putMany(items, { category, clientId, subfolder, folderId, newFolder } = {}) {
     if (!fnBase() || !(window.SUPA && window.SUPA.client)) throw new Error("storage-not-configured");
     const t = await token();
     if (!t) throw new Error("session-stale");   // surfaces as an upload error, never a silent skip
@@ -61,6 +61,9 @@ window.TJA_FILES = (function () {
     // Aim straight at a known folder — later rounds of a deliverable must join V1, not start a
     // new folder (and must survive the folder being renamed to the doc's subject).
     if (folderId) fd.append("folderId", String(folderId));
+    // newFolder: the FIRST file of a brand-new deliverable — always make a fresh folder rather
+    // than reuse one that merely shares its name (two "proof.pdf" uploads used to share a folder).
+    else if (newFolder && subfolder) fd.append("newFolder", "1");
     const r = await fetch(fnBase() + "/drive-upload", {
       method: "POST", headers: { Authorization: "Bearer " + t }, body: fd,
     });
@@ -84,7 +87,10 @@ window.TJA_FILES = (function () {
   async function uploadDataUrl(dataUrl, opts = {}) {
     const blob = await (await fetch(dataUrl)).blob();
     const res = await put(blob, { ...opts, name: (opts.name || "proof") + ".jpg", contentType: blob.type || "image/jpeg" });
-    return { url: res.url, driveId: res.driveId, driveLink: res.driveLink, folder: res.folder,
+    // folderId MUST come back: it's how V2, the page images and the signed PDF join V1's folder.
+    // It was missing here, so image deliverables had V1 in a folder named after the FILE and
+    // everything after it in a second folder named after the title.
+    return { url: res.url, driveId: res.driveId, driveLink: res.driveLink, folder: res.folder, folderId: res.folderId,
              name: opts.name || "file", size: blob.size || 0, type: blob.type || "image/jpeg" };
   }
 
@@ -130,6 +136,7 @@ window.TJA_FILES = (function () {
   async function uploadDataUrls(dataUrls, opts = {}, onProgress) {
     const CHUNK = 6;
     const out = [];
+    opts = Object.assign({}, opts);
     for (let i = 0; i < dataUrls.length; i += CHUNK) {
       const slice = dataUrls.slice(i, i + CHUNK);
       const items = await Promise.all(slice.map(async (du, n) => ({
@@ -138,6 +145,8 @@ window.TJA_FILES = (function () {
       })));
       const res = await putMany(items, opts);
       out.push(...res);
+      // every later chunk joins the folder the first one landed in (never a second new folder)
+      if (res[0] && res[0].folderId) { opts.folderId = res[0].folderId; opts.newFolder = false; }
       if (onProgress) onProgress(Math.min(i + CHUNK, dataUrls.length), dataUrls.length);
     }
     return out;

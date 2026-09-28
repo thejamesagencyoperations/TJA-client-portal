@@ -61,11 +61,29 @@ async function sendViaResend(to: string[], subject: string, html: string, text: 
   return await r.json();
 }
 
+/* Required approvers = every client login MINUS integrations.approvalOff (the Admin Center
+   per-login toggle). Optional people still review/comment; the round just doesn't wait for
+   them. Floor: a round can never require nobody — if the toggles would empty the list
+   (stale data, all logins removed), every login is required again. */
+async function requiredReviewers(clientId: string, entry: any) {
+  const svc = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+  const { data: profs, error } = await svc.from("profiles")
+    .select("email").eq("client_id", clientId).eq("role", "client");
+  if (error) throw new Error("profiles lookup failed: " + error.message);
+  const fromLogins: string[] = (profs ?? []).map((p: any) => p.email).filter(Boolean);
+  const allLogins = [...new Set(fromLogins.map((e: string) => String(e).trim().toLowerCase()))];
+  const approvalOff = new Set((entry.integrations?.approvalOff ?? []).map((e: string) => String(e).trim().toLowerCase()));
+  let reviewers = allLogins.filter((e) => !approvalOff.has(e));
+  if (!reviewers.length) reviewers = allLogins;
+  return { reviewers, allLogins, fromLogins };
+}
+
 Deno.serve(async (req) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== "POST") return json(req, 405, { error: "POST only" });
-  if (!Deno.env.get("RESEND_API_KEY")) return json(req, 503, { error: "email not configured (RESEND_API_KEY missing)" });
-
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
   // Whoever can RELEASE a deliverable can trigger its email/Slack. As of 2026-07-28 that's
@@ -81,6 +99,17 @@ Deno.serve(async (req) => {
 
   const entry = await registryEntry(clientId);
   if (!entry) return json(req, 404, { error: "unknown client" });
+
+  /* reviewersOnly: the portal asks WHO must review BEFORE it writes the version. Stamping
+     expectedReviewers up front (instead of from this function's reply after the send) is what
+     guarantees a multi-approver round can never silently fall back to "first reviewer
+     completes it" — a closed tab, a failed email or a stale session used to lose the stamp.
+     Sends nothing. Answered before the email-config check so it works even with email off. */
+  if ((body as any).reviewersOnly) {
+    const r = await requiredReviewers(clientId, entry);
+    return json(req, 200, { ok: true, reviewers: r.reviewers, logins: r.allLogins });
+  }
+  if (!Deno.env.get("RESEND_API_KEY")) return json(req, 503, { error: "email not configured (RESEND_API_KEY missing)" });
 
   /* ---------- who gets it ----------
      EVERYONE WITH A LOGIN to this workspace, plus any extra addresses in the
@@ -126,21 +155,7 @@ Deno.serve(async (req) => {
      expectedReviewers, which drives multi-reviewer completion tracking — a round only settles
      when every login has reviewed. notifyOff does NOT remove someone from reviewers (they may
      mute email yet still owe a review); it only trims the email recipients. */
-  const svc = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-  const { data: profs } = await svc.from("profiles")
-    .select("email").eq("client_id", clientId).eq("role", "client");
-  const fromLogins = (profs ?? []).map((p: any) => p.email).filter(Boolean);
-  const allLogins = [...new Set(fromLogins.map((e: string) => String(e).trim().toLowerCase()))];
-  // Required approvers = every client login MINUS integrations.approvalOff (the Admin Center
-  // per-login toggle). Optional people still review/comment; the round just doesn't wait for
-  // them. Floor: a round can never require nobody — if the toggles would empty the list
-  // (stale data, all logins removed), every login is required again.
-  const approvalOff = new Set((entry.integrations?.approvalOff ?? []).map((e: string) => String(e).trim().toLowerCase()));
-  let reviewers = allLogins.filter((e) => !approvalOff.has(e));
-  if (!reviewers.length) reviewers = allLogins;
+  const { reviewers, fromLogins } = await requiredReviewers(clientId, entry);
   const extra = (entry.integrations?.emailRecipients ?? []).filter(Boolean);
   // Per-person opt-out (integrations.notifyOff) — logins a manager toggled OFF so
   // dashboard-only users aren't flooded. Everyone is ON by default (absent = notified).

@@ -62,7 +62,7 @@ async function findChildFolder(token: string, parentId: string, name: string): P
   return (await r.json()).files?.[0]?.id ?? null;
 }
 
-async function createFolder(token: string, parentId: string, name: string): Promise<string> {
+export async function createFolder(token: string, parentId: string, name: string): Promise<string> {
   const r = await fetch(DRIVE + "/files?supportsAllDrives=true&fields=id", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

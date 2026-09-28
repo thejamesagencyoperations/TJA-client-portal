@@ -46,6 +46,7 @@ async function resolveChannelId(botToken: string, name: string): Promise<string 
 // text-only). Same central SLACK_DEFAULT_CHANNEL fallback as postToSlack.
 export async function uploadFileToSlack(
   channel: string | undefined, comment: string, base64: string, filename: string,
+  opts: { threadTs?: string } = {},
 ): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
   const botToken = Deno.env.get("SLACK_BOT_TOKEN");
   const fallback = (Deno.env.get("SLACK_DEFAULT_CHANNEL") || "").trim();
@@ -72,7 +73,9 @@ export async function uploadFileToSlack(
     const c = await fetch("https://slack.com/api/files.completeUploadExternal", {
       method: "POST",
       headers: { Authorization: `Bearer ${botToken}`, "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ files: [{ id: gj.file_id, title: filename }], channel_id: chanId, initial_comment: comment }),
+      body: JSON.stringify(Object.assign(
+        { files: [{ id: gj.file_id, title: filename }], channel_id: chanId, initial_comment: comment },
+        opts.threadTs ? { thread_ts: opts.threadTs } : {})),
     });
     const cj = await c.json().catch(() => ({}));
     return cj?.ok ? { ok: true } : { ok: false, error: cj?.error || "complete failed" };
@@ -163,7 +166,11 @@ export async function slackUserIdsByName(names: string[]): Promise<Record<string
   return out;
 }
 
-export async function postToSlack(channel: string | undefined, text: string): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+// opts.threadTs posts as a reply in that thread. On success with a bot token the result also
+// carries `ts` + `channel` (the resolved channel id) so a follow-up can be threaded under it.
+export async function postToSlack(
+  channel: string | undefined, text: string, opts: { threadTs?: string } = {},
+): Promise<{ ok: boolean; skipped?: boolean; error?: string; ts?: string; channel?: string }> {
   const botToken = Deno.env.get("SLACK_BOT_TOKEN");
   const webhook = Deno.env.get("SLACK_WEBHOOK_URL");
   // Central fallback: when a client has no per-client channel in the integrations map,
@@ -177,10 +184,11 @@ export async function postToSlack(channel: string | undefined, text: string): Pr
       const r = await fetch("https://slack.com/api/chat.postMessage", {
         method: "POST",
         headers: { Authorization: `Bearer ${botToken}`, "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify({ channel: ch.replace(/^#/, ""), text, unfurl_links: false }),
+        body: JSON.stringify(Object.assign({ channel: ch.replace(/^#/, ""), text, unfurl_links: false },
+          opts.threadTs ? { thread_ts: opts.threadTs } : {})),
       });
       const j = await r.json().catch(() => ({}));
-      return j?.ok ? { ok: true } : { ok: false, error: j?.error || `http ${r.status}` };
+      return j?.ok ? { ok: true, ts: j.ts, channel: j.channel } : { ok: false, error: j?.error || `http ${r.status}` };
     }
     if (webhook) {
       const r = await fetch(webhook, {

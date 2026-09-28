@@ -54,6 +54,7 @@ window.PresentDocs = (function () {
     save();
   }
   function save() {
+    editSeq++;                                           // a local edit happened (see pushResult)
     try { localStorage.setItem(KEY, JSON.stringify(items)); }
     catch (e) { console.warn("Portal sandbox: storage full — keeping deliverables in memory only.", e); }
     // Creatives can't write the deliverables scope (RLS) — their only write is the
@@ -81,23 +82,62 @@ window.PresentDocs = (function () {
      to miss: it only ever looked at version-level pins, so a multi-page proof's markup was
      dropped on every merge and the client's comments vanished the moment they submitted
      (2026-07-31). Author-keyed, so a teammate's pins are never touched. */
-  function mergeSurfaceMine(lsf, fsf, me) {
+  function mergeSurfaceMine(lsf, fsf, me, sfKey) {
     if (!lsf || !fsf) return;
     const mineOwned = (pn) => !pn.byEmail || pn.byEmail === me;
+    const localById = new Map((lsf.pins || []).map(pn => [pn.id, pn]));
     const byId = new Map((fsf.pins || []).map(pn => [pn.id, pn]));
-    (lsf.pins || []).forEach(pn => { if (mineOwned(pn)) byId.set(pn.id, pn); });
-    (fsf.pins || []).forEach(pn => { if (mineOwned(pn) && !(lsf.pins || []).some(x => x.id === pn.id)) byId.delete(pn.id); });
+    (lsf.pins || []).forEach(pn => { if (mineOwned(pn)) byId.set(pn.id, Object.assign({}, pn)); });
+    (fsf.pins || []).forEach(pn => { if (mineOwned(pn) && !localById.has(pn.id)) byId.delete(pn.id); });
+    /* REPLIES are written by anyone on anyone's pin, so they merge per reply (author-keyed),
+       independently of who owns the pin: my replies ride along, teammates' replies survive even
+       on a pin whose own text I just edited. */
+    const freshById = new Map((fsf.pins || []).map(pn => [pn.id, pn]));
+    byId.forEach((pn, id) => {
+      const fp = freshById.get(id), lp = localById.get(id);
+      const rs = mergeRepliesMine(fp && fp.replies, lp && lp.replies, me, !!lp);
+      if (rs.length) pn.replies = rs; else delete pn.replies;
+    });
     fsf.pins = [...byId.values()];
-    if (lsf.annotation !== undefined) fsf.annotation = lsf.annotation;
+    /* The drawing is ONE shared canvas per surface, so it only travels when THIS browser actually
+       drew on it this session. Grafting it unconditionally let a reviewer who never drew wipe a
+       teammate's markup with their own blank canvas. */
+    // …and only if nobody else changed it since this browser loaded it (a per-surface
+    // compare-and-set). If it moved underneath us, the current lock holder's drawing wins.
+    if (sfKey && dirtyAnno.has(sfKey) && lsf.annotation !== undefined) {
+      const seen = annoLoaded.has(sfKey) ? annoLoaded.get(sfKey) : undefined;
+      if (seen === undefined || (fsf.annotation || null) === seen || (fsf.annotation || null) === (lsf.annotation || null)) fsf.annotation = lsf.annotation;
+    }
+  }
+  function mergeRepliesMine(freshR, localR, me, haveLocalPin) {
+    const out = new Map((freshR || []).map(r => [r.id, r]));
+    (localR || []).forEach(r => { if (r.byEmail === me) out.set(r.id, r); });
+    if (haveLocalPin) (freshR || []).forEach(r => {
+      if (r.byEmail === me && !(localR || []).some(x => x.id === r.id)) out.delete(r.id);   // I deleted it
+    });
+    return [...out.values()].sort((a, b) => (a.atMs || 0) - (b.atMs || 0));
+  }
+  // Surface keys for the dirty-drawing set: "<vid>#<page>" (page -1 = the version itself).
+  const sfKeyOf = (v, pageIdx) => (v && v.vid ? v.vid : "?") + "#" + (pageIdx == null ? -1 : pageIdx);
+  const dirtyAnno = new Set();
+  const annoLoaded = new Map();      // sfKey → the annotation value this browser started from
+  // after a successful save, what we wrote IS the server's value — the new baseline
+  function rebaseAnnotations() {
+    dirtyAnno.forEach(k => {
+      const [vid, pg] = k.split("#");
+      const v = findVersion(vid); if (!v) return;
+      const ps = pagesOf(v); const sf = (ps && +pg >= 0) ? ps[+pg] : v;
+      if (sf) annoLoaded.set(k, sf.annotation || null);
+    });
   }
   // Apply across EVERY surface of a version — each page when paged, else the version itself.
   function mergeVersionSurfaces(lv, fv, me) {
     const lp = pagesOf(lv), fp = pagesOf(fv);
     if (lp && fp) {
       const n = Math.min(lp.length, fp.length);
-      for (let i = 0; i < n; i++) mergeSurfaceMine(lp[i], fp[i], me);
+      for (let i = 0; i < n; i++) mergeSurfaceMine(lp[i], fp[i], me, sfKeyOf(lv, i));
     } else {
-      mergeSurfaceMine(lv, fv, me);
+      mergeSurfaceMine(lv, fv, me, sfKeyOf(lv, null));
     }
   }
 
@@ -115,21 +155,40 @@ window.PresentDocs = (function () {
         if (!fv) return;   // version the server doesn't have — server wins
         mergeVersionSurfaces(lv, fv, me);        // pins + drawings, per page when paged
         if (lv.reviews && lv.reviews[me]) fv.reviews = Object.assign({}, fv.reviews, { [me]: lv.reviews[me] });
+        // my unsubmitted draft (notes + verdict) — saved so closing the proof never loses it
+        if (lv.reviewDrafts && lv.reviewDrafts[me] && !(fv.reviews && fv.reviews[me])) {
+          fv.reviewDrafts = Object.assign({}, fv.reviewDrafts, { [me]: lv.reviewDrafts[me] });
+        } else if (fv.reviewDrafts && fv.reviewDrafts[me] && ((fv.reviews && fv.reviews[me]) || !(lv.reviewDrafts && lv.reviewDrafts[me]))) {
+          fv.reviewDrafts = Object.assign({}, fv.reviewDrafts); delete fv.reviewDrafts[me];
+          if (!Object.keys(fv.reviewDrafts).length) delete fv.reviewDrafts;
+        }
         /* Facts this browser just PRODUCED about the round — the archived proof PDF is written
            after the review flush, so without carrying it here the very next merge drops it and
            the Drive copy is orphaned (the link came back null even though the upload succeeded). */
         ["reviewedPdfUrl", "reviewedPdfLink"].forEach(k => { if (lv[k] && !fv[k]) fv[k] = lv[k]; });
-        if (lv.signature && !fv.signature) { fv.signature = lv.signature; fv.signedBy = lv.signedBy; fv.signedDate = lv.signedDate; }
         if (expectedOf(fv).length) {
           fv.status = aggregateStatus(fv);
         } else {
-          ["status", "clientNotes", "agencyNotes", "reviewedAt", "reviewedStatus"].forEach(k => {
-            if (lv[k] !== undefined) fv[k] = lv[k];
-          });
+          // legacy single-reviewer round: my in-progress verdict + notes (never over a finished review)
+          if (!fv.reviewedAt) ["status", "clientNotes"].forEach(k => { if (lv[k] !== undefined) fv[k] = lv[k]; });
         }
       });
     });
-    return fresh;
+    return normalizeRounds(fresh);
+  }
+  /* COMPLETION, derived from the data — never left to whichever browser happened to submit
+     last. Any write (client or staff) that finds every expected reviewer in but no completion
+     stamp stamps it. That's what makes "all reviews in, but the next round is still blocked and
+     there's nobody left to waive" impossible. completedAtMs drives the notification sweep. */
+  function normalizeRounds(list) {
+    (list || []).forEach(d => (d && d.versions || []).forEach(v => {
+      if (!v || v.state === "pending_approval" || !expectedOf(v).length) return;
+      if (Object.keys(reviewsOf(v)).length) v.status = aggregateStatus(v);
+      if (reviewComplete(v) && !v.reviewedAt) {
+        v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; v.completedAtMs = Date.now();
+      }
+    }));
+    return list;
   }
   /* ---------- STAFF writes: 3-way merge against a base snapshot ----------
      Staff can't use the client's "graft mine onto the server" merge, because staff legitimately
@@ -144,7 +203,7 @@ window.PresentDocs = (function () {
          catastrophic, losing a re-typed label is trivial.
      With no base yet (page just opened, nothing pulled) we fall back to CONSERVATIVE mode:
      union everything, honor no deletions, never drop a review. */
-  const CLIENT_OWNED = ["reviews", "status", "reviewedAt", "reviewedStatus", "clientNotes",
+  const CLIENT_OWNED = ["reviews", "reviewDrafts", "status", "reviewedAt", "reviewedStatus", "completedAtMs", "clientNotes",
     "signature", "signedBy", "signedDate", "annotation"];
   // jsonb does NOT preserve object key order, so a plain JSON.stringify reports false changes on
   // anything round-tripped through the server. Sort keys before comparing. (Same trap that made
@@ -187,7 +246,7 @@ window.PresentDocs = (function () {
     const b = base || {}, out = Object.assign({}, theirs);
     const keys = new Set([...Object.keys(mine || {}), ...Object.keys(theirs || {})]);
     keys.forEach(k => {
-      if (k === "pins" || k === "reviews") return;       // handled below
+      if (k === "pins" || k === "reviews" || k === "reviewDrafts") return;   // handled below
       const iChanged = !same(mine[k], b[k]);
       const theyChanged = !same(theirs[k], b[k]);
       if (iChanged && theyChanged) { if (!CLIENT_OWNED.includes(k)) out[k] = mine[k]; return; }
@@ -196,8 +255,9 @@ window.PresentDocs = (function () {
     // reviews: an email-keyed map, each entry written only by its owner → union, server wins ties
     out.reviews = Object.assign({}, mine.reviews, theirs.reviews);
     if (!Object.keys(out.reviews).length) delete out.reviews;
-    out.pins = mergeById(b.pins, mine.pins, theirs.pins, "id",
-      (pb, pm, pt) => (same(pm, pb) ? pt : pm));
+    // drafts belong to clients; staff never author them → the server's copy stands
+    if (theirs.reviewDrafts) out.reviewDrafts = theirs.reviewDrafts; else delete out.reviewDrafts;
+    out.pins = mergeById(b.pins, mine.pins, theirs.pins, "id", mergePin3);
     // PAGES: a whole-array win would throw away one side's markup, so merge each page's pins
     // (id-keyed 3-way) and take a changed drawing from whoever changed it.
     const bp = pagesOf(b), mp = pagesOf(mine), tp = pagesOf(theirs);
@@ -206,11 +266,21 @@ window.PresentDocs = (function () {
         const mpg = mp[i]; if (!mpg) return tpg;
         const bpg = (bp && bp[i]) || {};
         const merged = Object.assign({}, tpg);
-        merged.pins = mergeById(bpg.pins, mpg.pins, tpg.pins, "id", (pb, pm2, pt) => (same(pm2, pb) ? pt : pm2));
+        merged.pins = mergeById(bpg.pins, mpg.pins, tpg.pins, "id", mergePin3);
         if (!same(mpg.annotation, bpg.annotation)) merged.annotation = mpg.annotation;
         return merged;
       });
     }
+    return out;
+  }
+  // A pin 3-way: its own fields from whoever changed them; its REPLIES merged per reply id, so
+  // a staff edit to a pin can't drop a client's reply to it (and vice versa).
+  function mergePin3(pb, pm, pt) {
+    const strip = (p) => { const c = Object.assign({}, p || {}); delete c.replies; return c; };
+    const out = same(strip(pm), strip(pb)) ? Object.assign({}, pt) : Object.assign({}, pm);
+    const rs = mergeById((pb || {}).replies, (pm || {}).replies, (pt || {}).replies, "id",
+      (rb, rm, rt) => (same(rm, rb) ? rt : rm));
+    if (rs.length) out.replies = rs; else delete out.replies;
     return out;
   }
   function mergeCard(base, mine, theirs) {
@@ -237,46 +307,96 @@ window.PresentDocs = (function () {
     }
     return mergeById(base, mine, theirs, "id", mergeCard);
   }
-  // Pull fresh → merge → push. Used for every staff write to the deliverables scope.
-  async function staffMergedPush() {
-    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow)) return { ok: false };
-    let merged = items;
-    try {
-      const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
-      if (Array.isArray(fresh)) {
-        merged = mergeStaff(baseItems, items, fresh);
-        items = merged;
-        try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
-      }
-    } catch (e) { /* pull failed — push what we have rather than lose the edit */ }
+  /* ---------- the ONE write path for the deliverables scope ----------
+     Every write — client or staff, debounced or immediate — is a compare-and-set
+     (SUPA.casUpdate): pull the freshest copy, merge this browser's work into it, write only if
+     nobody saved in between, else re-pull and re-merge. There is NO blind-overwrite fallback any
+     more: if the latest copy can't be read (slow connection, timeout) nothing is written, the
+     edit stays in this browser, the page shows "Not saved yet — retrying" and it retries with
+     backoff until it lands. That is what stops a stale copy ever replacing a teammate's review. */
+  let editSeq = 0;                 // bumps on every local edit — tells us if edits landed mid-flight
+  const supaOn = () => !!(window.SUPA && window.SUPA.enabled && window.SUPA.casUpdate);
+  const SAVE = { dirty: false, busy: false, again: false, fails: 0, retryTimer: null, lastError: "" };
+  function setSaveState() {
+    const el = $("pdSaveState"); if (!el) return;
+    if (SAVE.fails && SAVE.dirty) {
+      el.textContent = "⚠ Not saved yet — retrying… (keep this page open)";
+      el.className = "pd-save-state warn";
+    } else if (SAVE.busy || SAVE.dirty) { el.textContent = "Saving…"; el.className = "pd-save-state"; }
+    else { el.textContent = "✓ All changes saved"; el.className = "pd-save-state ok"; }
+  }
+  // Adopt a successful write. If the user kept editing while it was in flight, graft those
+  // newer edits back on top so not a keystroke is lost; the next push carries them.
+  function adoptWrite(written, seqAtStart, isClient, baseAtStart) {
+    if (editSeq === seqAtStart) items = written;
+    // staff: 3-way against the ancestor we merged FROM, so only the genuinely-new local edits win
+    // (diffing against `written` would read every remote change we hadn't seen as "my edit").
+    else items = isClient ? mergeMineInto(cloneJ(written), items) : mergeStaff(baseAtStart, items, cloneJ(written));
+    try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+  }
+  async function pushDeliverables() {
+    if (!supaOn()) return { ok: true };
+    // already saving → wait for it, then run a NEW write that starts after the caller's edit (so
+    // "saved" never means "an earlier write was saved")
+    if (SAVE.busy) { try { await SAVE.busyPromise; } catch (e) {} return pushDeliverables(); }
+    SAVE.busy = true; SAVE.dirty = true; setSaveState();
+    const isClient = !!(getSession && getSession() && getSession().role === "client");
+    const seq = editSeq;
+    const baseAtStart = cloneJ(baseItems) || null;
+    const run = (async () => {
+      const r = await window.SUPA.casUpdate(sess.client, "deliverables", (fresh) => {
+        const theirs = Array.isArray(fresh) ? fresh : [];
+        return isClient ? mergeMineInto(theirs, items) : normalizeRounds(mergeStaff(baseItems, items, theirs));
+      });
+      if (r.ok && !r.noop) {
+        adoptWrite(r.data, seq, isClient, baseAtStart);
+        setBase(r.data); rebaseAnnotations();
+        SAVE.fails = 0; SAVE.lastError = "";
+        if (editSeq === seq) SAVE.dirty = false;
+      } else if (!r.ok) {
+        SAVE.fails++; SAVE.lastError = r.error || "network";
+        console.warn("Present Docs save failed — will retry:", SAVE.lastError);
+      } else { SAVE.dirty = editSeq !== seq; }
+      return r;
+    })();
+    SAVE.busyPromise = run;
+    let r;
+    try { r = await run; } finally { SAVE.busy = false; }
     guardLive();
-    let r = { ok: false };
-    try { r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items); } catch (e) {}
-    if (r && r.ok) setBase(items);                       // this is now the known server state
+    if (SAVE.dirty && r && r.ok) schedulePush(300);
+    else if (!r.ok) scheduleRetry();
+    setSaveState();
+    if (r && r.ok) { try { maybeReleaseAfterSave(); } catch (e) {} }
     return r;
   }
-  let staffPushTimer = null;
-  function scheduleStaffMergedPush() {
-    clearTimeout(staffPushTimer);
-    staffPushTimer = setTimeout(() => { staffMergedPush().then(() => renderGallery()); }, 900);
+  let pushTimer = null;
+  function schedulePush(ms) {
+    SAVE.dirty = true; setSaveState();
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => { pushDeliverables().then(() => { if (!$("pdModal") || !$("pdModal").classList.contains("open")) renderGallery(); }); }, ms == null ? 900 : ms);
   }
-
-  let clientPushTimer = null;
-  function scheduleClientMergedPush() {
-    clearTimeout(clientPushTimer);
-    clientPushTimer = setTimeout(mergedClientPush, 900);   // coalesce typing bursts
+  function scheduleRetry() {
+    clearTimeout(SAVE.retryTimer);
+    const wait = Math.min(30000, 2000 * Math.pow(2, Math.max(0, SAVE.fails - 1)));
+    SAVE.retryTimer = setTimeout(() => { if (SAVE.dirty) pushDeliverables(); }, wait);
   }
-  async function mergedClientPush() {
-    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow)) return;
-    try {
-      const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
-      if (Array.isArray(fresh) && fresh.length) {
-        items = mergeMineInto(fresh, items);
-        try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
-      }
-    } catch (e) { /* pull failed — push local (previous behavior) rather than lose the edit */ }
-    guardLive();
-    try { await window.SUPA.pushScopeNow(sess.client, "deliverables", items); } catch (e) {}
+  // Leaving with unsaved work → the browser asks first (a review is never silently dropped).
+  window.addEventListener("beforeunload", (e) => {
+    if (SAVE.dirty || SAVE.busy || submitBusy || DRAFT.dirty) { e.preventDefault(); e.returnValue = ""; return ""; }
+  });
+  // Staff writes (kept as a named function — sendDraft/saveNow await it for ordering).
+  async function staffMergedPush() {
+    clearTimeout(pushTimer);
+    return await pushDeliverables();
+  }
+  function scheduleStaffMergedPush() { schedulePush(900); }
+  function scheduleClientMergedPush() { schedulePush(900); }
+  // flush anything queued, now (used before releasing the review lock / leaving the modal)
+  async function flushPending() {
+    clearTimeout(pushTimer);
+    while (SAVE.busy) { try { await SAVE.busyPromise; } catch (e) {} }
+    if (SAVE.dirty) return await pushDeliverables();
+    return { ok: true };
   }
   const isStaffFn = () => (typeof isStaff === "function" ? isStaff() : true);
   function loadDrafts() {
@@ -285,10 +405,49 @@ window.PresentDocs = (function () {
     catch { draftItems = []; }
     dedupeDrafts();
   }
+  /* WAITING-ROOM writes, also compare-and-set. A draft I hold wins; a draft someone else added
+     survives; a draft I deleted/sent stays gone; a draft that vanished remotely (sent/deleted by
+     a colleague) is not resurrected by my stale copy. */
+  const draftDeleted = new Set();
+  let draftBaseIds = new Set();
+  function mergeDrafts(fresh, local) {
+    const L = new Map(local.map(d => [d.id, d]));
+    const out = [];
+    (fresh || []).forEach(f => { if (!draftDeleted.has(f.id)) out.push(L.has(f.id) ? L.get(f.id) : f); });
+    local.forEach(l => {
+      if (out.some(x => x.id === l.id) || draftDeleted.has(l.id)) return;
+      if (draftBaseIds.has(l.id)) return;              // removed elsewhere since we last looked
+      out.push(l);                                     // new here → keep
+    });
+    return out;
+  }
+  let draftTimer = null, draftRetry = null;
+  const DRAFT = { dirty: false, busy: false };
   function saveDrafts() {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); }
     catch (e) { console.warn("Portal sandbox: storage full — keeping drafts in memory only.", e); }
-    if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(sess.client, "deliverables_draft", draftItems);
+    if (!supaOn()) return;
+    DRAFT.dirty = true;                                  // holds liveRefresh off until it lands
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => { pushDrafts(); }, 700);
+  }
+  async function pushDrafts() {
+    if (!supaOn()) return { ok: true };
+    DRAFT.dirty = true; DRAFT.busy = true;
+    let r;
+    try { r = await window.SUPA.casUpdate(sess.client, "deliverables_draft", (fresh) => mergeDrafts(Array.isArray(fresh) ? fresh : [], draftItems)); }
+    finally { DRAFT.busy = false; }
+    clearTimeout(draftRetry); draftRetry = null;
+    if (r.ok) {
+      if (!r.noop) {
+        draftItems = r.data; draftBaseIds = new Set(draftItems.map(d => d.id));
+        try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {}
+      }
+      DRAFT.dirty = false;
+    } else {
+      draftRetry = setTimeout(pushDrafts, 5000);         // ONE retry chain, never several
+    }
+    return r;
   }
   // Live-refresh suppression window: for a few seconds after a local mutation (delete, send,
   // stage a version), don't let liveRefresh re-pull — otherwise a pull that lands before our
@@ -301,19 +460,16 @@ window.PresentDocs = (function () {
   // Awaited immediate write (delete, send, waive — anything whose ordering matters). Goes through
   // the SAME 3-way merge as the debounced path, so an ordered write can't clobber either.
   async function saveNow() {
-    guardLive();
+    guardLive(); editSeq++;
     try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
-    if (!(window.SUPA && window.SUPA.enabled) || (typeof isCreative === "function" && isCreative())) return { ok: true };
-    clearTimeout(staffPushTimer);                        // fold any queued debounce into this write
+    if (!supaOn()) return { ok: true };
     return await staffMergedPush();
   }
   async function saveDraftsNow() {
     guardLive();
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {}
-    if (window.SUPA && window.SUPA.enabled) {
-      if (window.SUPA.pushScopeNow) { try { await window.SUPA.pushScopeNow(sess.client, "deliverables_draft", draftItems); return; } catch (e) {} }
-      window.SUPA.pushScope(sess.client, "deliverables_draft", draftItems);
-    }
+    clearTimeout(draftTimer);
+    return await pushDrafts();
   }
   // Self-heal for a crash between the two Send pushes (sent write landed, draft removal
   // didn't): any draft whose version already exists in `items` is a stale duplicate.
@@ -321,7 +477,11 @@ window.PresentDocs = (function () {
     const sentVids = new Set();
     items.forEach(d => (d.versions || []).forEach(v => { if (v.vid) sentVids.add(v.vid); }));
     const before = draftItems.length;
-    draftItems = draftItems.filter(d => !(d.versions || []).some(v => v.vid && sentVids.has(v.vid)));
+    draftItems = draftItems.filter(d => {
+      const dup = (d.versions || []).some(v => v.vid && sentVids.has(v.vid));
+      if (dup) draftDeleted.add(d.id);
+      return !dup;
+    });
     if (draftItems.length !== before) saveDrafts();
   }
   /* A stored Drive file is served by the authenticated proxy, which <img src> can't call (no
@@ -401,6 +561,26 @@ window.PresentDocs = (function () {
   // in multi-reviewer mode a selection only becomes shared state on Submit, so teammates
   // browsing the same proof don't see each other's half-made choices.
   const pendingSel = {};
+  /* MY UNSUBMITTED DRAFT (notes + chosen verdict) — saved to the record as v.reviewDrafts[me]
+     (and to this browser as a backup), so closing the proof, refreshing, or switching devices
+     never loses what someone was writing. Never shown to teammates; removed on Submit. */
+  const DRAFT_LS = (vid) => "tja_pd_mydraft_" + sess.client + "_" + vid + "_" + myEmail();
+  function myDraftOf(v) {
+    const server = v && v.reviewDrafts && v.reviewDrafts[myEmail()];
+    let local = null; try { local = JSON.parse(localStorage.getItem(DRAFT_LS(v.vid)) || "null"); } catch (e) {}
+    if (server && local) return (local.atMs || 0) > (server.atMs || 0) ? local : server;
+    return server || local || null;
+  }
+  function saveMyDraft() {
+    const v = active(deliv(curId));
+    if (!v || !v.vid || !isRealClient() || !expectedOf(v).length || myReviewOf(v) || !viewerCanMarkup()) return;
+    const draft = { notes: $("pdClientNotes") ? $("pdClientNotes").value : "",
+      status: pendingSel[v.vid] != null ? pendingSel[v.vid] : null, atMs: Date.now() };
+    v.reviewDrafts = Object.assign({}, v.reviewDrafts, { [myEmail()]: draft });
+    try { localStorage.setItem(DRAFT_LS(v.vid), JSON.stringify(draft)); } catch (e) {}
+    saveCur();
+  }
+  function clearMyDraft(vid) { try { localStorage.removeItem(DRAFT_LS(vid)); } catch (e) {} }
 
   /* ---------- page shell ---------- */
   function render() {
@@ -528,6 +708,7 @@ window.PresentDocs = (function () {
 
             <button class="btn btn-primary" id="pdSubmit">Submit Review</button>
             <div class="pd-saved" id="pdSaved">✓ Review saved</div>
+            <div class="pd-save-state" id="pdSaveState"></div>
 
             <div class="pd-review-foot">
               <div class="pd-sign-status" id="pdSignStatus"></div>
@@ -847,6 +1028,7 @@ window.PresentDocs = (function () {
        folder rather than starting a new one. */
     const subfolder = (opts && opts.subfolder) || name;
     const folderId = (opts && opts.folderId) || "";
+    const isNewDoc = !opts;              // V1 of a new deliverable → its own fresh folder
     const built = dataUrls.map(() => ({ pins: [], annotation: null }));
     const out0 = {};                     // carries driveFolderId back out of the upload block
 
@@ -855,7 +1037,7 @@ window.PresentDocs = (function () {
       try {
         // batched: 6 pages per request rather than one request per page
         const res = await window.TJA_FILES.uploadDataUrls(dataUrls,
-          { category: "present-docs", clientId: sess.client, name, subfolder, folderId },
+          { category: "present-docs", clientId: sess.client, name, subfolder, folderId, newFolder: isNewDoc },
           (done, total) => busySub(total > 1 ? `Uploaded ${done} of ${total} pages…` : ""));
         res.forEach((r, i) => { if (r && r.url && built[i]) built[i].url = r.url; });
         if (res[0] && res[0].folderId) out0.driveFolderId = res[0].folderId;
@@ -873,7 +1055,8 @@ window.PresentDocs = (function () {
     if (store) {
       busySub("Saving the original PDF…");
       try {
-        const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name, subfolder, folderId: folderId || out.driveFolderId });
+        const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name, subfolder,
+          folderId: folderId || out.driveFolderId, newFolder: isNewDoc && !out.driveFolderId });
         if (src && src.url) { out.sourceUrl = src.url; out.sourceName = file.name; }
         if (src && src.folderId && !out.driveFolderId) out.driveFolderId = src.folderId;
       } catch (e) { console.warn("original pdf upload failed — page images still stand", e); }
@@ -902,7 +1085,7 @@ window.PresentDocs = (function () {
           if (window.TJA_FILES && window.TJA_FILES.enabled()) {
             try {
               const r = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client, name,
-                subfolder: (opts && opts.subfolder) || name, folderId: (opts && opts.folderId) || "" });
+                subfolder: (opts && opts.subfolder) || name, folderId: (opts && opts.folderId) || "", newFolder: !opts });
               if (r && r.url) { resolve({ url: r.url, name, driveFolderId: r.folderId }); return; }
             } catch (e) { console.warn("proof upload — keeping inline", e); }
           }
@@ -1048,7 +1231,7 @@ window.PresentDocs = (function () {
         const kwParent = kwEditParentId ? items.find(x => x.id === kwEditParentId) : null;
         const up = await window.TJA_FILES.uploadDataUrl(dataUrl, { category: "present-docs", clientId: sess.client,
           name: subject || "keywords", subfolder: (kwParent && kwParent.name) || subject || "keywords",
-          folderId: (kwParent && kwParent.driveFolderId) || "" });
+          folderId: (kwParent && kwParent.driveFolderId) || "", newFolder: !kwParent });
         if (up && up.url) img = { url: up.url, driveFolderId: up.folderId };
       } catch (e) { console.warn("keyword slide upload — keeping inline", e); }
     }
@@ -1076,12 +1259,21 @@ window.PresentDocs = (function () {
       flashDocsToast(`${subject} staged — click “📤 Send to client” to submit it for review.`);
       return;
     }
+    const reviewers = await reviewersForSend();
+    if (reviewers === null) return;
+    stampRound(v, reviewers);
     v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
     const item = { id: uid(), name: subject, active: 0, versions: [v], kind: "keywords", driveFolderId: img.driveFolderId || null };
     items.unshift(item);
-    await saveNow();
+    const w = await saveNow();
+    if (w && w.ok === false) {
+      items = items.filter(x => x.id !== item.id); renderGallery();
+      window.TJA_UI.alert("Send failed (" + (w.error || "network") + ") — nothing reached the client. Please try again.", { title: "Not sent" });
+      return;
+    }
     renderGallery();
     announceSend({ id: item.id, name: subject, version: v });
+    warnNoReviewers(reviewers);
   }
 
   /* ---------- upload brief (V1) ----------
@@ -1207,6 +1399,13 @@ window.PresentDocs = (function () {
     v.subject = subject; v.message = message; v.revisionsDue = due;
     // Specs live on the DELIVERABLE (parent for a proposed round, else the draft card itself).
     const parent = d.parentId ? items.find(x => x.id === d.parentId) : null;
+    // A first-round draft named by the creative may be retitled on release — the card AND its
+    // Drive folder follow the subject, so the folder always matches the Present Doc's title.
+    if (!parent && subject && subject !== d.name) {
+      d.name = subject;
+      if (d.driveFolderId && window.TJA_FILES && window.TJA_FILES.renameFolder)
+        window.TJA_FILES.renameFolder(d.driveFolderId, subject, sess.client).catch(e => console.warn("drive folder rename failed", e));
+    }
     if (specsVal) { if (parent) parent.specs = specsVal; else d.specs = specsVal; }
     pendingSendDraftId = null;
     closeUploadDialog();
@@ -1216,10 +1415,13 @@ window.PresentDocs = (function () {
   // a send, and announces (notification + email) via announceSend. A CREATIVE'S upload
   // lands in the waiting room and stays silent to the client until an AM/PM releases it.
   const uploadsToDraft = () => (typeof isCreative === "function" && isCreative());
-  function commitUpload() {
+  let uploadBusy = false;
+  async function commitUpload() {
+    if (uploadBusy) return;
     const subject = $("pdUpSubject") ? $("pdUpSubject").value.trim() : "";
     const message = $("pdUpMsg") ? $("pdUpMsg").value.trim() : "";
     const due = $("pdUpDue") ? $("pdUpDue").value : "";
+    const showErr = (msg) => { const err = $("pdUpErr"); if (err) { err.textContent = msg; err.style.display = ""; } else window.TJA_UI.alert(msg); };
     // validate required fields (only when the dialog is actually present)
     if ($("pdUpOverlay") && $("pdUpErr")) {
       const r = uploadRules();
@@ -1228,66 +1430,88 @@ window.PresentDocs = (function () {
       if (!subject) missing.push("Subject");
       if (r.specs && !specsVal) missing.push("Specifications");
       if (r.due && !due) missing.push("Feedback due");
-      if (missing.length) {
-        const err = $("pdUpErr");
-        err.textContent = "Please fill in: " + missing.join(", ") + ".";
-        err.style.display = "";
-        return;
-      }
+      if (missing.length) { showErr("Please fill in: " + missing.join(", ") + "."); return; }
     }
     // Specifications: OPTIONAL (an AM/PM uploading may not know them — Cameron 2026-07-20).
     // Lives on the DELIVERABLE (set at V1, carried by every later version) — it describes
     // the artwork, not the round. Shown small on the review screen + in the PDF header.
     const specs = $("pdUpSpecs") ? $("pdUpSpecs").value.trim() : "";
     const toDraft = uploadsToDraft();
-    const multi = (pendingUpload || []).length > 1;
+    const batch = (pendingUpload || []).slice();
+    const multi = batch.length > 1;
     // The card is named by the SUBJECT you typed, not the raw filename — that's what the
     // client reads in the gallery. Falls back to the filename if the subject is left blank.
     // When several files share one subject, the filename is appended so the cards stay
     // tellable apart (they'd otherwise all carry the same name).
     const nameFor = (p) => !subject ? p.name : (multi ? subject + " — " + p.name : subject);
-    /* The Drive folder was created at file-select time and named after the FILE — the subject
-       didn't exist yet. Now it does, so rename it to match the Present Doc's title, which is
-       what the folder is supposed to be called. Fire-and-forget: a rename failing must never
-       block a send, and the folderId (not the name) is what later rounds aim at. */
-    if (subject && window.TJA_FILES && window.TJA_FILES.renameFolder) {
-      const seen = new Set();
-      (pendingUpload || []).forEach(p => {
-        if (!p.driveFolderId || seen.has(p.driveFolderId)) return;
-        seen.add(p.driveFolderId);
-        window.TJA_FILES.renameFolder(p.driveFolderId, nameFor(p), sess.client)
-          .catch(e => console.warn("drive folder rename failed", e));
-      });
-    }
-    (pendingUpload || []).forEach(p => {
-      const v = newVersion(p, "V1");
-      v.subject = subject; v.message = message; v.revisionsDue = due;
-      const name = nameFor(p);
-      if (toDraft) {
-        v.state = "pending_approval";
-        // record the draft CARD's id (not v.vid) — it's what openModal/openDoc resolve,
-        // so a notification click can land straight on this waiting-room card.
-        const draftCard = { id: uid(), name: name, active: 0, versions: [v], specs: specs, driveFolderId: p.driveFolderId || null };
-        draftItems.unshift(draftCard);
-        if (window.TJA_NOTIFY) {
-          // admin-bell discovery of pending work (the CLIENT hears nothing until release)
-          try { window.TJA_NOTIFY.record({ type: "upload", docId: draftCard.id, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
+    const btn = $("pdUpSend"); const label = btn ? btn.textContent : "";
+    uploadBusy = true; if (btn) { btn.disabled = true; btn.textContent = toDraft ? "Saving…" : "Sending…"; }
+    try {
+      // Straight-to-client sends confirm WHO must review before anything is written.
+      let reviewers = [];
+      if (!toDraft) { reviewers = await reviewersForSend(); if (reviewers === null) return; }
+      /* The Drive folder was created at file-select time and named after the FILE — the subject
+         didn't exist yet. Now it does, so rename it to match the Present Doc's title. Every
+         deliverable has its OWN folder (created fresh, never shared by name). */
+      renameFolders(batch, nameFor);
+      const added = [];
+      batch.forEach(p => {
+        const v = newVersion(p, "V1");
+        v.subject = subject; v.message = message; v.revisionsDue = due;
+        const name = nameFor(p);
+        if (toDraft) {
+          v.state = "pending_approval";
+          // record the draft CARD's id (not v.vid) — it's what openModal/openDoc resolve,
+          // so a notification click can land straight on this waiting-room card.
+          const draftCard = { id: uid(), name: name, active: 0, versions: [v], specs: specs, driveFolderId: p.driveFolderId || null };
+          draftItems.unshift(draftCard);
+          if (window.TJA_NOTIFY) {
+            // admin-bell discovery of pending work (the CLIENT hears nothing until release)
+            try { window.TJA_NOTIFY.record({ type: "upload", docId: draftCard.id, docName: name, versionLabel: "V1", by: sess.name || "Creative" }); } catch (e) {}
+          }
+        } else {
+          stampRound(v, reviewers);
+          v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
+          // capture the DELIVERABLE id (not v.vid) — it's what openModal / the email
+          // deep-link (?open=docs&doc=<id>) resolve against.
+          const item = { id: uid(), name: name, active: 0, versions: [v], specs: specs, driveFolderId: p.driveFolderId || null };
+          items.unshift(item);
+          added.push(item);
         }
-      } else {
-        // Straight to the client — so this IS the send, and must tell them exactly as
-        // releasing a draft does. It previously did neither: an AM/PM uploading directly
-        // (the common path — not everything goes via a creative) silently notified nobody.
-        v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
-        // capture the DELIVERABLE id (not v.vid) — it's what openModal / the email
-        // deep-link (?open=docs&doc=<id>) resolve against.
-        const item = { id: uid(), name: name, active: 0, versions: [v], specs: specs, driveFolderId: p.driveFolderId || null };
-        items.unshift(item);
-        announceSend({ id: item.id, name: name, version: v });
+      });
+      if (toDraft) {
+        const w = await saveDraftsNow();
+        renderGallery();
+        if (w && w.ok === false) { showErr("Couldn't save to the waiting room yet (" + (w.error || "network") + ") — it will keep retrying; don't close this page."); return; }
+        closeUploadDialog(); return;
       }
+      // The deliverable must be SAVED before the client is emailed about it — otherwise the email
+      // could point at something that never landed.
+      const w = await saveNow();
+      if (w && w.ok === false) {
+        const ids = new Set(added.map(x => x.id));
+        items = items.filter(x => !ids.has(x.id)); renderGallery();
+        showErr("Send failed (" + (w.error || "network") + ") — nothing reached the client. Press Send to try again.");
+        return;
+      }
+      closeUploadDialog();
+      renderGallery();
+      added.forEach(item => announceSend({ id: item.id, name: item.name, version: item.versions[0] }));
+      warnNoReviewers(reviewers);
+    } finally {
+      uploadBusy = false; if (btn) { btn.disabled = false; btn.textContent = label; }
+    }
+  }
+  function renameFolders(batch, nameFor) {
+    if (!(window.TJA_FILES && window.TJA_FILES.renameFolder)) return;
+    const seen = new Set();
+    (batch || []).forEach(p => {
+      if (!p.driveFolderId || seen.has(p.driveFolderId)) return;
+      seen.add(p.driveFolderId);
+      const nm = nameFor(p); if (!nm) return;
+      window.TJA_FILES.renameFolder(p.driveFolderId, nm, sess.client)
+        .catch(e => console.warn("drive folder rename failed", e));
     });
-    closeUploadDialog();
-    if (toDraft) saveDrafts(); else save();
-    renderGallery();
   }
 
   /* The client-facing moment, shared by BOTH routes to the client: an admin/AM-PM
@@ -1311,18 +1535,44 @@ window.PresentDocs = (function () {
         window.TJA_MAIL.sendDeliverable({ clientId: sess.client, docId: id, docName: name,
           versionLabel: version.label, subject: version.subject, message: version.message,
           dueDate: version.revisionsDue }).then((res) => {
-          // Stamp WHO must review this round — the client-role logins at send time (returned
-          // by send-deliverable-email regardless of whether the email itself went out). This
-          // switches the version to multi-reviewer tracking: complete only when everyone's in.
-          // No list back (offline, email disabled, old function) → legacy single-review behavior.
-          if (res && Array.isArray(res.reviewers) && res.reviewers.length) {
-            version.expectedReviewers = res.reviewers.map(e => String(e).toLowerCase());
-            version.reviews = version.reviews || {};
-            save(); renderGallery();
+          // expectedReviewers is stamped BEFORE the send now (reviewersForSend). This is only a
+          // belt-and-braces reconcile for a version that somehow went out without it — and it
+          // re-finds the version by id, because `items` may have been replaced since.
+          const live = findVersion(version.vid);
+          if (live && !Array.isArray(live.expectedReviewers) && res && Array.isArray(res.reviewers) && res.reviewers.length) {
+            live.expectedReviewers = res.reviewers.map(e => String(e).toLowerCase());
+            live.reviews = live.reviews || {};
+            saveNow().then(() => renderGallery());
           }
         }).catch(() => {});
       } catch (e) { console.warn("deliverable email failed", e); }
     }
+  }
+  // find a version anywhere in the live (sent) items by its stable id
+  function findVersion(vid) {
+    for (const d of items) for (const v of (d.versions || [])) if (v && v.vid === vid) return v;
+    return null;
+  }
+  /* WHO MUST REVIEW this round — fetched BEFORE the version is written, so it's part of the
+     round's very first save. If it can't be confirmed, the send is refused (with the reason)
+     rather than going out as a silent single-approver round. */
+  async function reviewersForSend() {
+    if (!(window.TJA_MAIL && window.TJA_MAIL.fetchReviewers)) return [];
+    try {
+      const r = await window.TJA_MAIL.fetchReviewers(sess.client);
+      return r.reviewers || [];
+    } catch (e) {
+      window.TJA_UI.alert("Couldn't confirm who needs to review this (" + (e && e.message || e) + "). Nothing was sent — please try again.", { title: "Not sent" });
+      return null;
+    }
+  }
+  function stampRound(v, reviewers) {
+    if (!v) return;
+    if (reviewers && reviewers.length) { v.expectedReviewers = reviewers.slice(); v.reviews = {}; }
+  }
+  function warnNoReviewers(reviewers) {
+    if (reviewers && !reviewers.length && supaOn())
+      flashDocsToast("⚠ This client has no portal logins yet — nobody can review this until you invite them in the Admin Center.", 7000);
   }
   // Is there already a proposed next round staged (waiting to be sent) for this deliverable?
   function proposalPendingFor(d) { return d ? draftItems.find(x => x.parentId === d.id) : null; }
@@ -1394,6 +1644,9 @@ window.PresentDocs = (function () {
     // Releasing a proposed next round onto a parent whose current version the client
     // hasn't reviewed yet — hold it until they respond.
     if (parent && blockIfAwaitingReview(parent)) return;
+    const reviewers = await reviewersForSend();
+    if (reviewers === null) return;                      // couldn't confirm → nothing sent
+    stampRound(draft.versions[draft.versions.length - 1], reviewers);
     if (parent) {
       const v = draft.versions[draft.versions.length - 1];
       v.state = "sent"; v.sentAt = sentStamp; v.sentBy = sentBy;
@@ -1422,13 +1675,14 @@ window.PresentDocs = (function () {
     }
     try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
     // 2. drop the draft (failure here is safe — dedupeDrafts self-heals on next load)
-    draftItems.splice(idx, 1);
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {}
-    if (window.SUPA && window.SUPA.enabled) await window.SUPA.pushScopeNow(sess.client, "deliverables_draft", draftItems);
+    draftDeleted.add(draft.id);
+    draftItems = draftItems.filter(x => x.id !== draft.id);
+    await saveDraftsNow();
     // 3. tell the client — the same announcement a direct upload makes
     const sentV = parent ? parent.versions[parent.versions.length - 1] : draft.versions[draft.versions.length - 1];
     const sentName = parent ? parent.name : draft.name;
     announceSend({ id: (parent || draft).id, name: sentName, version: sentV });
+    warnNoReviewers(reviewers);
     renderGallery();
   }
 
@@ -1497,41 +1751,108 @@ window.PresentDocs = (function () {
     a.onload = () => { const { w, h } = dispSize(); ctx.drawImage(a, 0, 0, w, h); cb && cb(); };
     a.src = annotation;
   }
+  /* Only a surface this person actually DREW on (or cleared) is written back — re-saving an
+     untouched canvas would re-encode it and, worse, could replace someone else's markup. */
+  let canvasTouched = false;
   function persistCanvas() {
-    const d = deliv(curId); if (!d || !ctx || !cv) return;
-    surface(active(d)).annotation = isBlank(cv) ? null : cv.toDataURL("image/png");
+    const d = deliv(curId); if (!d || !ctx || !cv || !canvasTouched) return false;
+    const v = active(d); if (!v) return false;
+    // a reviewer whose lock lapsed (sleep, dropped connection) must never write their canvas
+    // over whoever holds the proof now
+    if (clientEyes() && isRealClient() && !holdsLock()) { canvasTouched = false; return false; }
+    const ps = pagesOf(v);
+    surface(v).annotation = isBlank(cv) ? null : cv.toDataURL("image/png");
+    dirtyAnno.add(sfKeyOf(v, ps ? Math.min(Math.max(0, curPage), ps.length - 1) : null));
+    canvasTouched = false; editSeq++;
+    return true;
+  }
+  function loseLock() {                // the moment we know the lock is gone: drop unsaved strokes
+    LOCK.lost = true; canvasTouched = false; dirtyAnno.clear();
   }
   function isBlank(c) {
     const b = document.createElement("canvas"); b.width = c.width; b.height = c.height;
     return c.toDataURL() === b.toDataURL();
   }
 
+  /* ---------- who may do what on the open proof ----------
+     markup  = drop/move/edit/delete MY pins + draw. A client needs the review lock, an open
+               round, and not to have submitted yet; staff keep their existing abilities.
+     reply   = answer anyone's comment. A client needs the lock + an open round (replying after
+               you've submitted is fine — that's how teammates settle a question); staff who can
+               edit this client may reply too. */
+  const clientEyes = () => (typeof effectiveRole === "function") ? effectiveRole() === "client" : true;
+  function versionDone(v) { return !!(v && (v.reviewedAt || (expectedOf(v).length && reviewComplete(v)))); }
+  function holdsLock() { return !supaOn() || !isRealClient() || (LOCK.docId === curId && !LOCK.lost); }
+  function viewerCanMarkup() {
+    const d = deliv(curId); const v = active(d); if (!v) return false;
+    if (typeof isCreative === "function" && isCreative() && !isDraft(d)) return false;
+    if (!clientEyes()) return true;
+    const mineDone = expectedOf(v).length ? !!myReviewOf(v) : !!v.reviewedAt;
+    return holdsLock() && !mineDone && !versionDone(v);
+  }
+  function viewerCanReply() {
+    const d = deliv(curId); const v = active(d); if (!v || isDraft(d)) return false;
+    if (!clientEyes()) return (typeof canEdit === "function" ? canEdit() : false) && !(typeof isCreative === "function" && isCreative());
+    if (versionDone(v)) return false;
+    const filed = expectedOf(v).length ? !!myReviewOf(v) : !!v.reviewedAt;
+    return holdsLock() || (filed && isRealClient());
+  }
+  // a pin's own text/resolve/delete: its author (clients) or staff
+  function canEditPin(p) {
+    if (!viewerCanMarkup()) return false;
+    if (!clientEyes()) return true;
+    return !p.byEmail || p.byEmail === myEmail();
+  }
+  const pinAuthor = (p) => p.by || (p.byEmail ? p.byEmail.split("@")[0] : "");
+
   /* ---------- pins ---------- */
   function renderPins() {
     const v = curSurface(); const layer = $("pdPins");
     layer.innerHTML = v.pins.map((p, i) =>
-      `<button class="pd-pin ${p.resolved ? "resolved" : ""}" data-pin="${p.id}" style="left:${p.x * 100}%;top:${p.y * 100}%">${i + 1}</button>`).join("");
+      `<button class="pd-pin ${p.resolved ? "resolved" : ""}${(p.replies && p.replies.length) ? " has-replies" : ""}" data-pin="${p.id}" title="${esc(pinAuthor(p))}${(p.replies && p.replies.length) ? " · " + p.replies.length + " repl" + (p.replies.length === 1 ? "y" : "ies") : ""}" style="left:${p.x * 100}%;top:${p.y * 100}%">${i + 1}</button>`).join("");
+  }
+  function repliesHtml(p) {
+    const me = myEmail();
+    return (p.replies || []).map(r => `
+      <div class="pd-reply">
+        <div class="pd-reply-top"><b>${esc(r.by || (r.byEmail || "").split("@")[0])}</b><span class="pd-reply-at">${esc(r.at || "")}</span>
+          ${(r.byEmail === me && viewerCanReply()) ? `<button class="pd-cbtn danger pd-reply-del" data-replydel="${esc(p.id)}::${esc(r.id)}" title="Delete reply">✕</button>` : ""}</div>
+        <div class="pd-reply-text">${esc(r.text)}</div>
+      </div>`).join("");
+  }
+  function replyBoxHtml(p) {
+    if (!viewerCanReply()) return "";
+    return `<div class="pd-reply-new"><textarea data-replytext="${esc(p.id)}" placeholder="Reply to ${esc(pinAuthor(p) || "this comment")}…"></textarea>
+      <button class="pd-tool-btn" data-replysend="${esc(p.id)}">Reply</button></div>`;
   }
   function renderPinList() {
     const v = curSurface(); const box = $("pdPinList");
     const n = v.pins.length;
     const cc = $("pdCommentsCount"); if (cc) cc.textContent = n ? `Comments (${n})` : "Comments";
-    const clr = $("pdClearComments"); if (clr) clr.style.display = n ? "" : "none";
-    if (!n) { box.innerHTML = `<div class="pd-pinlist-empty">Switch to the Comment tool and click the image to pin a note.</div>`; return; }
-    box.innerHTML = v.pins.map((p, i) => `
+    const clr = $("pdClearComments"); if (clr) clr.style.display = (n && !clientEyes() && viewerCanMarkup()) ? "" : "none";
+    if (!n) { box.innerHTML = `<div class="pd-pinlist-empty">${viewerCanMarkup() ? "Switch to the Comment tool and click the image to pin a note." : "No comments on this page."}</div>`; return; }
+    box.innerHTML = v.pins.map((p, i) => {
+      const editable = canEditPin(p);
+      return `
       <div class="pd-comment ${p.resolved ? "resolved" : ""}" data-row="${p.id}">
         <div class="pd-comment-top">
           <span class="pd-pinnum">${i + 1}</span>
-          ${p.by ? `<span class="pd-pin-by" title="${esc(p.byEmail || "")}">${esc(p.by)}</span>` : ""}
+          ${pinAuthor(p) ? `<span class="pd-pin-by" title="${esc(p.byEmail || "")}">${esc(pinAuthor(p))}${p.byEmail && p.byEmail === myEmail() ? " (you)" : ""}</span>` : ""}
           <div class="pd-comment-actions">
-            <button class="pd-cbtn ok" data-resolve="${p.id}" title="${p.resolved ? "Reopen" : "Mark resolved"}">${p.resolved ? "↩" : "✓"}</button>
-            <button class="pd-cbtn danger" data-pindel="${p.id}" title="Delete">✕</button>
+            ${editable ? `<button class="pd-cbtn ok" data-resolve="${p.id}" title="${p.resolved ? "Reopen" : "Mark resolved"}">${p.resolved ? "↩" : "✓"}</button>
+            <button class="pd-cbtn danger" data-pindel="${p.id}" title="Delete">✕</button>` : ""}
           </div>
         </div>
-        <textarea data-pintext="${p.id}" placeholder="Add a note for pin ${i + 1}…">${esc(p.text)}</textarea>
-      </div>`).join("");
+        ${editable
+          ? `<textarea data-pintext="${p.id}" placeholder="Add a note for pin ${i + 1}…">${esc(p.text)}</textarea>`
+          : `<div class="pd-comment-text">${esc(p.text) || "<em>(no note)</em>"}</div>`}
+        ${(p.replies && p.replies.length) ? `<div class="pd-replies">${repliesHtml(p)}</div>` : ""}
+        ${replyBoxHtml(p)}
+      </div>`;
+    }).join("");
   }
   function addPin(xFrac, yFrac) {
+    if (!viewerCanMarkup()) return;
     const v = curSurface();
     // author-stamped so a multi-login client's comments are tellable apart
     const p = { id: "p_" + Date.now() + "_" + (seq++), x: xFrac, y: yFrac, text: "", resolved: false,
@@ -1545,21 +1866,38 @@ window.PresentDocs = (function () {
   function deletePin(id) {
     const v = curSurface();
     const index = v.pins.findIndex(x => x.id === id);
-    if (index < 0) return;
+    if (index < 0 || !canEditPin(v.pins[index])) return;
     const [pin] = v.pins.splice(index, 1);
     history.push({ type: "pinDel", pin, index });
     const pop = $("pdPopup"); if (pop && pop.dataset.pin === id) hidePopup();
     saveCur(); renderPins(); renderPinList();
   }
   function clearComments() {
-    const v = curSurface(); if (!v.pins.length) return;
+    const v = curSurface(); if (!v.pins.length || !viewerCanMarkup() || clientEyes()) return;
     history.push({ type: "pinClear", pins: v.pins.slice() });
     v.pins = [];
     hidePopup(); saveCur(); renderPins(); renderPinList();
   }
   function toggleResolve(id) {
-    const v = curSurface(); const p = v.pins.find(x => x.id === id); if (!p) return;
+    const v = curSurface(); const p = v.pins.find(x => x.id === id); if (!p || !canEditPin(p)) return;
     p.resolved = !p.resolved; saveCur(); renderPins(); renderPinList();
+  }
+  function addReply(pinId, text) {
+    const t = String(text || "").trim(); if (!t || !viewerCanReply()) return false;
+    const v = curSurface(); const p = v.pins.find(x => x.id === pinId); if (!p) return false;
+    p.replies = (p.replies || []).concat([{ id: "r_" + Date.now() + "_" + (seq++), by: myName(), byEmail: myEmail(),
+      text: t, at: stamp(), atMs: Date.now() }]);
+    saveCur(); renderPins(); renderPinList();
+    const pop = $("pdPopup"); if (pop && pop.dataset.pin === pinId) showPopup(p, true);
+    return true;
+  }
+  function deleteReply(pinId, replyId) {
+    const v = curSurface(); const p = v.pins.find(x => x.id === pinId); if (!p || !viewerCanReply()) return;
+    const r = (p.replies || []).find(x => x.id === replyId); if (!r || r.byEmail !== myEmail()) return;
+    p.replies = p.replies.filter(x => x.id !== replyId);
+    if (!p.replies.length) delete p.replies;
+    saveCur(); renderPins(); renderPinList();
+    const pop = $("pdPopup"); if (pop && pop.dataset.pin === pinId) showPopup(p);
   }
   function selectPin(id) {
     document.querySelectorAll(".pd-pin").forEach(m => m.classList.toggle("sel", m.dataset.pin === id));
@@ -1570,16 +1908,27 @@ window.PresentDocs = (function () {
     if (p) showPopup(p);   // bring the note up on the image, anchored to the pin
   }
 
-  /* ---------- in-image comment popup (anchored to the pin) ---------- */
-  function showPopup(p) {
+  /* ---------- in-image comment popup (anchored to the pin) ----------
+     Shows who wrote the comment, its note (editable only by its author), the whole reply
+     thread, and a reply box — so reviewers can answer each other right on the pin. */
+  function showPopup(p, noFocus) {
     const wrap = $("pdWrap"), pins = $("pdPins"), pop = $("pdPopup");
     if (!wrap || !pins || !pop) return;
     const ox = parseFloat(pins.style.left) || 0, oy = parseFloat(pins.style.top) || 0;
     const pw = parseFloat(pins.style.width) || 0, ph = parseFloat(pins.style.height) || 0;
     const px = panX + (ox + p.x * pw) * zoom, py = panY + (oy + p.y * ph) * zoom;   // account for zoom/pan
     pop.dataset.pin = p.id;
+    const editable = canEditPin(p);
     const ta = pop.querySelector("[data-popuptext]");
     ta.value = p.text || "";
+    ta.style.display = editable ? "" : "none";
+    let extra = pop.querySelector(".pd-popup-extra");
+    if (!extra) { extra = document.createElement("div"); extra.className = "pd-popup-extra"; pop.appendChild(extra); }
+    let head = pop.querySelector(".pd-popup-head");
+    if (!head) { head = document.createElement("div"); head.className = "pd-popup-head"; pop.insertBefore(head, ta); }
+    head.innerHTML = pinAuthor(p) ? `<b>${esc(pinAuthor(p))}</b>${p.byEmail === myEmail() ? " (you)" : ""}` : "";
+    extra.innerHTML = (editable ? "" : `<div class="pd-comment-text">${esc(p.text) || "<em>(no note)</em>"}</div>`) +
+      ((p.replies && p.replies.length) ? `<div class="pd-replies">${repliesHtml(p)}</div>` : "") + replyBoxHtml(p);
     pop.style.display = "block";
     const popW = pop.offsetWidth || 230, popH = pop.offsetHeight || 110;
     let left = px + 18, top = py - 12;
@@ -1587,7 +1936,8 @@ window.PresentDocs = (function () {
     if (left < 4) left = 4;
     top = Math.max(4, Math.min(top, wrap.clientHeight - popH - 4));
     pop.style.left = left + "px"; pop.style.top = top + "px";
-    ta.focus();
+    const focusEl = editable ? ta : pop.querySelector("[data-replytext]");
+    if (focusEl && !noFocus) focusEl.focus();
   }
   function hidePopup() { const pop = $("pdPopup"); if (pop) { pop.style.display = "none"; pop.dataset.pin = ""; } }
   function syncPopup(p) { const pop = $("pdPopup"); if (pop && pop.dataset.pin === p.id) { const ta = pop.querySelector("[data-popuptext]"); if (ta && ta.value !== p.text) ta.value = p.text; } }
@@ -1597,7 +1947,7 @@ window.PresentDocs = (function () {
     const a = history.pop();
     if (!a) return;
     if (a.type === "draw") {
-      if (ctx && a.img) ctx.putImageData(a.img, 0, 0);
+      if (ctx && a.img) { ctx.putImageData(a.img, 0, 0); canvasTouched = true; }
     } else if (a.type === "pinAdd") {
       const v = curSurface();
       v.pins = v.pins.filter(p => p.id !== a.id);
@@ -1643,7 +1993,7 @@ window.PresentDocs = (function () {
     const v = active(deliv(curId)); const ps = pagesOf(v); if (!ps) return;
     const next = Math.min(Math.max(0, i), ps.length - 1);
     if (next === curPage) return;
-    persistCanvas(); saveCur();        // bank this page's drawing before leaving it
+    if (persistCanvas()) saveCur();    // bank this page's drawing before leaving it
     curPage = next;
     loadVersionIntoModal();
   }
@@ -1656,7 +2006,7 @@ window.PresentDocs = (function () {
   }
   function switchVersion(i) {
     const d = deliv(curId); if (i === d.active) return;
-    persistCanvas(); saveCur();
+    if (persistCanvas()) saveCur();
     d.active = i;
     curPage = 0;                      // a new round starts at its first page
     loadVersionIntoModal();
@@ -1666,13 +2016,16 @@ window.PresentDocs = (function () {
   /* ---------- modal ---------- */
   function loadVersionIntoModal() {
     const d = deliv(curId); const v = active(d);
-    history = []; hidePopup(); resetZoom(); closeSignaturePad(); updateSignStatus();
+    history = []; canvasTouched = false; hidePopup(); resetZoom(); closeSignaturePad(); updateSignStatus();
     $("pdTitle").textContent = d.name;
     const _clientView = typeof effectiveRole === "function" && effectiveRole() === "client";
     // Multi-reviewer client: the notes box is MINE (my review entry), teammates' notes render
     // read-only in the peer panel below. Everyone else keeps the legacy shared field.
+    // (a submitted review wins; otherwise my saved DRAFT — so notes survive closing the proof)
+    const _draft = (_clientView && expectedOf(v).length) ? myDraftOf(v) : null;
+    if (_draft && _draft.status && pendingSel[v.vid] == null && !myReviewOf(v)) pendingSel[v.vid] = _draft.status;
     $("pdClientNotes").value = (_clientView && expectedOf(v).length)
-      ? ((myReviewOf(v) || {}).notes || "")
+      ? (myReviewOf(v) ? (myReviewOf(v).notes || "") : ((_draft && _draft.notes) || ""))
       : (v.clientNotes != null ? v.clientNotes : (v.comments || ""));   // migrate old single notes → client
     $("pdAgencyNotes").value = v.agencyNotes || "";
     $("pdRevDue").value = v.revisionsDue || "";
@@ -1704,6 +2057,8 @@ window.PresentDocs = (function () {
       if ((!img.clientWidth || !img.naturalWidth) && tries < 20) { requestAnimationFrame(() => paint(tries + 1)); return; }
       sizeOverlay();
       if (ctx) ctx.clearRect(0, 0, cv.width, cv.height);
+      { const ps = pagesOf(v); const k = sfKeyOf(v, ps ? Math.min(Math.max(0, curPage), ps.length - 1) : null);
+        if (!dirtyAnno.has(k)) annoLoaded.set(k, surface(v).annotation || null); }
       drawSaved(surface(v).annotation);
       renderPins(); renderPinList();
     };
@@ -1718,8 +2073,136 @@ window.PresentDocs = (function () {
     })();
     if (img.complete && img.naturalWidth) paint(0);   // already-loaded / cached / same-src
   }
-  function openModal(id) {
-    const d = deliv(id); if (!d) return;
+  /* ---------- ONE CLIENT REVIEWER AT A TIME ----------
+     A client login opening a proof whose round is still open takes the deliverable's review
+     lock (review-lock Edge Function). Anyone else gets "<Name> is currently reviewing". The lock
+     heartbeats every 20s and frees itself ~60s after a tab closes or drops offline. Staff never
+     lock. Completed rounds open read-only without a lock (nothing left to edit). */
+  const LOCK_SESSION = "s_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10);
+  const LOCK = { docId: null, timer: null, lost: false, fails: 0 };
+  const isRealClient = () => !!(getSession && getSession() && getSession().role === "client");
+  function roundOpen(d) {
+    const last = d && d.versions && [...d.versions].reverse().find(v => v.state !== "pending_approval");
+    return !!(last && !(last.reviewedAt || (expectedOf(last).length && reviewComplete(last))));
+  }
+  // Only someone who still has a review to FILE takes the lock. After you've submitted you can
+  // still read and reply (replies merge per author, safely, without the lock) — and you no longer
+  // block a teammate who hasn't reviewed yet.
+  function mineFiled(d) {
+    const last = d && d.versions && [...d.versions].reverse().find(v => v.state !== "pending_approval");
+    return !!(last && (expectedOf(last).length ? myReviewOf(last) : last.reviewedAt));
+  }
+  const needsLock = (d) => isRealClient() && !!d && !isDraft(d) && roundOpen(d) && !mineFiled(d) && supaOn();
+  const needsLockFor = (id) => { const d = deliv(id); return isRealClient() && !!d && !isDraft(d) && roundOpen(d) && supaOn(); };
+  /* IDLE RELEASE: a proof left open with nobody at the keyboard must not block teammates all
+     day. After 10 minutes without activity the work is saved, the lock is released and the
+     proof turns read-only with a note to reopen it. */
+  const IDLE_MS = 10 * 60 * 1000;
+  let lastActivity = Date.now();
+  ["pointerdown", "keydown", "wheel"].forEach(ev => document.addEventListener(ev, () => { lastActivity = Date.now(); }, true));
+  async function acquireLock(d) {
+    LOCK.releaseWhenSaved = false;
+    if (LOCK.docId && LOCK.docId !== d.id) { await flushPending(); dirtyAnno.clear(); await releaseLock(); }
+    const res = await window.TJA_MAIL.reviewLock("acquire", d.id, LOCK_SESSION);
+    if (!res.ok) return res;
+    LOCK.docId = d.id; LOCK.lost = false; LOCK.idle = false; LOCK.fails = 0; lastActivity = Date.now();
+    clearInterval(LOCK.timer);
+    LOCK.timer = setInterval(heartbeatLock, 20000);
+    return res;
+  }
+  // confirm we STILL hold the lock right now (before any write that could overwrite a drawing)
+  async function confirmLock() {
+    if (!LOCK.docId || LOCK.lost) return false;
+    try {
+      const r = await window.TJA_MAIL.reviewLock("heartbeat", LOCK.docId, LOCK_SESSION);
+      if (!r.ok) { loseLock(); applyReviewLock(); return false; }
+      return true;
+    } catch (e) { return false; }
+  }
+  async function heartbeatLock() {
+    if (!LOCK.docId) return;
+    if (!curId && LOCK.releaseWhenSaved) { maybeReleaseAfterSave(); if (!LOCK.docId) return; }
+    if (!LOCK.lost && curId === LOCK.docId && Date.now() - lastActivity > IDLE_MS) {
+      const still = await confirmLock();
+      LOCK.idle = true;
+      if (still && persistCanvas()) save();
+      await flushPending();          // save WHILE still holding it (the drawing graft needs dirtyAnno)
+      loseLock();
+      const id = LOCK.docId;
+      clearInterval(LOCK.timer); LOCK.timer = null;
+      try { await window.TJA_MAIL.reviewLock("release", id, LOCK_SESSION); } catch (e) {}
+      applyReviewLock();
+      window.TJA_UI.alert("This proof was paused after 10 minutes without activity so your teammates can review it. Everything you'd entered is saved — close it and open it again to continue.",
+        { title: "Review paused" });
+      return;
+    }
+    try {
+      const r = await window.TJA_MAIL.reviewLock("heartbeat", LOCK.docId, LOCK_SESSION);
+      LOCK.fails = 0;
+      if (!r.ok && !LOCK.lost) {
+        // our lock lapsed (connection dropped / laptop slept) and someone else took the proof
+        loseLock();
+        applyReviewLock();
+        window.TJA_UI.alert(`Your review session timed out (the connection dropped) and ${(r.holder && r.holder.name) || "another reviewer"} is now reviewing this deliverable. Your comments and notes are saved; any drawing made while the connection was down couldn't be kept. Please close it and try again later.`,
+          { title: "Review paused" });
+      }
+    } catch (e) { LOCK.fails++; }
+  }
+  // Called after every save: once the proof is closed AND everything is saved, free the lock.
+  // If the save is still failing, we keep holding it (heartbeating) so nobody opens a copy
+  // that's missing this person's work; it frees the moment the retry lands.
+  function maybeReleaseAfterSave() {
+    if (!LOCK.releaseWhenSaved || SAVE.dirty || SAVE.busy || submitBusy || curId) return;
+    LOCK.releaseWhenSaved = false; dirtyAnno.clear(); releaseLock();
+  }
+  async function releaseLock() {
+    const id = LOCK.docId; if (!id) return;
+    clearInterval(LOCK.timer); LOCK.timer = null; LOCK.docId = null; LOCK.lost = false; LOCK.idle = false;
+    try { await window.TJA_MAIL.reviewLock("release", id, LOCK_SESSION); } catch (e) {}
+  }
+  // background tabs are throttled — beat as soon as the tab is visible again
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && LOCK.docId) heartbeatLock(); });
+  window.addEventListener("pagehide", () => {
+    if (LOCK.docId && window.TJA_MAIL && window.TJA_MAIL.releaseLockOnExit) window.TJA_MAIL.releaseLockOnExit(LOCK.docId, LOCK_SESSION);
+  });
+  let opening = false;
+  async function openModal(id) {
+    let d = deliv(id); if (!d || opening) return;
+    if (needsLock(d)) {
+      opening = true; showBusy("Opening the proof…");
+      try {
+        let res;
+        try { res = await acquireLock(d); }
+        catch (e) {
+          window.TJA_UI.alert("Couldn't open this proof for review (" + (e && e.message || e) + "). Please check your connection and try again.", { title: "Couldn't open" });
+          return;
+        }
+        if (!res.ok) {
+          const who = (res.holder && res.holder.name) || "Someone else";
+          window.TJA_UI.alert(res.sameUser
+            ? "You already have this deliverable open for review in another tab or window. Close it there first (or wait a minute), then try again."
+            : `${who} is currently reviewing this deliverable. Please try again later.`,
+            { title: "Currently being reviewed" });
+          return;
+        }
+        // Now that it's ours, start from the FRESHEST copy so we see the previous reviewer's
+        // latest comments and markup (our own unsaved edits, if any, are grafted back on).
+        await flushPending();
+        let fresh = null;
+        for (let i = 0; i < 3 && !Array.isArray(fresh); i++) {
+          try { fresh = await window.SUPA.pullScope(sess.client, "deliverables", 20000); } catch (e) { fresh = null; }
+        }
+        if (!Array.isArray(fresh)) {
+          // never review on top of a stale copy — that's how the last reviewer's markup gets lost
+          await releaseLock();
+          window.TJA_UI.alert("Couldn't load the latest version of this proof (slow connection). Please try again in a moment.", { title: "Couldn't open" });
+          return;
+        }
+        items = mergeMineInto(fresh, items); setBase(items);
+        try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
+        d = deliv(id); if (!d) { await releaseLock(); return; }
+      } finally { opening = false; hideBusy(); }
+    }
     curId = id; curPage = 0; setTool("draw");
     const m = $("pdModal");
     m.classList.add("open");
@@ -1751,13 +2234,19 @@ window.PresentDocs = (function () {
     const mineDone = !!(v && (expectedOf(v).length ? myReviewOf(v) : v.reviewedAt));
     const reviewed = !!(clientView && mineDone);                          // this viewer already filed their review
     m.classList.toggle("pd-reviewed", reviewed);
-    const cn = $("pdClientNotes"); if (cn) cn.readOnly = reviewed;
+    // not holding the review lock (lost it to a dropped connection) → everything read-only
+    const lockedOut = !!(clientView && isRealClient() && supaOn() && d && !isDraft(d) && !versionDone(v) && !mineDone && !holdsLock());
+    m.classList.toggle("pd-lockedout", lockedOut);
+    const cn = $("pdClientNotes"); if (cn) cn.readOnly = reviewed || lockedOut;
     if (reviewed) { const rd = $("pdRevDue"); if (rd) rd.disabled = true; }
     const saved = $("pdSaved");
     if (saved) {
       if (reviewed) { saved.textContent = "✓ Review submitted — thank you"; saved.classList.add("show"); }
       else { saved.textContent = "✓ Review saved"; saved.classList.remove("show"); }
     }
+    if (lockedOut) { const sv = $("pdSaved"); if (sv) { sv.textContent = "Read-only — this review session ended. Close and reopen the proof to continue."; sv.classList.add("show"); } }
+    setSaveState();
+    try { renderPinList(); } catch (e) {}
   }
 
   // A new round must not reach the client until they've reviewed the current one. Returns
@@ -1768,7 +2257,10 @@ window.PresentDocs = (function () {
     for (let i = d.versions.length - 1; i >= 0; i--) {
       const v = d.versions[i];
       if (v.state === "pending_approval") continue;   // still in the waiting room — hasn't reached the client
-      return v.reviewedAt ? null : v;                 // the latest sent one gates the next round
+      // the latest sent one gates the next round. Completion is read from the DATA (every
+      // required reviewer in), not only from the stamp, so a round can never end up "all
+      // reviews in" yet still blocking V2.
+      return (v.reviewedAt || (expectedOf(v).length && reviewComplete(v))) ? null : v;
     }
     return null;                                      // nothing sent yet
   }
@@ -1803,8 +2295,13 @@ window.PresentDocs = (function () {
   function closeModal() {
     persistCanvas();
     // Draft annotations live in draftItems — persist whichever store the open item is in.
-    if (isDraft(deliv(curId))) saveDrafts(); else save();
+    const wasDraft = isDraft(deliv(curId));
+    if (persistCanvas()) { if (wasDraft) saveDrafts(); else save(); }
     renderGallery(); hidePopup(); resetZoom(); closeSignaturePad(); $("pdModal").classList.remove("open"); curId = null;
+    // Save FIRST, then hand the proof to the next reviewer — so they open it with everything
+    // this person did, including their last strokes and comments.
+    if (!wasDraft) { LOCK.releaseWhenSaved = true; flushPending().then(maybeReleaseAfterSave); }
+    else releaseLock();
   }
 
   function setTool(t) {
@@ -1837,16 +2334,15 @@ window.PresentDocs = (function () {
         { title: "Choose a response" });
       return;
     }
-    if (multi) {
-      // My notes live in MY review entry (written in finishSubmit) — the shared clientNotes
-      // stays untouched so one teammate can't overwrite another's feedback.
-    } else {
-      av.clientNotes = $("pdClientNotes").value; av.agencyNotes = $("pdAgencyNotes").value;
+    if (!viewerCanMarkup()) {
+      window.TJA_UI.alert("This proof is read-only right now. Close it and open it again to continue your review.", { title: "Can't submit" });
+      return;
     }
+    if (!multi) av.clientNotes = $("pdClientNotes").value;   // legacy single-reviewer field
     persistCanvas();
     // an approval needs a signature — ONE per round: the first approver signs, teammates don't
     if ((sel === "approved" || sel === "changes") && !av.signature) { openSignaturePad(); return; }
-    finishSubmit();
+    finishSubmit(null);
   }
   const STATUS_WORD = { approved: "Approved", changes: "Approved w/ changes", revisions: "Revisions needed" };
   /* Who's reviewed / who's outstanding — rendered under the notes for BOTH sides: teammates
@@ -1902,15 +2398,21 @@ window.PresentDocs = (function () {
       const ok = await window.TJA_UI.confirm(`Waive ${em}?\n\nThe round will complete without their review${remaining.length ? "" : " (all remaining reviews are in)"}.`, { title: "Waive reviewer", okText: "Waive" });
       if (!ok) return;
     }
+    const wasDone = versionDone(v);
     v.expectedReviewers = remaining;
     if (reviewComplete(v) || !remaining.length) {
       v.status = aggregateStatus(v);
-      v.reviewedAt = v.reviewedAt || stamp();
+      if (!v.reviewedAt) { v.reviewedAt = stamp(); v.completedAtMs = Date.now(); }
       v.reviewedStatus = v.status || null;
     }
     try { if (window.SUPA && window.SUPA.auditEvent) window.SUPA.auditEvent(sess.client, "deliverable.reviewer_waived", `waived ${em}'s review on ${d.name}${v.label ? " " + v.label : ""}`, { scope: "deliverables" }); } catch (e) {}
-    await saveNow();
-    renderPeerReviews(v); updateMeta(); renderGallery();
+    const vid = v.vid, did = d.id;
+    const w = await saveNow();
+    if (w && w.ok === false) { window.TJA_UI.alert("Couldn't save the waiver (" + (w.error || "network") + ") — it will keep retrying; don't close this page yet.", { title: "Not saved yet" }); }
+    const lv = findVersion(vid) || v;
+    renderPeerReviews(lv); updateMeta(); renderGallery();
+    // a round completed by a waiver pings the team (and gets its PDF) exactly like a submission
+    if (!wasDone && versionDone(lv) && (!w || w.ok !== false)) { notifyTeam(did, vid); archiveProof(did, vid); }
   }
   function updateMeta() {
     const d = deliv(curId); if (!d) return; const v = active(d);
@@ -1942,174 +2444,200 @@ window.PresentDocs = (function () {
   // slow it down) ran the entire pipeline twice — two saves, two Slack pings, two emails for
   // the same review (seen live 2026-07-28, duplicate pings at 3:24 PM). One submit at a time.
   let submitBusy = false;
-  async function finishSubmit() {
+  async function finishSubmit(sig) {
     if (submitBusy) return;
     submitBusy = true;
-    try { await finishSubmitInner(); } finally { submitBusy = false; }
+    const btn = $("pdSubmit"); const label = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "Submitting…"; }
+    try { await finishSubmitInner(sig); }
+    finally { submitBusy = false; if (btn) { btn.disabled = false; btn.textContent = label; } }
   }
-  async function finishSubmitInner() {
+  /* SUBMIT — one atomic save, then the team is told, then the PDF follows.
+       1. The review is written with a compare-and-set against the freshest copy (my review,
+          pins, drawing and signature grafted on). Completion is decided INSIDE that same write,
+          so it's computed from everyone's reviews — never from a stale copy — and two people
+          can't both think they were "not last".
+       2. Only once it is saved does the rail lock. If it can't be saved, NOTHING is locked or
+          lost: the reviewer is told and can press Submit again.
+       3. If this completed the round, the team ping is fired immediately (server-built from the
+          saved record, sent once, retried until it lands — it doesn't wait for the PDF and it
+          survives the tab closing).
+       4. The signed/marked-up proof PDF is then built and archived to the deliverable's Drive
+          folder, and threaded under the Slack post. If this browser can't finish that, a staff
+          browser picks it up automatically (archivePendingProofs). */
+  async function finishSubmitInner(sig) {
     const d = deliv(curId);
     const v = active(d);
-    const clientView = typeof effectiveRole === "function" && effectiveRole() === "client";
-    const multi = !!(v && expectedOf(v).length);
-    // The verdict being submitted: MY private selection in multi-reviewer mode, else the
-    // shared field (legacy single-reviewer path — unchanged behavior).
+    if (!d || !v) return;
+    const clientView = clientEyes();
+    const multi = !!expectedOf(v).length;
     const sel = multi && clientView
       ? (pendingSel[v.vid] != null ? pendingSel[v.vid] : ((myReviewOf(v) || {}).status || null))
-      : (v && v.status);
-    // Final client-facing confirm on any APPROVAL (approved / approved w/ changes) —
-    // the same "Mistakes Cost Money" terms, acknowledged at the moment of sign-off
-    // (Cameron, 2026-07-20). Covers both submit paths: direct submit with an existing
-    // signature, and straight out of the signature pad.
-    if (v && (sel === "approved" || sel === "changes") && clientView && window.TJA_UI) {
-      const ok = await window.TJA_UI.confirm(
-        PDF_DISCLAIMER + "\n\nSubmit your approval?",
+      : v.status;
+    // Final client-facing confirm on any APPROVAL — the "Mistakes Cost Money" terms,
+    // acknowledged at the moment of sign-off (Cameron, 2026-07-20).
+    if ((sel === "approved" || sel === "changes") && clientView && window.TJA_UI) {
+      const ok = await window.TJA_UI.confirm(PDF_DISCLAIMER + "\n\nSubmit your approval?",
         { title: "Confirm approval", okText: "Submit approval" });
-      if (!ok) return;
+      if (!ok) return;                                   // cancelled → the signature is discarded
     }
-    // Preview-as-client on a multi-reviewer round: record NOTHING — a staff-keyed entry in the
-    // reviews map would pollute the aggregate verdict and confuse the who's-left strip.
-    const realClient = !!(getSession && getSession() && getSession().role === "client");
+    // Preview-as-client on a multi-reviewer round records NOTHING.
+    const realClient = isRealClient();
     if (multi && clientView && !realClient) {
       flashDocsToast("Preview mode — reviews on this deliverable are only recorded from a real client login.");
       return;
     }
-    // If the round was ALREADY complete before this submit (a stale tab re-submitting, or a
-    // second login on a legacy single-review doc), the team was already pinged — never again.
-    const wasComplete = !!(v && (multi ? reviewComplete(v) : v.reviewedAt));
-    let completeNow = true;
-    if (multi && clientView && v) {
-      // Stamp MY review into the per-reviewer map. The shared completion fields only move
-      // when EVERYONE expected has responded — one teammate can't settle a round alone.
-      v.reviews = Object.assign({}, v.reviews);
-      v.reviews[myEmail()] = { name: myName(), email: myEmail(), status: sel || null,
-        notes: $("pdClientNotes") ? $("pdClientNotes").value : "", reviewedAt: stamp() };
-      delete pendingSel[v.vid];
-      v.status = aggregateStatus(v);           // worst-wins verdict for the badge/PDF
-      completeNow = reviewComplete(v);
-      if (completeNow) { v.reviewedAt = stamp(); v.reviewedStatus = v.status || null; }
-    } else if (v) {
-      v.reviewedAt = stamp(); v.reviewedStatus = v.status || null;   // stamp date+time of this review submit
-    }
-    // Notify the TJA team when a CLIENT submits a review (not when an admin does) — and in
-    // multi-reviewer mode only when the LAST teammate lands (Cameron: one ping, not one each).
-    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow && !wasComplete) {
-      if (window.TJA_NOTIFY) {
-        window.TJA_NOTIFY.record({
-          type: "review", docId: d.id, docName: d.name, versionLabel: v.label,
-          status: v.status || null, comments: allPins(v).length,
-          by: multi ? "All reviewers in" : (getSession().name || "Client"),
-        });
-      }
-    }
-    saveCur(); renderGallery(); updateSignStatus(); updateMeta();
-    // Merge-then-flush: graft MY review (and any pins I added) onto the FRESHEST server copy
-    // before pushing, so two teammates submitting near-simultaneously can't clobber each
-    // other — the deliverables scope has no CAS, the last writer wins wholesale.
-    if (multi && clientView && v && window.SUPA && window.SUPA.enabled && window.SUPA.pullScope) {
-      try {
-        const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
-        if (Array.isArray(fresh) && fresh.length) {
-          const fd = fresh.find(x => x.id === d.id);
-          const fv = fd && (fd.versions || []).find(x => x.vid === v.vid);
-          if (fv) {
-            fv.reviews = Object.assign({}, fv.reviews, { [myEmail()]: v.reviews[myEmail()] });
-            // carry MY pins + drawings across — per page for a multi-page proof
-            mergeVersionSurfaces(v, fv, myEmail());
-            if (v.signature && !fv.signature) { fv.signature = v.signature; fv.signedBy = v.signedBy; fv.signedDate = v.signedDate; }
-            fv.status = aggregateStatus(fv);
-            completeNow = reviewComplete(fv);
-            if (completeNow) { fv.reviewedAt = fv.reviewedAt || stamp(); fv.reviewedStatus = fv.status || null; }
-            items = fresh;
-            try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
-            renderGallery();
-          }
+    persistCanvas();
+    const me = myEmail(), vid = v.vid, did = d.id, when = stamp();
+    const notes = $("pdClientNotes") ? $("pdClientNotes").value : "";
+    const myReview = { name: myName(), email: me, status: sel || null, notes, reviewedAt: when };
+    let outcome = { was: false, complete: false };
+
+    // what this submit does to a version — applied to whatever copy is freshest
+    const applyMine = (fv, localV) => {
+      if (localV && localV !== fv) mergeVersionSurfaces(localV, fv, me);        // my pins + drawing
+      const was = versionDone(fv);
+      if (multi) {
+        fv.reviews = Object.assign({}, fv.reviews, { [me]: myReview });
+        if (fv.reviewDrafts && fv.reviewDrafts[me]) {
+          fv.reviewDrafts = Object.assign({}, fv.reviewDrafts); delete fv.reviewDrafts[me];
+          if (!Object.keys(fv.reviewDrafts).length) delete fv.reviewDrafts;
         }
-      } catch (e) { /* pull failed — push the local copy; my review still lands */ }
-    }
-    // Flush the review to the shared row IMMEDIATELY (not just the debounced push) so the
-    // agency sees the client's revisions the moment they land — and even if the client
-    // closes the tab right after submitting.
-    if (window.SUPA && window.SUPA.enabled && window.SUPA.pushScopeNow && !(typeof isCreative === "function" && isCreative())) {
-      // The review MUST reach the server the instant Submit is hit — NEVER deferred to when the
-      // client happens to close the page. A client who submits then forgets to exit would
-      // otherwise strand their feedback where the team never sees it. Await it and retry once on
-      // a transient failure; the debounced push saveCur() queued above remains as a last resort.
-      let flushed = false;
-      for (let attempt = 0; attempt < 2 && !flushed; attempt++) {
-        guardLive();
-        try { const r = await window.SUPA.pushScopeNow(sess.client, "deliverables", items); flushed = !!(r && r.ok); }
-        catch (e) { flushed = false; }
+        fv.status = aggregateStatus(fv);
+      } else {
+        fv.status = sel || null; fv.clientNotes = notes;
       }
-      if (!flushed) { try { console.warn("review flush failed — debounced push still queued"); save(); } catch (e) {} }
+      if (sig && !fv.signature) { fv.signature = sig.signature; fv.signedBy = sig.signedBy; fv.signedDate = sig.signedDate; }
+      const complete = multi ? reviewComplete(fv) : true;
+      if (complete && !fv.reviewedAt) { fv.reviewedAt = when; fv.reviewedStatus = fv.status || null; fv.completedAtMs = Date.now(); }
+      outcome = { was, complete };
+    };
+
+    let saved = false, err = "";
+    if (supaOn() && realClient) {
+      clearTimeout(pushTimer);
+      while (SAVE.busy) { try { await SAVE.busyPromise; } catch (e) {} }
+      // re-check right before writing: never submit (and never graft a drawing) without the lock
+      if (needsLockFor(did) && !(await confirmLock())) {
+        window.TJA_UI.alert("Your review session ended (the connection dropped or the page was asleep) and someone else may be reviewing now. Your notes are saved as a draft — close the proof, reopen it and submit again.",
+          { title: "Not submitted yet" });
+        return;
+      }
+      let release;
+      SAVE.busy = true; SAVE.busyPromise = new Promise(r => { release = r; }); setSaveState();
+      const seq = editSeq;
+      try {
+        const r = await window.SUPA.casUpdate(sess.client, "deliverables", (fresh) => {
+          const list = mergeMineInto(Array.isArray(fresh) ? fresh : [], items);   // everything else of mine too
+          const fd = list.find(x => x.id === did);
+          const fv = fd && (fd.versions || []).find(x => x.vid === vid);
+          if (!fv) throw new Error("this version is no longer available");
+          const ld = items.find(x => x.id === did);
+          const lv = ld && (ld.versions || []).find(x => x.vid === vid);
+          applyMine(fv, lv);
+          return normalizeRounds(list);
+        }, { tries: 8, timeoutMs: 20000 });
+        if (r.ok) {
+          saved = true;
+          adoptWrite(r.data, seq, true, null); setBase(r.data); rebaseAnnotations();
+          SAVE.dirty = editSeq !== seq; SAVE.fails = 0;
+        } else err = r.error || "network";
+      } catch (e) { err = String(e && e.message || e); }
+      finally {
+        SAVE.busy = false; release();
+        if (SAVE.dirty) schedulePush(300);              // edits made during the submit still go out
+        setSaveState();
+      }
+    } else {
+      // offline sandbox / staff preview on a legacy round: local only (nothing to share)
+      applyMine(v, v); saved = true; saveCur();
     }
-    // Confirmation now STAYS (no 5s fade) and the rail locks — the client can't silently
-    // change a submitted review. applyReviewLock hides Submit, pins "Review submitted",
-    // and freezes the fields for this version.
+    if (!saved) {
+      window.TJA_UI.alert("Your review hasn't been saved yet (" + err + "). Nothing you entered has been lost — please check your connection and press Submit Review again.",
+        { title: "Not submitted yet" });
+      return;
+    }
+    delete pendingSel[vid]; clearMyDraft(vid);
+    // Filed → this person no longer needs the proof to themselves (they can still read and
+    // reply). Free the lock now so a teammate who hasn't reviewed isn't kept waiting.
+    if (LOCK.docId === did) flushPending().then(() => { dirtyAnno.clear(); releaseLock().then(() => applyReviewLock()); });
+    // re-point the modal at the live objects (the save replaced `items`)
+    const vIdx = (deliv(did) && deliv(did).versions || []).findIndex(x => x.vid === vid);
+    if (vIdx > -1 && deliv(did)) deliv(did).active = vIdx;
+    renderGallery(); updateSignStatus(); updateMeta(); renderPeerReviews(active(deliv(did)));
     applyReviewLock();
-    // on the record — who reviewed what, with THEIR verdict (each submit is audited, even
-    // though the team notification below waits for the full round)
     try {
-      if (v && d && window.SUPA && window.SUPA.auditEvent) {
+      if (window.SUPA && window.SUPA.auditEvent) {
         const verdict = STATUS_WORD[sel || v.status] || sel || v.status || "responded";
         window.SUPA.auditEvent(sess.client, "deliverable.reviewed",
           `reviewed ${d.name}${v.label ? " " + v.label : ""} — ${verdict}`, { scope: "deliverables" });
       }
     } catch (e) {}
-    // Notify the team — with the deliverable's PDF attached to the Slack post. Fires ONLY when
-    // the round is COMPLETE (every expected reviewer in): one ping per round, not one per person
-    // (Cameron 2026-07-28). Generated AFTER the UI locks so the client never waits on it.
-    if (v && d && getSession && getSession() && getSession().role === "client" && completeNow && !wasComplete
-        && window.TJA_MAIL && window.TJA_MAIL.sendReviewResponse) {
-      // items may have been replaced by the merge above — resolve the CURRENT objects
-      const curD = deliv(curId) || d;
-      const curV = ((curD.versions || []).find(x => x.vid === v.vid)) || v;
-      const vIdx = (curD.versions || []).findIndex(x => x.vid === v.vid);
-      if (vIdx > -1) curD.active = vIdx;   // exportPDF renders active(d) — pin it to THIS round
-      let pdfBase64 = "";
-      try { pdfBase64 = await exportPDF(curD, { returnBase64: true }); } catch (e) { console.warn("proof PDF export failed", e); }
-      /* ARCHIVE the reviewed proof to Drive — this single PDF is both things that were missing:
-         the client's MARKED-UP submission (it carries their pins, drawings and notes) and the
-         APPROVED export (it carries the signature and verdict). It lands in the deliverable's
-         own folder beside V1/V2. The driveLink also rides along to Slack, so the team still
-         gets the document even when the bot can't attach a file natively. */
-      let pdfDriveLink = "";
-      if (pdfBase64 && window.TJA_FILES && window.TJA_FILES.enabled() && window.TJA_FILES.uploadPdfBase64) {
-        const verdict = (STATUS_WORD[curV.status] || curV.status || "reviewed").replace(/[^\w]+/g, "-");
-        const fname = `${(curD.name || "deliverable").replace(/[^\w-]+/g, "_")}-${curV.label}-${verdict}.pdf`;
-        try {
-          const up = await window.TJA_FILES.uploadPdfBase64(pdfBase64, fname, {
-            category: "present-docs", clientId: sess.client,
-            subfolder: curD.name || "", folderId: curD.driveFolderId || "",
-          });
-          if (up) {
-            pdfDriveLink = up.driveLink || "";
-            /* Re-resolve the live objects AFTER the awaits. Rendering and uploading a multi-MB
-               PDF takes seconds, and the debounced merged push fires mid-flight and REPLACES
-               `items` with a fresh server array — which detaches curD/curV, so writing to them
-               silently wrote to an orphan and the archived PDF never got linked to the round
-               (Cameron 2026-08-01). Always target whatever is live now. */
-            const liveD = (items || []).find(x => x.id === curD.id) || curD;
-            const liveV = (liveD.versions || []).find(x => x.vid === curV.vid) || curV;
-            if (!liveD.driveFolderId && up.folderId) liveD.driveFolderId = up.folderId;
-            // remember it on the round so the team can re-open the signed copy later
-            liveV.reviewedPdfUrl = up.url || ""; liveV.reviewedPdfLink = pdfDriveLink;
-            saveCur();
-          }
-        } catch (e) { console.warn("reviewed-proof archive to Drive failed", e); }
-      }
-      const reviewerLine = expectedOf(curV).length > 1
-        ? Object.values(reviewsOf(curV)).map(r => `${r.name || r.email}: ${STATUS_WORD[r.status] || r.status || "responded"}`).join(" · ")
-        : "";
+    if (!(realClient && outcome.complete && !outcome.was)) return;
+    const liveV = findVersion(vid) || v;
+    if (window.TJA_NOTIFY) {
       try {
-        window.TJA_MAIL.sendReviewResponse({
-          docId: curD.id, docName: curD.name, versionLabel: curV.label,
-          status: curV.status || null, comments: allPins(curV).length, reviewerLine,
-          pdfBase64, pdfName: `${(curD.name || "deliverable").replace(/[^\w-]+/g, "_")}-${curV.label}.pdf`,
-          pdfDriveLink,
-        });
-      } catch (e) { console.warn("review-response notify failed", e); }
+        window.TJA_NOTIFY.record({ type: "review", docId: did, docName: d.name, versionLabel: liveV.label,
+          status: liveV.status || null, comments: allPins(liveV).length, by: multi ? "All reviewers in" : (getSession().name || "Client") });
+      } catch (e) {}
     }
+    // 3. the team ping — right now, not after the PDF
+    notifyTeam(did, vid);
+    // 4. the proof PDF, in the background
+    archiveProof(did, vid, { fromSubmit: true });
+  }
+
+  /* ---------- the team ping + the archived proof (both idempotent, both retried) ---------- */
+  const notifyChecked = new Set();          // rounds this browser has confirmed with the server
+  async function notifyTeam(docId, vid) {
+    if (!(window.TJA_MAIL && window.TJA_MAIL.notifyReview)) return;
+    const payload = { docId, vid };
+    if (!isRealClient()) payload.clientId = sess.client;          // staff safety-net call
+    const r = await window.TJA_MAIL.notifyReview(payload);
+    if (r && (r.ok || r.already)) notifyChecked.add(vid);
+    return r;
+  }
+  const archiving = new Set();
+  async function archiveProof(docId, vid, opts) {
+    if (archiving.has(vid)) return;
+    if (!(window.TJA_FILES && window.TJA_FILES.enabled() && window.TJA_FILES.uploadPdfBase64)) return;
+    archiving.add(vid);
+    try {
+      const d = items.find(x => x.id === docId); const v = d && (d.versions || []).find(x => x.vid === vid);
+      if (!d || !v || v.reviewedPdfUrl) return;
+      const pdfBase64 = await exportPDF(d, { returnBase64: true, vid });
+      if (!pdfBase64) return;
+      const verdict = (STATUS_WORD[v.status] || v.status || "reviewed").replace(/[^\w]+/g, "-");
+      const fname = `${(d.name || "deliverable").replace(/[^\w-]+/g, "_")}-${v.label}-${verdict}.pdf`;
+      const up = await window.TJA_FILES.uploadPdfBase64(pdfBase64, fname, {
+        category: "present-docs", clientId: sess.client, subfolder: d.name || "", folderId: d.driveFolderId || "" });
+      if (!up) return;
+      // record it on the round (re-resolved: `items` may have been replaced while we worked)
+      const liveD = items.find(x => x.id === docId); const liveV = liveD && (liveD.versions || []).find(x => x.vid === vid);
+      if (liveD && !liveD.driveFolderId && up.folderId) liveD.driveFolderId = up.folderId;
+      if (liveV) { liveV.reviewedPdfUrl = up.url || ""; liveV.reviewedPdfLink = up.driveLink || ""; save(); }
+      if (window.TJA_MAIL && window.TJA_MAIL.notifyReviewPdf) {
+        const payload = { docId, vid, pdfBase64, pdfName: fname, pdfDriveLink: up.driveLink || "" };
+        if (!isRealClient()) payload.clientId = sess.client;
+        window.TJA_MAIL.notifyReviewPdf(payload);
+      }
+    } catch (e) { console.warn("proof archive failed — a staff browser will retry", e); }
+    finally { archiving.delete(vid); }
+  }
+  /* SAFETY NET, run after every refresh: any round completed recently that this browser hasn't
+     confirmed as notified gets (re)sent — the server ignores duplicates — and any completed round
+     still missing its archived PDF gets one built by a STAFF browser (after a short grace period,
+     so the submitting client's own browser gets first go). */
+  const RECENT_MS = 3 * 24 * 3600 * 1000;
+  function afterRefresh() {
+    const now = Date.now();
+    const staffCanFix = !isRealClient() && (typeof canEdit === "function" ? canEdit() : false) && !(typeof isCreative === "function" && isCreative());
+    items.forEach(d => (d.versions || []).forEach(v => {
+      const done = +v.completedAtMs || 0;
+      if (!done || now - done > RECENT_MS || !versionDone(v)) return;
+      if (!notifyChecked.has(v.vid) && (isRealClient() || staffCanFix)) { notifyChecked.add(v.vid); notifyTeam(d.id, v.vid).then(r => { if (!(r && (r.ok || r.already))) notifyChecked.delete(v.vid); }); }
+      if (staffCanFix && !v.reviewedPdfUrl && now - done > 3 * 60 * 1000) archiveProof(d.id, v.vid);
+    }));
   }
   function updateSignStatus() {
     const el = $("pdSignStatus"); if (!el) return;
@@ -2163,18 +2691,23 @@ window.PresentDocs = (function () {
     x.fillStyle = "#111"; x.textBaseline = "middle"; x.textAlign = "left"; x.font = "52px 'Great Vibes', cursive";
     x.fillText(name, 18, 84); return c.toDataURL("image/png");
   }
+  /* The signature is held ASIDE and only written onto the round inside the same save as the
+     review itself. It used to be attached the moment the pad closed — so cancelling the final
+     "Submit your approval?" confirm left a phantom "Approved & signed by …" behind. */
   async function confirmSign() {
-    const v = active(deliv(curId)); const name = $("pdSignName").value.trim();
+    const name = $("pdSignName").value.trim();
+    let signature;
     if (sigMode === "type") {
       if (!name) { $("pdSignSub").textContent = "Type your name to create a signature."; return; }
-      v.signature = await typedSignature(name);
+      signature = await typedSignature(name);
     } else {
       if (!sigDirty) { $("pdSignSub").textContent = "Draw your signature, or switch to Type."; return; }
-      v.signature = $("pdSignPad").toDataURL("image/png");
+      signature = $("pdSignPad").toDataURL("image/png");
     }
-    v.signedBy = name || ((typeof getSession === "function" && getSession() && getSession().name) || "Client");
-    v.signedDate = new Date().toLocaleDateString();
-    closeSignaturePad(); finishSubmit();
+    const sig = { signature,
+      signedBy: name || ((typeof getSession === "function" && getSession() && getSession().name) || "Client"),
+      signedDate: new Date().toLocaleDateString() };
+    closeSignaturePad(); finishSubmit(sig);
   }
 
   /* ---------- PDF export — renders the TJA Present Template 2025 ----------
@@ -2292,7 +2825,7 @@ window.PresentDocs = (function () {
       if (btn) { btn.disabled = true; btn.textContent = "Generating…"; }
       const jsPDF = await loadJsPDF(); if (!jsPDF) throw new Error("no jsPDF");
       const [fonts, mark] = await Promise.all([loadInterFonts(), loadTjaMark()]);
-      const v = active(d);
+      const v = (opts && opts.vid && (d.versions || []).find(x => x.vid === opts.vid)) || active(d);
       // One PDF page per document page for a multi-page proof, each with ITS own markup. A
       // single-surface deliverable yields exactly one, so nothing changes for image proofs.
       const surfaces = pagesOf(v) || [v];
@@ -2400,22 +2933,51 @@ window.PresentDocs = (function () {
       const bottom = () => FOOT_TOP - 10;
       const newPage = () => { pdf.addPage([pageW, pageH], pageW > pageH ? "landscape" : "portrait"); drawHeader(true); y = HEAD_RULE + 22; };
 
-      /* ---- ADDITIONAL DETAILS (the portal notes), centered per the template ---- */
+      /* ---- REVIEWS: every reviewer's verdict, date and notes (multi-approver rounds) ----
+         Each person's notes live in their own review entry, NOT in the shared clientNotes field,
+         so they were missing from the archived proof. They are the record of what the client
+         asked for — they go on the PDF, in full, before the artwork. */
+      const noteW = Math.min(pageW * 0.72, 640);
+      const ensure = (h) => { if (y + h > bottom()) newPage(); };
+      const exp = expectedOf(v), revs = reviewsOf(v);
+      const order = [...exp.filter(e => revs[e]), ...Object.keys(revs).filter(e => exp.indexOf(e) === -1)];
+      if (order.length) {
+        setF("Inter", "bold", 8, INK); pdf.text("CLIENT REVIEWS:", pageW / 2, y, { align: "center", charSpace: 0.3 }); y += 13;
+        order.forEach(e => {
+          const r = revs[e];
+          const head = `${r.name || e}${exp.indexOf(e) === -1 ? " (optional)" : ""} — ${STATUS_WORD[r.status] || r.status || "Responded"}${r.reviewedAt ? "  ·  " + r.reviewedAt : ""}`;
+          ensure(22);
+          setF("Inter", "bold", 7.5, INK); pdf.text(head, pageW / 2, y, { align: "center" }); y += 10.5;
+          if (r.notes) {
+            setF("Inter", "normal", 8, INK);
+            pdf.splitTextToSize(String(r.notes), noteW).forEach(ln => { ensure(11); pdf.text(ln, pageW / 2, y, { align: "center" }); y += 10.5; });
+          }
+          y += 6;
+        });
+        const waiting = exp.filter(e => !revs[e]);
+        if (waiting.length) { ensure(12); setF("Inter", "normal", 7, GRAY); pdf.text("Not reviewed: " + waiting.join(", "), pageW / 2, y, { align: "center" }); y += 12; }
+        y += 4;
+      }
+      /* ---- ADDITIONAL DETAILS (the shared portal notes), centered per the template ---- */
       const noteBlocks = [];
-      if (v.clientNotes) noteBlocks.push(["CLIENT NOTES", v.clientNotes]);
+      if (v.clientNotes && !order.length) noteBlocks.push(["CLIENT NOTES", v.clientNotes]);
       if (v.agencyNotes) noteBlocks.push(["AGENCY NOTES", v.agencyNotes]);
       if (noteBlocks.length) {
+        ensure(24);
         setF("Inter", "bold", 8, INK); pdf.text("ADDITIONAL DETAILS:", pageW / 2, y, { align: "center", charSpace: 0.3 });
         y += 12;
         noteBlocks.forEach(([lbl, txt]) => {
+          ensure(20);
           setF("Inter", "bold", 7, GRAY); pdf.text(lbl, pageW / 2, y, { align: "center", charSpace: 0.3 }); y += 10;
           setF("Inter", "normal", 8, INK);
-          const lines = pdf.splitTextToSize(txt, Math.min(pageW * 0.72, 640));
-          lines.forEach(ln => { pdf.text(ln, pageW / 2, y, { align: "center" }); y += 10.5; });
+          const lines = pdf.splitTextToSize(txt, noteW);
+          lines.forEach(ln => { ensure(11); pdf.text(ln, pageW / 2, y, { align: "center" }); y += 10.5; });
           y += 6;
         });
         y += 6;
       }
+      // the artwork needs real room — if the notes filled page 1, it starts on a fresh page
+      if (bottom() - y < 220) newPage();
 
       /* ---- each page: the creative, then ITS comments, numbered to match its pins ---- */
       for (let si = 0; si < surfaces.length; si++) {
@@ -2451,6 +3013,13 @@ window.PresentDocs = (function () {
             setF("Inter", "bold", 7, [255, 255, 255]); pdf.text(String(i + 1), M + 6, y - 0.6, { align: "center" });
             setF("Inter", "normal", 8.5, INK);
             pdf.text(lines, M + 20, y); y += lines.length * 11.5 + 7;
+            // the reply thread, indented under its comment
+            (pn.replies || []).forEach(r => {
+              const rl = pdf.splitTextToSize(`Reply from ${r.by || r.byEmail || "reviewer"}: ${r.text || ""}`, pageW - M * 2 - 40);
+              if (y + rl.length * 10.5 > bottom()) newPage();
+              setF("Inter", "normal", 7.8, GRAY);
+              pdf.text(rl, M + 34, y); y += rl.length * 10.5 + 4;
+            });
           });
         }
       }
@@ -2484,6 +3053,21 @@ window.PresentDocs = (function () {
   function pos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / zoom, y: (e.clientY - r.top) / zoom }; }
   function snapshot() { if (!ctx) return; try { history.push({ type: "draw", img: ctx.getImageData(0, 0, cv.width, cv.height) }); if (history.length > 60) history.shift(); } catch {} }
 
+  // Reply send / delete, shared by the sidebar list and the in-image popup.
+  function handleReplyClick(e, root) {
+    const snd = e.target.closest("[data-replysend]");
+    if (snd) {
+      e.stopPropagation();
+      const id = snd.dataset.replysend;
+      const ta = root.querySelector(`[data-replytext="${CSS.escape(id)}"]`);
+      if (ta && addReply(id, ta.value)) ta.value = "";
+      return true;
+    }
+    const del = e.target.closest("[data-replydel]");
+    if (del) { e.stopPropagation(); const [pid, rid] = del.dataset.replydel.split("::"); deleteReply(pid, rid); return true; }
+    return false;
+  }
+
   /* ---------- wiring ---------- */
   // The Present Docs page DOM is rebuilt every time its tab repaints, so the
   // element listeners must re-attach each time; document/window listeners attach once.
@@ -2516,14 +3100,16 @@ window.PresentDocs = (function () {
       // 12s budget: deliverable rows carry inline base64 proofs (several MB) — the default
       // 3.5s pull timeout regularly failed silently and left this page rendering a STALE
       // local copy (the "client review / waiting-room item not showing up" delays).
+      if (SAVE.dirty || SAVE.busy) return;                            // our own unsaved work first
       const sent = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
       // Adopting the server copy makes it the new merge ancestor for staff writes — without this
       // the 3-way merge would keep comparing against a stale base and mis-read remote additions.
-      if (Array.isArray(sent)) { items = sent; setBase(sent); try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
+      if (Array.isArray(sent) && !SAVE.dirty && !SAVE.busy) { items = sent; setBase(sent); try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
       if (isStaffFn()) {
         const dr = await window.SUPA.pullScope(sess.client, "deliverables_draft", 12000);
-        if (Array.isArray(dr)) { draftItems = dr; try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {} }
+        if (Array.isArray(dr) && !DRAFT.dirty && !DRAFT.busy) { draftItems = dr; draftBaseIds = new Set(dr.map(d => d.id)); try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {} }
       }
+      afterRefresh();
       renderGallery();
     } catch (e) { /* transient — next tick */ }
     finally { liveBusy = false; }
@@ -2543,21 +3129,32 @@ window.PresentDocs = (function () {
      mid-signature or typing so nothing is yanked out from under them; their own work is grafted
      back on by mergeMineInto, so an in-flight markup is never lost. */
   async function syncOpenModal() {
-    if (!(getSession && getSession() && getSession().role === "client")) return;
     const d = deliv(curId); const v = d && active(d);
-    if (!v || !expectedOf(v).length) return;              // single-reviewer round: nothing to sync
-    if (drawing || sigDrawing) return;
+    if (!v || isDraft(d)) return;
+    if (drawing || sigDrawing || SAVE.busy || submitBusy) return;
     const ae = document.activeElement;
     if (ae && (/^(input|textarea|select)$/i.test(ae.tagName || "") || ae.isContentEditable)) return;
     if (!(window.SUPA && window.SUPA.enabled && window.SUPA.pullScope)) return;
     try {
       const fresh = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
-      if (!Array.isArray(fresh) || !fresh.length) return;
-      items = mergeMineInto(fresh, items);
+      if (!Array.isArray(fresh) || !fresh.length || SAVE.busy) return;
+      // client: graft my own work back on; staff: adopt the server copy unless we have unsaved edits
+      if (isRealClient()) items = mergeMineInto(fresh, items);
+      else if (!SAVE.dirty) { items = fresh; setBase(fresh); }
+      else return;
       try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {}
       const d2 = deliv(curId); const v2 = d2 && active(d2);
       if (!v2) { closeModal(); return; }                   // the open card was deleted elsewhere
-      renderPins(); renderPinList(); renderPeerReviews(v2); updateMeta();
+      renderPins(); renderPinList(); renderPeerReviews(v2); updateMeta(); updateSignStatus();
+      { const ps = pagesOf(v2); const k = sfKeyOf(v2, ps ? Math.min(Math.max(0, curPage), ps.length - 1) : null);
+        const now = surface(v2).annotation || null;
+        if (!canvasTouched && !dirtyAnno.has(k) && annoLoaded.get(k) !== now && ctx) {
+          annoLoaded.set(k, now); ctx.clearRect(0, 0, cv.width, cv.height); drawSaved(now);
+        } }
+      const pop = $("pdPopup");
+      if (pop && pop.style.display !== "none" && pop.dataset.pin) {
+        const p = (curSurface().pins || []).find(x => x.id === pop.dataset.pin); if (p) showPopup(p, true); else hidePopup();
+      }
     } catch (e) { /* transient — next tick */ }
   }
 
@@ -2646,7 +3243,7 @@ window.PresentDocs = (function () {
         }
         // Remove locally + repaint immediately, then flush the removal to the server RIGHT AWAY
         // (guardLive keeps a stray pull from re-adding it — the "deletes, pops back" bug).
-        if (draftItems.some(x => x.id === id)) { draftItems = draftItems.filter(x => x.id !== id); renderGallery(); await saveDraftsNow(); }
+        if (draftItems.some(x => x.id === id)) { draftDeleted.add(id); draftItems = draftItems.filter(x => x.id !== id); renderGallery(); await saveDraftsNow(); }
         else { items = items.filter(x => x.id !== id); renderGallery(); await saveNow(); }
         // deletions are the events people most need to trace back
         try { if (window.SUPA && window.SUPA.auditEvent) window.SUPA.auditEvent(sess.client, "deliverable.deleted", `deleted ${gone}`, { scope: "deliverables" }); } catch (e) {}
@@ -2668,7 +3265,7 @@ window.PresentDocs = (function () {
     }));
 
     $("pdUndo").addEventListener("click", undo);
-    $("pdClear").addEventListener("click", () => { snapshot(); if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); });
+    $("pdClear").addEventListener("click", () => { if (!viewerCanMarkup()) return; snapshot(); canvasTouched = true; if (ctx) ctx.clearRect(0, 0, cv.width, cv.height); });
     $("pdVers").addEventListener("click", e => { const c = e.target.closest("[data-ver]"); if (c) switchVersion(+c.dataset.ver); });
     if ($("pdPagePrev")) $("pdPagePrev").addEventListener("click", () => switchPage(curPage - 1));
     if ($("pdPageNext")) $("pdPageNext").addEventListener("click", () => switchPage(curPage + 1));
@@ -2685,10 +3282,13 @@ window.PresentDocs = (function () {
       // around can't repaint the shared card status for everyone.
       if (expectedOf(v).length && typeof effectiveRole === "function" && effectiveRole() === "client") {
         const cur = pendingSel[v.vid] != null ? pendingSel[v.vid] : ((myReviewOf(v) || {}).status || null);
+        if (!viewerCanMarkup()) return;
         pendingSel[v.vid] = (cur === val) ? null : val;
         document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === pendingSel[v.vid]));
+        saveMyDraft();
         return;
       }
+      if (clientEyes() && !viewerCanMarkup()) return;
       v.status = (v.status === val) ? null : val;
       document.querySelectorAll(".pd-status-opt").forEach(o => o.classList.toggle("sel", o.dataset.val === v.status));
       saveCur();
@@ -2700,20 +3300,29 @@ window.PresentDocs = (function () {
       // and looking them up in v.pins found nothing — so typing a comment silently saved nowhere
       // (Cameron 2026-08-01). Every other pin site already resolves through curSurface().
       const v = curSurface(); const p = v && (v.pins || []).find(x => x.id === ta.dataset.pintext);
-      if (p) { p.text = ta.value; saveCur(); syncPopup(p); }
+      if (p && canEditPin(p)) { p.text = ta.value; saveCur(); syncPopup(p); }
     });
     $("pdPinList").addEventListener("click", e => {
       const res = e.target.closest("[data-resolve]"); if (res) { toggleResolve(res.dataset.resolve); return; }
       const del = e.target.closest("[data-pindel]"); if (del) { deletePin(del.dataset.pindel); return; }
+      if (handleReplyClick(e, $("pdPinList"))) return;
       const card = e.target.closest(".pd-comment");
-      if (card && e.target.tagName !== "TEXTAREA") selectPin(card.dataset.row);  // highlight pin + open its in-image note
+      if (card && e.target.tagName !== "TEXTAREA" && !e.target.closest(".pd-reply-new")) selectPin(card.dataset.row);  // highlight pin + open its in-image note
+    });
+    $("pdPinList").addEventListener("keydown", e => {
+      // ⌘/Ctrl+Enter sends a reply
+      const ta = e.target.closest && e.target.closest("[data-replytext]");
+      if (ta && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (addReply(ta.dataset.replytext, ta.value)) ta.value = ""; }
     });
     $("pdClearComments").addEventListener("click", clearComments);
 
     $("pdPins").addEventListener("click", e => {
-      if (tool !== "comment" || justPanned || spaceDown) return;
+      if (justPanned || spaceDown) return;
+      // a pin is ALWAYS clickable (any tool, even after you've submitted): it opens the comment,
+      // its replies, and the reply box
       const marker = e.target.closest(".pd-pin");
       if (marker) { selectPin(marker.dataset.pin); return; }
+      if (tool !== "comment") return;
       const layer = $("pdPins"); const r = layer.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
       if (x < 0 || x > 1 || y < 0 || y > 1) return;
@@ -2725,9 +3334,14 @@ window.PresentDocs = (function () {
       pop.querySelector("[data-popuptext]").addEventListener("input", e => {
         const id = pop.dataset.pin; if (!id) return;
         const v = curSurface(); const p = v && v.pins.find(x => x.id === id);
-        if (p) { p.text = e.target.value; saveCur(); const ta = document.querySelector(`[data-pintext="${id}"]`); if (ta) ta.value = p.text; }
+        if (p && canEditPin(p)) { p.text = e.target.value; saveCur(); const ta = document.querySelector(`[data-pintext="${id}"]`); if (ta) ta.value = p.text; }
       });
       $("pdPopupClose").addEventListener("click", hidePopup);
+      pop.addEventListener("click", e => { handleReplyClick(e, pop); });
+      pop.addEventListener("keydown", e => {
+        const ta = e.target.closest && e.target.closest("[data-replytext]");
+        if (ta && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (addReply(ta.dataset.replytext, ta.value)) ta.value = ""; }
+      });
     }
 
     // zoom controls + wheel + pan. ZOOM only on pinch / Ctrl(⌘)+scroll — hijacking EVERY wheel
@@ -2755,7 +3369,7 @@ window.PresentDocs = (function () {
     cv = $("pdCanvas");
     cv.addEventListener("pointerdown", e => {
       if (panKey(e)) { startPan(e); return; }                      // space/middle-drag → pan
-      if (tool !== "draw" || !ctx) return; hidePopup(); snapshot(); drawing = true; lastPt = pos(e); cv.setPointerCapture(e.pointerId);
+      if (tool !== "draw" || !ctx || !viewerCanMarkup()) return; hidePopup(); snapshot(); drawing = true; canvasTouched = true; lastPt = pos(e); cv.setPointerCapture(e.pointerId);
     });
     cv.addEventListener("pointermove", e => {
       if (!drawing || !ctx) return;
@@ -2767,7 +3381,13 @@ window.PresentDocs = (function () {
     cv.addEventListener("pointerup", () => { drawing = false; });
     cv.addEventListener("pointerleave", () => { drawing = false; });
 
-    $("pdClientNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.clientNotes = e.target.value; saveCur(); } });
+    $("pdClientNotes").addEventListener("input", e => {
+      const v = active(deliv(curId)); if (!v) return;
+      // multi-reviewer client: the box is MY review → saved as my private draft until Submit
+      if (clientEyes() && expectedOf(v).length) { saveMyDraft(); return; }
+      if (clientEyes() && !viewerCanMarkup()) return;
+      v.clientNotes = e.target.value; saveCur();
+    });
     $("pdAgencyNotes").addEventListener("input", e => { const v = active(deliv(curId)); if (v) { v.agencyNotes = e.target.value; saveCur(); } });
     $("pdRevDue").addEventListener("change", e => {
       if (typeof effectiveRole === "function" && effectiveRole() === "client") return;   // clients can't set their own deadline

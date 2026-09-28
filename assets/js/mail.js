@@ -165,5 +165,86 @@ window.TJA_MAIL = (function () {
     } catch (e) { return { ok: false, error: String(e) }; }
   }
 
-  return { enabled, sendDeliverable, sendReviewResponse };
+  /* WHO MUST REVIEW — asked BEFORE a version is written, so expectedReviewers is part of the
+     very first save of the round. (It used to be stamped from the send-email reply afterwards;
+     a closed tab, stale session or failed email lost the stamp and the round silently became
+     "first reviewer completes it".) Throws on failure — the caller must not send without it. */
+  async function fetchReviewers(clientId) {
+    if (!enabled()) return { ok: true, reviewers: [], offline: true };
+    const token = await accessToken();
+    if (!token) throw new Error("your login session has gone stale — sign out and back in, then try again");
+    let r, j = {};
+    try {
+      r = await fetch(fnBase() + "/send-deliverable-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ clientId, reviewersOnly: true }),
+      });
+      j = await r.json().catch(() => ({}));
+    } catch (e) { throw new Error("network error — check your connection and try again"); }
+    if (!r.ok || !Array.isArray(j.reviewers)) throw new Error(j.error || ("HTTP " + r.status));
+    return { ok: true, reviewers: j.reviewers.map((e) => String(e).toLowerCase()), logins: j.logins || [] };
+  }
+
+  /* TEAM PING for a completed review round. The server builds the Slack + email from the SAVED
+     record and sends each round exactly once, so this is safe to call from anywhere, any number
+     of times. keepalive lets the request finish even if the tab closes right after Submit. */
+  async function notifyReview(payload) {
+    if (!enabled()) return { ok: false, skipped: true };
+    const token = await accessToken();
+    if (!token) return { ok: false, skipped: true, staleSession: true };
+    try {
+      const r = await fetch(fnBase() + "/send-review-notification", {
+        method: "POST", keepalive: true,
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify(Object.assign({ mode: "notify" }, payload)),
+      });
+      return Object.assign({ httpOk: r.ok }, await r.json().catch(() => ({})));
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+  // The signed/marked-up proof PDF, posted as a thread reply under the review notification.
+  async function notifyReviewPdf(payload) {
+    if (!enabled()) return { ok: false, skipped: true };
+    const token = await accessToken();
+    if (!token) return { ok: false, skipped: true };
+    try {
+      const r = await fetch(fnBase() + "/send-review-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify(Object.assign({ mode: "pdf" }, payload)),
+      });
+      return Object.assign({ httpOk: r.ok }, await r.json().catch(() => ({})));
+    } catch (e) { return { ok: false, error: String(e) }; }
+  }
+
+  /* ONE-AT-A-TIME REVIEW LOCK (review-lock Edge Function). Only client logins take it; staff get
+     { ok:true, staff:true }. The token is cached so the page-close release can fire synchronously. */
+  let lockToken = null;
+  async function reviewLock(action, docId, sessionId) {
+    if (!enabled()) return { ok: true, offline: true };
+    const token = await accessToken();
+    if (!token) throw new Error("your login session has gone stale — sign out and back in, then try again");
+    lockToken = token;
+    const r = await fetch(fnBase() + "/review-lock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ action, docId, sessionId }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+    return j;
+  }
+  // best-effort release while the page is going away (can't await there)
+  function releaseLockOnExit(docId, sessionId) {
+    if (!enabled() || !lockToken) return;
+    try {
+      fetch(fnBase() + "/review-lock", {
+        method: "POST", keepalive: true,
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + lockToken },
+        body: JSON.stringify({ action: "release", docId, sessionId }),
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
+  return { enabled, sendDeliverable, sendReviewResponse, fetchReviewers, notifyReview, notifyReviewPdf, reviewLock, releaseLockOnExit };
 })();

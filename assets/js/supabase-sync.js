@@ -485,6 +485,56 @@ window.SUPA = (function () {
     finally { pending[key] = false; }
   }
 
+  /* COMPARE-AND-SET update — the lost-update-proof write (Present Docs, 2026-09-28).
+     Pull the row + its updated_at, let `mutate(fresh)` build the next value FROM THAT FRESH
+     COPY, then write it only if nobody else wrote in between (update … where updated_at = the
+     stamp we read). Lost the race → re-pull, re-merge, retry. It NEVER falls back to a blind
+     overwrite: if the pull fails or times out it reports failure and the caller keeps its
+     changes and retries later — which is what stops a slow connection from pushing a stale
+     copy over a teammate's review.
+       mutate(fresh, attempt) → next value (return undefined to abort without writing)
+       → { ok:true, data:next, updated_at } | { ok:false, error } */
+  async function casUpdate(clientId, scope, mutate, opts) {
+    if (!client) return { ok: false, error: "supabase-not-configured" };
+    await ready;
+    const key = clientId + "::" + scope;
+    const tries = (opts && opts.tries) || 6;
+    const timeoutMs = (opts && opts.timeoutMs) || 15000;
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    let lastErr = "conflict";
+    pending[key] = true;
+    try {
+      for (let i = 0; i < tries; i++) {
+        if (i > 0) await nap(Math.min(4000, 250 * Math.pow(2, i - 1)) + Math.random() * 200);
+        const r = await withTimeout(
+          client.from("app_state").select("data,updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle(),
+          timeoutMs, scope);
+        if (r && r.__timeout) { lastErr = "timeout reading the latest copy"; continue; }
+        if (r.error) { lastErr = r.error.message; continue; }
+        const row = r.data;
+        let next;
+        try { next = mutate(row ? row.data : null, i); } catch (e) { return { ok: false, error: "merge failed: " + (e && e.message || e) }; }
+        if (next === undefined) return { ok: true, noop: true, data: row ? row.data : null };
+        const stamp = new Date().toISOString();
+        const w = row
+          ? client.from("app_state").update({ data: next, updated_at: stamp })
+              .eq("client_id", clientId).eq("scope", scope).eq("updated_at", row.updated_at).select("updated_at")
+          : client.from("app_state").insert({ client_id: clientId, scope, data: next, updated_at: stamp }).select("updated_at");
+        const res = await withTimeout(w, timeoutMs, scope + "-cas");
+        // A timed-out write MAY have landed. Safe either way: the next attempt re-pulls and
+        // re-merges, and every merge here is idempotent (it grafts, it never double-applies).
+        if (res && res.__timeout) { lastErr = "timeout saving"; continue; }
+        if (!res.error && res.data && res.data.length) {
+          auditWrite(clientId, scope, next);
+          return { ok: true, data: next, updated_at: res.data[0].updated_at, attempts: i + 1 };
+        }
+        lastErr = res.error ? res.error.message : "someone else saved first";
+      }
+      return { ok: false, error: lastErr };
+    } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
+    finally { pending[key] = false; }
+  }
+
   // delete every scope row for a client (used when an admin removes a workspace)
   async function removeClient(clientId) {
     if (!client) return;
@@ -509,5 +559,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA readAudit", e); return []; }
   }
 
-  return { enabled, client, ready, refreshSession, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, removeClient, auditEvent, setAuditMuted, readAudit };
+  return { enabled, client, ready, refreshSession, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, casUpdate, removeClient, auditEvent, setAuditMuted, readAudit };
 })();

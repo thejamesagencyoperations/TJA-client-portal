@@ -40,9 +40,16 @@ Push to `main` → deploy in ~35s (GitHub Pages has occasionally run 5–10 min)
 ## Versioning (do this on EVERY change to a local asset)
 - Every local `<script>`/`<link>` carries a cache-buster `?v=NN`.
 - The sidebar shows a version pill `Sandbox · vX.Y`.
-- **Currently `?v=200`, pill `v2.0`.** Bump BOTH across `index.html`,
-  `clients.html`, `dashboard.html` on any asset edit, and add a `README.md`
-  changelog row. (Historic bumps were integer `?v=NN`; the pill tracks alongside.)
+- **Currently `?v=381`** (and `version.json` `{"v": 381}`). Bump it across EVERY
+  `*.html` + `version.json` on any asset edit, and add a `README.md` changelog row.
+
+## Present Docs writes — never blind-overwrite
+- Every write to the `deliverables` / `deliverables_draft` scopes goes through
+  `SUPA.casUpdate` (compare-and-set on `updated_at`) inside `pushDeliverables()` /
+  `pushDrafts()`. Never add a `pushScope`/`pushScopeNow` for those scopes.
+- Multi-approver rounds: `expectedReviewers` is stamped before send; one client
+  reviewer at a time (`review-lock` function); the team notification is server-built
+  and idempotent (`send-review-notification`, swept every 10 min). See README v3.81.
 
 ## Auth / roles
 - Mock login: `clientservices@thejamesagency.com` / `admin` = **admin** (full

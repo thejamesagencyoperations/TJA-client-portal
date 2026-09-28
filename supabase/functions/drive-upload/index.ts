@@ -29,7 +29,7 @@
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { driveAccessToken } from "../_shared/google.ts";
-import { ensureClientFolders, folderForCategory, ensureFolder } from "../_shared/drive-tree.ts";
+import { ensureClientFolders, folderForCategory, ensureFolder, createFolder } from "../_shared/drive-tree.ts";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -160,7 +160,13 @@ Deno.serve(async (req) => {
     const want = String(form.get("folderId") ?? "").trim();
     const sub = String(form.get("subfolder") ?? "").trim().replace(/[\\/'"\r\n]+/g, " ").slice(0, 120);
     let targetId = folderId;
+    // newFolder=1 → this is the FIRST file of a brand-new deliverable: always create a fresh
+    // folder rather than find-by-name. Find-by-name made two deliverables whose files shared a
+    // name (two "proof.pdf"s, two "Logo concepts") share ONE folder — and renaming it to the
+    // second deliverable's title then mislabelled the first's. Every later round passes folderId.
+    const fresh = String(form.get("newFolder") ?? "") === "1";
     if (want && await isUnder(token, want, tree.folderId)) targetId = want;
+    else if (sub && fresh) targetId = await createFolder(token, folderId, sub);
     else if (sub) targetId = await ensureFolder(token, folderId, sub);
 
     const base = Deno.env.get("SUPABASE_URL");
