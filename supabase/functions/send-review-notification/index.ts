@@ -325,6 +325,47 @@ Deno.serve(async (req) => {
       return json(req, 200, { ok: true, handled: out });
     }
 
+    /* ---- DIAG (secret-gated, READ-ONLY): why did / didn't a round ping? ----
+       Output lands in a PUBLIC Actions log, so it carries only ids, counts and states — never
+       names, emails, notes or deliverable titles. */
+    if (mode === "diag") {
+      const secret = Deno.env.get("SNAPSHOT_SECRET");
+      if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
+      const want = lower(body.client);
+      if (!want) return json(req, 400, { error: "client required" });
+      const { data: reg } = await svc().from("app_state").select("data").eq("client_id", "_registry").eq("scope", "clients").maybeSingle();
+      const roster: any[] = Array.isArray(reg?.data) ? reg!.data : [];
+      const hits = roster.filter((c) => lower(c.id).includes(want) || lower(c.name).includes(want));
+      const tracker = await trackerTxn((t) => ({ result: t, changed: false }));
+      const since = Date.now() - Number(body.days || 14) * 24 * 3600_000;
+      const out = [];
+      for (const c of hits) {
+        const items = await loadDeliverables(c.id);
+        const rounds = [];
+        for (const d of items) for (const v of (Array.isArray(d?.versions) ? d.versions : [])) {
+          if (!v || v.state === "pending_approval") continue;
+          const touched = Math.max(+v.completedAtMs || 0, ...Object.values(reviewsOf(v)).map(() => 0));
+          if (!v.reviewedAt && !Object.keys(reviewsOf(v)).length && !(+v.completedAtMs > since)) continue;
+          const exp = expectedOf(v), revs = reviewsOf(v);
+          const tr = tracker[roundKey(c.id, d.id, v)];
+          rounds.push({
+            doc: String(d.id).slice(-6), label: v.label, multi: exp.length > 0,
+            required: exp.length, requiredIn: exp.filter((e) => revs[e]).length, reviewsTotal: Object.keys(revs).length,
+            verdicts: Object.values(revs).map((r) => r.status || "?"),
+            complete: roundComplete(v), reviewedAt: !!v.reviewedAt, completedAtMs: v.completedAtMs ? new Date(v.completedAtMs).toISOString() : null,
+            signatures: Array.isArray(v.signatures) ? v.signatures.length : (v.signature ? 1 : 0),
+            archivedPdf: !!v.reviewedPdfUrl,
+            tracker: tr ? { state: tr.state, slack: tr.slack, email: tr.email, attempts: tr.attempts, pdf: !!tr.pdf,
+                            error: tr.lastError ? String(tr.lastError).replace(/[\w.+-]+@[\w.-]+/g, "<email>").slice(0, 160) : undefined } : "NOT IN TRACKER",
+            _t: touched,
+          });
+        }
+        out.push({ client: c.id, slackChannelSet: !!(c.integrations && c.integrations.slackChannel),
+          deliverableEmails: c.integrations?.deliverableEmails !== false, rounds: rounds.slice(-12).map(({ _t, ...r }) => r) });
+      }
+      return json(req, 200, { ok: true, matches: out.length, clients: out });
+    }
+
     /* ---- a signed-in caller ---- */
     const caller = await getCaller(req);
     if (!caller) return json(req, 401, { error: "not signed in" });
