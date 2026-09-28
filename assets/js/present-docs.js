@@ -155,6 +155,7 @@ window.PresentDocs = (function () {
         if (!fv) return;   // version the server doesn't have — server wins
         mergeVersionSurfaces(lv, fv, me);        // pins + drawings, per page when paged
         if (lv.reviews && lv.reviews[me]) fv.reviews = Object.assign({}, fv.reviews, { [me]: lv.reviews[me] });
+        if (lv.signatures && lv.signatures[me]) fv.signatures = Object.assign({}, fv.signatures, { [me]: lv.signatures[me] });
         // my unsubmitted draft (notes + verdict) — saved so closing the proof never loses it
         if (lv.reviewDrafts && lv.reviewDrafts[me] && !(fv.reviews && fv.reviews[me])) {
           fv.reviewDrafts = Object.assign({}, fv.reviewDrafts, { [me]: lv.reviewDrafts[me] });
@@ -203,7 +204,7 @@ window.PresentDocs = (function () {
          catastrophic, losing a re-typed label is trivial.
      With no base yet (page just opened, nothing pulled) we fall back to CONSERVATIVE mode:
      union everything, honor no deletions, never drop a review. */
-  const CLIENT_OWNED = ["reviews", "reviewDrafts", "status", "reviewedAt", "reviewedStatus", "completedAtMs", "clientNotes",
+  const CLIENT_OWNED = ["reviews", "signatures", "reviewDrafts", "status", "reviewedAt", "reviewedStatus", "completedAtMs", "clientNotes",
     "signature", "signedBy", "signedDate", "annotation"];
   // jsonb does NOT preserve object key order, so a plain JSON.stringify reports false changes on
   // anything round-tripped through the server. Sort keys before comparing. (Same trap that made
@@ -246,7 +247,7 @@ window.PresentDocs = (function () {
     const b = base || {}, out = Object.assign({}, theirs);
     const keys = new Set([...Object.keys(mine || {}), ...Object.keys(theirs || {})]);
     keys.forEach(k => {
-      if (k === "pins" || k === "reviews" || k === "reviewDrafts") return;   // handled below
+      if (k === "pins" || k === "reviews" || k === "reviewDrafts" || k === "signatures") return;   // handled below
       const iChanged = !same(mine[k], b[k]);
       const theyChanged = !same(theirs[k], b[k]);
       if (iChanged && theyChanged) { if (!CLIENT_OWNED.includes(k)) out[k] = mine[k]; return; }
@@ -255,6 +256,8 @@ window.PresentDocs = (function () {
     // reviews: an email-keyed map, each entry written only by its owner → union, server wins ties
     out.reviews = Object.assign({}, mine.reviews, theirs.reviews);
     if (!Object.keys(out.reviews).length) delete out.reviews;
+    out.signatures = Object.assign({}, mine.signatures, theirs.signatures);
+    if (!Object.keys(out.signatures).length) delete out.signatures;
     // drafts belong to clients; staff never author them → the server's copy stands
     if (theirs.reviewDrafts) out.reviewDrafts = theirs.reviewDrafts; else delete out.reviewDrafts;
     out.pins = mergeById(b.pins, mine.pins, theirs.pins, "id", mergePin3);
@@ -545,6 +548,16 @@ window.PresentDocs = (function () {
   const expectedOf = (v) => (v && Array.isArray(v.expectedReviewers))
     ? v.expectedReviewers.map(e => String(e).toLowerCase()) : [];
   const myReviewOf = (v) => reviewsOf(v)[myEmail()] || null;
+  /* EVERY approver signs (Cameron 2026-09-28 — was "first approver only"). Each signature lives
+     under its signer's email in v.signatures, written only by that person, so it merges exactly
+     like reviews. v.signature/signedBy/signedDate stay as the FIRST signature for old readers. */
+  const signaturesOf = (v) => (v && v.signatures && typeof v.signatures === "object" && !Array.isArray(v.signatures)) ? v.signatures : {};
+  function allSignatures(v) {
+    const out = Object.keys(signaturesOf(v)).map(e => Object.assign({ email: e }, signaturesOf(v)[e]));
+    if (!out.length && v && v.signature) out.push({ email: "", signature: v.signature, signedBy: v.signedBy, signedDate: v.signedDate });
+    return out;
+  }
+  const iHaveSigned = (v) => !!signaturesOf(v)[myEmail()] || (!expectedOf(v).length && !!(v && v.signature));
   function reviewComplete(v) {
     const exp = expectedOf(v);
     if (exp.length) return exp.every(e => !!reviewsOf(v)[e]);
@@ -610,6 +623,13 @@ window.PresentDocs = (function () {
           <path d="M4 5h16M4 12h10M4 19h7"/></svg>
         Keyword exercise
       </button>
+      <!-- Video review: a LINK (YouTube / Vimeo / Loom / Drive / direct file) plays inside the
+           review screen; reviewers leave comments stamped at the moment they paused on. -->
+      <button class="btn btn-upload btn-kw${(typeof canUploadDocs === "function" && canUploadDocs()) ? "" : " admin-only"}" id="pdVidBtn" title="Send a video link for timestamped review">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z" fill="currentColor"/></svg>
+        Video link
+      </button>
       <span class="pd-hint">${(typeof isCreative === "function" && isCreative())
         ? "PNG / JPG / PDF · your upload goes to the account manager for release — the client sees it after they hit Send"
         : "PNG / JPG / PDF · logos, banners, ad sets, messaging — anything you design"}</span>
@@ -635,6 +655,7 @@ window.PresentDocs = (function () {
                 <canvas id="pdCanvas"></canvas>
                 <div class="pd-pins" id="pdPins"></div>
               </div>
+              <div class="pd-video" id="pdVideo" style="display:none"></div>
               <div class="pd-pin-popup" id="pdPopup" style="display:none">
                 <button class="pd-popup-close" id="pdPopupClose" title="Close">✕</button>
                 <textarea data-popuptext placeholder="Add a note for this pin…"></textarea>
@@ -651,11 +672,13 @@ window.PresentDocs = (function () {
                 <button class="pd-zbtn pd-zfit" id="pdZoomReset" title="Fit to screen">Fit</button>
               </div>
             </div>
+            <div class="pd-vtimeline" id="pdVTimeline" style="display:none"></div>
             <div class="pd-draw-tools">
               <div class="pd-seg">
                 <button class="pd-seg-btn active" data-tool="draw" id="pdToolDraw">✎ Draw</button>
                 <button class="pd-seg-btn" data-tool="comment" id="pdToolComment">💬 Comment</button>
               </div>
+              <button class="btn btn-primary pd-vcomment" id="pdVComment" style="display:none">💬 Comment at <span id="pdVTime">0:00</span></button>
               <button class="pd-tool-btn" id="pdUndo">↶ Undo</button>
               <div class="pd-draw-only" id="pdDrawOnly">
                 <button class="pd-swatch active" data-color="#ef5350" style="background:#ef5350" title="Red"></button>
@@ -753,6 +776,31 @@ window.PresentDocs = (function () {
         <div class="pd-spinner" aria-hidden="true"></div>
         <div class="pd-busy-msg" id="pdBusyMsg">Working…</div>
         <div class="pd-busy-sub" id="pdBusySub"></div>
+      </div>
+    </div>
+
+    <!-- Video-link builder. Sibling of #pdModal (raised from the gallery). -->
+    <div class="pd-up-overlay" id="pdVidOverlay" style="display:none">
+      <div class="pd-up-card pd-kw-card">
+        <div class="pd-sign-title" id="pdVidTitle">Video for review</div>
+        <div class="pd-sign-sub">Paste a link — YouTube, Vimeo, Loom, a Google Drive video or a direct .mp4. It plays inside the review screen, and the client comments at exact moments in the video.</div>
+        <label class="pd-review-label" for="pdVidUrl">Video link <span class="pd-up-hint">— required</span></label>
+        <input type="url" id="pdVidUrl" class="pd-up-subject" placeholder="https://youtu.be/… · https://vimeo.com/… · https://drive.google.com/file/d/…">
+        <div class="pd-kw-hint" id="pdVidKind"></div>
+        <div class="pd-vid-preview" id="pdVidPreview"><span class="pd-kw-phint">A preview appears here — make sure it plays before you send (private videos must be viewable by the client).</span></div>
+        <label class="pd-review-label" for="pdVidSubject">Subject <span class="pd-up-hint">— required</span></label>
+        <input type="text" id="pdVidSubject" class="pd-up-subject" placeholder="e.g. Brand video — rough cut">
+        <label class="pd-review-label" for="pdVidMsg">Message to client <span class="pd-up-hint">— optional</span></label>
+        <textarea id="pdVidMsg" class="pd-up-msg" placeholder="Context for this round — what you'd like feedback on…"></textarea>
+        <div class="pd-revdue-row">
+          <label class="pd-review-label" for="pdVidDue">Feedback due <span class="pd-up-hint" id="pdVidDueHint"></span></label>
+          <input type="date" id="pdVidDue" class="pd-revdue">
+        </div>
+        <div class="pd-up-err" id="pdVidErr" style="display:none"></div>
+        <div class="pd-sign-actions">
+          <button class="pd-tool-btn" id="pdVidCancel">Cancel</button>
+          <button class="btn btn-primary" id="pdVidSend">📤 Send to client</button>
+        </div>
       </div>
     </div>
 
@@ -882,7 +930,7 @@ window.PresentDocs = (function () {
       return `<div class="pd-card pd-card-draft" data-id="${d.id}">
         <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
         <span class="pd-enlarge-cue">Click to review</span>
-        <div class="pd-thumb"><img ${imgSrcAttr(v)} alt="${esc(d.name)}"></div>
+        <div class="pd-thumb">${thumbHtml(v, d.name)}</div>
         ${canSend ? `<button class="btn btn-primary pd-send-btn" data-send="${d.id}">📤 Send to client</button>` : ""}
         <div class="pd-card-foot">
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
@@ -902,7 +950,7 @@ window.PresentDocs = (function () {
         <button class="pd-card-export staff-only" data-copylink="${d.id}" title="Copy a shareable link to this deliverable">🔗</button>
         <button class="pd-card-export staff-only" data-export="${d.id}" title="Export proof PDF (internal record)" style="right:76px">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
-        <div class="pd-thumb"><img ${imgSrcAttr(v)} alt="${esc(d.name)}"></div>
+        <div class="pd-thumb">${thumbHtml(v, d.name)}</div>
         <div class="pd-card-foot">
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
           <span class="pd-ver-tag">${esc(v.label)}</span>
@@ -1122,6 +1170,263 @@ window.PresentDocs = (function () {
     // per-page markup surfaces for a multi-page PDF (absent for a single image)
     if (img && Array.isArray(img.pages) && img.pages.length > 1) v.pages = img.pages;
     return v;
+  }
+
+  /* ---------- VIDEO REVIEW (a link that plays inside the review screen) ----------
+     A video version carries v.videoUrl (+ provider/embed/thumb) instead of an image. Comments
+     are ordinary pins with a TIME (p.t, seconds) instead of x/y — so replies, author rules,
+     merging, the review lock, approvals, signatures, the team ping and the PDF all work
+     unchanged. YouTube, Vimeo and direct files expose the playhead, so "Comment at 0:42"
+     stamps the exact moment; Loom / Drive / other links can't be read from the page, so the
+     reviewer types the time. */
+  const isVideoV = (v) => !!(v && v.videoUrl);
+  const isVideoDoc = (d) => !!(d && (d.kind === "video" || (d.versions || []).some(isVideoV)));
+  function fmtT(sec) {
+    if (sec == null || isNaN(sec)) return "—";
+    sec = Math.max(0, Math.round(sec));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), x = sec % 60;
+    return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0");
+  }
+  function parseT(str) {                       // "1:23", "01:02:03", "83" → seconds
+    const p = String(str || "").trim().split(":").map(Number);
+    if (!p.length || p.some(isNaN)) return null;
+    return p.reduce((a, n) => a * 60 + n, 0);
+  }
+  function parseVideoUrl(raw) {
+    let u; try { u = new URL(String(raw || "").trim()); } catch (e) { return null; }
+    if (!/^https?:$/.test(u.protocol)) return null;
+    const h = u.hostname.replace(/^(www|m)\./, "");
+    let id;
+    if (h === "youtu.be" || /(^|\.)youtube(-nocookie)?\.com$/.test(h)) {
+      id = h === "youtu.be" ? u.pathname.slice(1).split("/")[0]
+        : (u.searchParams.get("v") || (u.pathname.match(/^\/(?:shorts|embed|live|v)\/([\w-]{6,})/) || [])[1]);
+      if (id) return { provider: "youtube", id, embed: "https://www.youtube.com/embed/" + id, thumb: "https://img.youtube.com/vi/" + id + "/hqdefault.jpg", timed: true };
+    }
+    if (h === "vimeo.com" || h === "player.vimeo.com") {
+      const m = u.pathname.match(/(?:\/video)?\/(\d+)(?:\/([\da-f]+))?/i);
+      if (m) {
+        const hash = m[2] || u.searchParams.get("h") || "";
+        return { provider: "vimeo", id: m[1], embed: "https://player.vimeo.com/video/" + m[1] + (hash ? "?h=" + hash : ""), thumb: "", timed: true };
+      }
+    }
+    if (h === "loom.com") {
+      const m = u.pathname.match(/\/(?:share|embed)\/([\w]+)/);
+      if (m) return { provider: "loom", id: m[1], embed: "https://www.loom.com/embed/" + m[1], thumb: "", timed: false };
+    }
+    if (h === "drive.google.com") {
+      const m = u.pathname.match(/\/file\/d\/([\w-]+)/) || [null, u.searchParams.get("id")];
+      if (m && m[1]) return { provider: "drive", id: m[1], embed: "https://drive.google.com/file/d/" + m[1] + "/preview", thumb: "", timed: false };
+    }
+    if (/\.(mp4|webm|mov|m4v|ogv)(\?|#|$)/i.test(u.pathname)) return { provider: "file", id: "", embed: u.href, thumb: "", timed: true };
+    return { provider: "other", id: "", embed: u.href, thumb: "", timed: false };
+  }
+  const PROVIDER_NAME = { youtube: "YouTube", vimeo: "Vimeo", loom: "Loom", drive: "Google Drive", file: "Video file", other: "Web link" };
+  function thumbHtml(v, alt) {
+    if (isVideoV(v)) {
+      return v.thumbUrl
+        ? `<img src="${esc(v.thumbUrl)}" alt="${esc(alt)}"><span class="pd-vid-badge">▶ ${esc(PROVIDER_NAME[v.videoProvider] || "Video")}</span>`
+        : `<div class="pd-vid-thumb">▶<span>${esc(PROVIDER_NAME[v.videoProvider] || "Video")}</span></div>`;
+    }
+    return `<img ${imgSrcAttr(v)} alt="${esc(alt)}">`;
+  }
+  function loadScriptOnce(src, ready) {
+    if (ready()) return Promise.resolve();
+    return new Promise((res, rej) => {
+      let el = document.querySelector(`script[data-src="${src}"]`);
+      if (!el) { el = document.createElement("script"); el.src = src; el.async = true; el.setAttribute("data-src", src); document.head.appendChild(el); }
+      const t0 = Date.now();
+      const wait = () => { if (ready()) return res(); if (Date.now() - t0 > 15000) return rej(new Error("player failed to load")); setTimeout(wait, 100); };
+      wait();
+    });
+  }
+  // One active player. getTime() → seconds or null (the provider can't tell us).
+  const VID = { vid: null, provider: null, yt: null, vim: null, el: null, timer: null, duration: 0 };
+  function exitVideo() {
+    clearInterval(VID.timer); VID.timer = null;
+    try { VID.yt && VID.yt.destroy && VID.yt.destroy(); } catch (e) {}
+    try { VID.vim && VID.vim.destroy && VID.vim.destroy(); } catch (e) {}
+    VID.vid = null; VID.provider = null; VID.yt = null; VID.vim = null; VID.el = null; VID.duration = 0;
+    const box = $("pdVideo"); if (box) { box.innerHTML = ""; box.style.display = "none"; }
+    const m = $("pdModal"); if (m) m.classList.remove("pd-videomode");
+    ["pdVTimeline", "pdVComment"].forEach(id => { const e = $(id); if (e) e.style.display = "none"; });
+  }
+  async function vidTime() {
+    try {
+      if (VID.provider === "youtube" && VID.yt && VID.yt.getCurrentTime) return VID.yt.getCurrentTime();
+      if (VID.provider === "vimeo" && VID.vim) return await VID.vim.getCurrentTime();
+      if (VID.provider === "file" && VID.el) return VID.el.currentTime;
+    } catch (e) {}
+    return null;
+  }
+  function vidSeek(t) {
+    if (t == null) return;
+    try {
+      if (VID.provider === "youtube" && VID.yt && VID.yt.seekTo) { VID.yt.seekTo(t, true); VID.yt.pauseVideo && VID.yt.pauseVideo(); }
+      else if (VID.provider === "vimeo" && VID.vim) { VID.vim.setCurrentTime(t).then(() => VID.vim.pause()).catch(() => {}); }
+      else if (VID.provider === "file" && VID.el) { VID.el.currentTime = t; VID.el.pause(); }
+    } catch (e) {}
+  }
+  function vidPause() {
+    try {
+      if (VID.provider === "youtube" && VID.yt && VID.yt.pauseVideo) VID.yt.pauseVideo();
+      else if (VID.provider === "vimeo" && VID.vim) VID.vim.pause().catch(() => {});
+      else if (VID.provider === "file" && VID.el) VID.el.pause();
+    } catch (e) {}
+  }
+  async function enterVideo(v) {
+    const m = $("pdModal"); if (m) m.classList.add("pd-videomode");
+    const box = $("pdVideo"); if (!box) return;
+    box.style.display = "";
+    const btn = $("pdVComment"); if (btn) btn.style.display = viewerCanMarkup() ? "" : "none";
+    const tl = $("pdVTimeline"); if (tl) tl.style.display = "";
+    setTool("comment");
+    if (VID.vid === v.vid) return;                         // already playing this round
+    exitVideo(); if (m) m.classList.add("pd-videomode"); box.style.display = ""; if (tl) tl.style.display = "";
+    if (btn) btn.style.display = viewerCanMarkup() ? "" : "none";
+    VID.vid = v.vid; VID.provider = v.videoProvider;
+    const hint = VIDEO_TIMED[v.videoProvider] ? "" :
+      `<div class="pd-vid-note">${esc(PROVIDER_NAME[v.videoProvider] || "This player")} doesn't share its playback position — type the time (e.g. 1:23) on each comment.</div>`;
+    try {
+      if (v.videoProvider === "youtube") {
+        box.innerHTML = `<div class="pd-vid-frame"><div id="pdYt"></div></div>`;
+        await loadScriptOnce("https://www.youtube.com/iframe_api", () => !!(window.YT && window.YT.Player));
+        if (VID.vid !== v.vid) return;
+        VID.yt = new window.YT.Player("pdYt", { videoId: v.videoId, width: "100%", height: "100%",
+          playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
+          events: { onReady: () => { try { VID.duration = VID.yt.getDuration() || 0; } catch (e) {} renderPins(); } } });
+      } else if (v.videoProvider === "vimeo") {
+        box.innerHTML = `<div class="pd-vid-frame"><iframe id="pdVim" src="${esc(v.videoEmbed)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
+        await loadScriptOnce("https://player.vimeo.com/api/player.js", () => !!(window.Vimeo && window.Vimeo.Player));
+        if (VID.vid !== v.vid) return;
+        VID.vim = new window.Vimeo.Player($("pdVim"));
+        VID.vim.getDuration().then(d => { VID.duration = d || 0; renderPins(); }).catch(() => {});
+      } else if (v.videoProvider === "file") {
+        box.innerHTML = `<div class="pd-vid-frame"><video id="pdVidEl" controls playsinline preload="metadata" src="${esc(v.videoEmbed)}"></video></div>`;
+        VID.el = $("pdVidEl");
+        VID.el.addEventListener("loadedmetadata", () => { VID.duration = VID.el.duration || 0; renderPins(); });
+      } else {
+        box.innerHTML = `<div class="pd-vid-frame"><iframe src="${esc(v.videoEmbed)}" allow="autoplay; fullscreen" allowfullscreen></iframe></div>${hint}`;
+      }
+    } catch (e) {
+      box.innerHTML = `<div class="pd-vid-note">Couldn't load the video player (${esc(e && e.message || e)}). <a href="${esc(v.videoUrl)}" target="_blank" rel="noopener">Open the video in a new tab</a> and type the time on each comment.</div>`;
+      VID.provider = "other";
+    }
+    VID.timer = setInterval(async () => {
+      const t = await vidTime();
+      const lbl = $("pdVTime"); if (lbl) lbl.textContent = t == null ? "…" : fmtT(t);
+      const ph = document.querySelector(".pd-vt-head");
+      if (ph && t != null && VID.duration) ph.style.left = Math.min(100, (t / VID.duration) * 100) + "%";
+    }, 400);
+  }
+  const VIDEO_TIMED = { youtube: true, vimeo: true, file: true };
+  // pins of a video round, in time order (untimed ones last) — the list AND the timeline use this
+  function videoPins(v) {
+    return (v.pins || []).slice().sort((a, b) => (a.t == null ? 1e12 : a.t) - (b.t == null ? 1e12 : b.t));
+  }
+  function renderTimeline(v) {
+    const tl = $("pdVTimeline"); if (!tl) return;
+    const pins = videoPins(v);
+    const dur = VID.duration || Math.max(0, ...pins.map(p => p.t || 0)) || 0;
+    tl.innerHTML = `<div class="pd-vt-track">${dur ? `<div class="pd-vt-head"></div>` : ""}` +
+      pins.map((p, i) => (p.t == null || !dur) ? "" :
+        `<button class="pd-vt-mark${(p.replies && p.replies.length) ? " has-replies" : ""}" data-seek="${p.t}" data-pin="${esc(p.id)}" title="${esc(fmtT(p.t))} · ${esc(pinAuthor(p))}" style="left:${Math.min(100, (p.t / dur) * 100)}%">${i + 1}</button>`).join("") +
+      `</div><div class="pd-vt-legend">${pins.length ? pins.length + " comment" + (pins.length === 1 ? "" : "s") + " — click a marker or a timestamp to jump there" : "Pause where you want to comment, then press “💬 Comment at …”"}</div>`;
+  }
+  async function addVideoComment() {
+    if (!viewerCanMarkup()) return;
+    const v = active(deliv(curId)); if (!isVideoV(v)) return;
+    let t = await vidTime();
+    vidPause();
+    const p = { id: "p_" + Date.now() + "_" + (seq++), t: t == null ? null : Math.round(t * 10) / 10, x: null, y: null,
+      text: "", resolved: false, by: myName(), byEmail: myEmail() };
+    v.pins = (v.pins || []).concat([p]);
+    history.push({ type: "pinAdd", id: p.id });
+    saveCur(); renderPins(); renderPinList();
+    const ta = document.querySelector(`[data-pintext="${p.id}"]`);
+    if (ta) { ta.focus(); try { ta.scrollIntoView({ block: "nearest" }); } catch (e) {} }
+  }
+
+  /* the send dialog (V1, or a new round of an existing video deliverable) */
+  let vidParentId = null;
+  function openVideoDialog(parent) {
+    const ov = $("pdVidOverlay"); if (!ov) return;
+    vidParentId = parent ? parent.id : null;
+    const prev = parent ? active(parent) : null;
+    $("pdVidUrl").value = "";
+    $("pdVidSubject").value = parent ? (parent.name || "") : "";
+    $("pdVidMsg").value = ""; $("pdVidDue").value = "";
+    $("pdVidErr").style.display = "none";
+    $("pdVidKind").textContent = prev ? `Previous round: ${prev.videoUrl}` : "";
+    $("pdVidPreview").innerHTML = `<span class="pd-kw-phint">A preview appears here — make sure it plays before you send (private videos must be viewable by the client).</span>`;
+    const r = uploadRules();
+    $("pdVidDueHint").textContent = r.due ? "— required" : "— optional"; $("pdVidDueHint").classList.toggle("req", r.due);
+    $("pdVidTitle").textContent = parent ? "Video — new round" : "Video for review";
+    $("pdVidSend").textContent = (uploadsToDraft() || parent) ? "Add to waiting room" : "📤 Send to client";
+    ov.style.display = "flex";
+    setTimeout(() => $("pdVidUrl").focus(), 0);
+  }
+  function closeVideoDialog() { const ov = $("pdVidOverlay"); if (ov) { ov.style.display = "none"; $("pdVidPreview").innerHTML = ""; } vidParentId = null; }
+  let vidPrevTimer = null;
+  function videoPreview() {
+    clearTimeout(vidPrevTimer);
+    vidPrevTimer = setTimeout(() => {
+      const info = parseVideoUrl($("pdVidUrl").value);
+      const box = $("pdVidPreview"); const kind = $("pdVidKind");
+      if (!info) { box.innerHTML = `<span class="pd-kw-phint">Paste a full https:// link.</span>`; kind.textContent = ""; return; }
+      kind.textContent = `${PROVIDER_NAME[info.provider]} · ${info.timed ? "comments are stamped automatically at the paused moment" : "reviewers type the time on each comment (this player doesn't share its position)"}`;
+      box.innerHTML = info.provider === "file"
+        ? `<video controls preload="metadata" src="${esc(info.embed)}"></video>`
+        : `<iframe src="${esc(info.embed)}" allow="fullscreen" allowfullscreen></iframe>`;
+    }, 350);
+  }
+  let vidBusy = false;
+  async function commitVideo() {
+    if (vidBusy) return;
+    const info = parseVideoUrl($("pdVidUrl").value);
+    const subject = $("pdVidSubject").value.trim(), message = $("pdVidMsg").value.trim(), due = $("pdVidDue").value;
+    const err = $("pdVidErr");
+    const missing = [];
+    if (!info) missing.push("a valid video link (https://…)");
+    if (!subject) missing.push("Subject");
+    if (uploadRules().due && !due) missing.push("Feedback due");
+    if (missing.length) { err.textContent = "Please add: " + missing.join(", ") + "."; err.style.display = ""; return; }
+    const parent = vidParentId ? items.find(x => x.id === vidParentId) : null;
+    const toDraft = uploadsToDraft() || !!parent;
+    const label = parent ? "V" + (parent.versions.length + 1) + (toDraft ? " (proposed)" : "") : "V1";
+    const v = newVersion({}, label);
+    Object.assign(v, { videoUrl: $("pdVidUrl").value.trim(), videoProvider: info.provider, videoId: info.id,
+      videoEmbed: info.embed, thumbUrl: info.thumb || "", subject, message, revisionsDue: due });
+    vidBusy = true; const btn = $("pdVidSend"); const old = btn.textContent; btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      if (toDraft) {
+        v.state = "pending_approval";
+        const card = { id: uid(), name: subject, active: 0, versions: [v], kind: "video" };
+        if (parent) card.parentId = parent.id;
+        draftItems.unshift(card);
+        if (window.TJA_NOTIFY) { try { window.TJA_NOTIFY.record({ type: "upload", docId: card.id, docName: subject, versionLabel: v.label, by: sess.name || "Staff" }); } catch (e) {} }
+        const w = await saveDraftsNow();
+        renderGallery();
+        if (w && w.ok === false) { err.textContent = "Couldn't save to the waiting room yet (" + (w.error || "network") + ") — it will keep retrying; don't close this page."; err.style.display = ""; return; }
+        closeVideoDialog();
+        flashDocsToast(`${subject} staged — click “📤 Send to client” to submit it for review.`);
+        return;
+      }
+      const reviewers = await reviewersForSend();
+      if (reviewers === null) return;
+      stampRound(v, reviewers);
+      v.sentAt = stamp(); v.sentBy = sess.name || sess.email || "TJA";
+      const item = { id: uid(), name: subject, active: 0, versions: [v], kind: "video" };
+      items.unshift(item);
+      const w = await saveNow();
+      if (w && w.ok === false) {
+        items = items.filter(x => x.id !== item.id); renderGallery();
+        err.textContent = "Send failed (" + (w.error || "network") + ") — nothing reached the client. Press Send to try again."; err.style.display = "";
+        return;
+      }
+      closeVideoDialog(); renderGallery();
+      announceSend({ id: item.id, name: subject, version: v });
+      warnNoReviewers(reviewers);
+    } finally { vidBusy = false; btn.disabled = false; btn.textContent = old; }
   }
 
   /* ---------- keyword exercise ----------
@@ -1807,6 +2112,7 @@ window.PresentDocs = (function () {
 
   /* ---------- pins ---------- */
   function renderPins() {
+    if (isVideoV(active(deliv(curId)))) { renderTimeline(active(deliv(curId))); const l = $("pdPins"); if (l) l.innerHTML = ""; return; }
     const v = curSurface(); const layer = $("pdPins");
     layer.innerHTML = v.pins.map((p, i) =>
       `<button class="pd-pin ${p.resolved ? "resolved" : ""}${(p.replies && p.replies.length) ? " has-replies" : ""}" data-pin="${p.id}" title="${esc(pinAuthor(p))}${(p.replies && p.replies.length) ? " · " + p.replies.length + " repl" + (p.replies.length === 1 ? "y" : "ies") : ""}" style="left:${p.x * 100}%;top:${p.y * 100}%">${i + 1}</button>`).join("");
@@ -1831,12 +2137,17 @@ window.PresentDocs = (function () {
     const cc = $("pdCommentsCount"); if (cc) cc.textContent = n ? `Comments (${n})` : "Comments";
     const clr = $("pdClearComments"); if (clr) clr.style.display = (n && !clientEyes() && viewerCanMarkup()) ? "" : "none";
     if (!n) { box.innerHTML = `<div class="pd-pinlist-empty">${viewerCanMarkup() ? "Switch to the Comment tool and click the image to pin a note." : "No comments on this page."}</div>`; return; }
-    box.innerHTML = v.pins.map((p, i) => {
+    const isVid = isVideoV(active(deliv(curId)));
+    const list = isVid ? videoPins(v) : v.pins;
+    box.innerHTML = list.map((p, i) => {
       const editable = canEditPin(p);
+      const tchip = !isVid ? "" : (p.t != null
+        ? `<button class="pd-vts" data-seek="${p.t}" title="Jump to ${esc(fmtT(p.t))}">▶ ${esc(fmtT(p.t))}</button>`
+        : (editable ? `<input class="pd-vts-in" data-pintime="${p.id}" placeholder="m:ss" title="Time in the video">` : `<span class="pd-vts none">no time</span>`));
       return `
       <div class="pd-comment ${p.resolved ? "resolved" : ""}" data-row="${p.id}">
         <div class="pd-comment-top">
-          <span class="pd-pinnum">${i + 1}</span>
+          <span class="pd-pinnum">${i + 1}</span>${tchip}
           ${pinAuthor(p) ? `<span class="pd-pin-by" title="${esc(p.byEmail || "")}">${esc(pinAuthor(p))}${p.byEmail && p.byEmail === myEmail() ? " (you)" : ""}</span>` : ""}
           <div class="pd-comment-actions">
             ${editable ? `<button class="pd-cbtn ok" data-resolve="${p.id}" title="${p.resolved ? "Reopen" : "Mark resolved"}">${p.resolved ? "↩" : "✓"}</button>
@@ -1900,6 +2211,13 @@ window.PresentDocs = (function () {
     const pop = $("pdPopup"); if (pop && pop.dataset.pin === pinId) showPopup(p);
   }
   function selectPin(id) {
+    const av = active(deliv(curId));
+    if (isVideoV(av)) {
+      const p = (av.pins || []).find(x => x.id === id);
+      document.querySelectorAll(".pd-comment").forEach(c => c.classList.toggle("sel", c.dataset.row === id));
+      if (p && p.t != null) vidSeek(p.t);
+      return;
+    }
     document.querySelectorAll(".pd-pin").forEach(m => m.classList.toggle("sel", m.dataset.pin === id));
     document.querySelectorAll(".pd-comment").forEach(c => c.classList.toggle("sel", c.dataset.row === id));
     const m = document.querySelector(`.pd-pin[data-pin="${id}"]`);
@@ -2048,6 +2366,8 @@ window.PresentDocs = (function () {
     renderVersions();
     renderPages();
     applyReviewLock();   // lock Agency Notes for clients + freeze the rail if this version is already reviewed
+    if (isVideoV(v)) { enterVideo(v); renderPins(); renderPinList(); return; }
+    exitVideo();
     const img = $("pdImg");
     // Robust paint: wait (up to ~20 frames) until the image is decoded AND laid
     // out (clientWidth > 0) before sizing the canvas/pin overlay. Fixes markup +
@@ -2244,6 +2564,7 @@ window.PresentDocs = (function () {
       if (reviewed) { saved.textContent = "✓ Review submitted — thank you"; saved.classList.add("show"); }
       else { saved.textContent = "✓ Review saved"; saved.classList.remove("show"); }
     }
+    const vb = $("pdVComment"); if (vb && v && isVideoV(v)) vb.style.display = viewerCanMarkup() ? "" : "none";
     if (lockedOut) { const sv = $("pdSaved"); if (sv) { sv.textContent = "Read-only — this review session ended. Close and reopen the proof to continue."; sv.classList.add("show"); } }
     setSaveState();
     try { renderPinList(); } catch (e) {}
@@ -2297,6 +2618,7 @@ window.PresentDocs = (function () {
     // Draft annotations live in draftItems — persist whichever store the open item is in.
     const wasDraft = isDraft(deliv(curId));
     if (persistCanvas()) { if (wasDraft) saveDrafts(); else save(); }
+    exitVideo();
     renderGallery(); hidePopup(); resetZoom(); closeSignaturePad(); $("pdModal").classList.remove("open"); curId = null;
     // Save FIRST, then hand the proof to the next reviewer — so they open it with everything
     // this person did, including their last strokes and comments.
@@ -2341,7 +2663,8 @@ window.PresentDocs = (function () {
     if (!multi) av.clientNotes = $("pdClientNotes").value;   // legacy single-reviewer field
     persistCanvas();
     // an approval needs a signature — ONE per round: the first approver signs, teammates don't
-    if ((sel === "approved" || sel === "changes") && !av.signature) { openSignaturePad(); return; }
+    // an approval needs THIS person's signature (every approver signs, not just the first)
+    if ((sel === "approved" || sel === "changes") && !iHaveSigned(av)) { openSignaturePad(); return; }
     finishSubmit(null);
   }
   const STATUS_WORD = { approved: "Approved", changes: "Approved w/ changes", revisions: "Revisions needed" };
@@ -2507,7 +2830,10 @@ window.PresentDocs = (function () {
       } else {
         fv.status = sel || null; fv.clientNotes = notes;
       }
-      if (sig && !fv.signature) { fv.signature = sig.signature; fv.signedBy = sig.signedBy; fv.signedDate = sig.signedDate; }
+      if (sig) {
+        fv.signatures = Object.assign({}, fv.signatures, { [me]: Object.assign({ status: sel || null }, sig) });
+        if (!fv.signature) { fv.signature = sig.signature; fv.signedBy = sig.signedBy; fv.signedDate = sig.signedDate; }
+      }
       const complete = multi ? reviewComplete(fv) : true;
       if (complete && !fv.reviewedAt) { fv.reviewedAt = when; fv.reviewedStatus = fv.status || null; fv.completedAtMs = Date.now(); }
       outcome = { was, complete };
@@ -2642,9 +2968,8 @@ window.PresentDocs = (function () {
   function updateSignStatus() {
     const el = $("pdSignStatus"); if (!el) return;
     const v = active(deliv(curId));
-    el.innerHTML = (v && v.signature)
-      ? `<span class="pd-signed">✓ Approved &amp; signed${v.signedBy ? " by " + esc(v.signedBy) : ""}${v.signedDate ? " · " + esc(v.signedDate) : ""}</span>`
-      : "";
+    const sigs = v ? allSignatures(v) : [];
+    el.innerHTML = sigs.map(g => `<span class="pd-signed">✓ Signed${g.signedBy ? " by " + esc(g.signedBy) : ""}${g.signedDate ? " · " + esc(g.signedDate) : ""}</span>`).join("<br>");
   }
 
   /* ---------- approval signature ---------- */
@@ -2830,7 +3155,8 @@ window.PresentDocs = (function () {
       // single-surface deliverable yields exactly one, so nothing changes for image proofs.
       const surfaces = pagesOf(v) || [v];
       const composites = [];
-      for (const sf of surfaces) composites.push(await buildComposite(sf));
+      // a video round has no image to composite (buildComposite would wait on an empty <img>)
+      for (const sf of surfaces) composites.push(isVideoV(v) ? null : await buildComposite(sf));
       const composite = composites[0];
 
       // ---- orientation: the IMAGE decides. Wide creative → 17×11 horizontal,
@@ -2895,10 +3221,12 @@ window.PresentDocs = (function () {
         // signature cell
         pdf.setDrawColor(...ORANGE); pdf.setLineWidth(1.2); pdf.rect(bx, by, sigW, bh, "S");
         label("CLIENT SIGNATURE", bx + 4, by + 9);
-        if (v.signature) {
-          try { pdf.addImage(v.signature, "PNG", bx + 5, by + 12, sigW - 10, bh - 24); } catch (e) {}
+        const sigsAll = allSignatures(v);
+        if (sigsAll.length) {
+          const g0 = sigsAll[0];
+          try { pdf.addImage(g0.signature, "PNG", bx + 5, by + 12, sigW - 10, bh - 24); } catch (e) {}
           setF("Inter", "normal", 5, GRAY);
-          pdf.text(`${v.signedBy || ""}${v.signedDate ? " · " + v.signedDate : ""}`.trim(), bx + 4, by + bh - 4);
+          pdf.text(`${g0.signedBy || ""}${g0.signedDate ? " · " + g0.signedDate : ""}${sigsAll.length > 1 ? `  (+${sigsAll.length - 1} more below)` : ""}`.trim(), bx + 4, by + bh - 4);
         }
         // status checkboxes — the three portal statuses, checked per this version
         pdf.setFillColor(...ORANGE); pdf.rect(bx + sigW, by, ckW, bh, "F");
@@ -2952,6 +3280,15 @@ window.PresentDocs = (function () {
             setF("Inter", "normal", 8, INK);
             pdf.splitTextToSize(String(r.notes), noteW).forEach(ln => { ensure(11); pdf.text(ln, pageW / 2, y, { align: "center" }); y += 10.5; });
           }
+          // this reviewer's own signature, right under their review
+          const g = signaturesOf(v)[e] || ((!Object.keys(signaturesOf(v)).length && v.signature && order[0] === e && (r.status === "approved" || r.status === "changes")) ? { signature: v.signature, signedBy: v.signedBy, signedDate: v.signedDate } : null);
+          if (g && g.signature) {
+            ensure(50);
+            try { pdf.addImage(g.signature, "PNG", pageW / 2 - 75, y - 2, 150, 35); } catch (err) {}
+            y += 36;
+            setF("Inter", "normal", 6.5, GRAY);
+            pdf.text(`Signed by ${g.signedBy || r.name || e}${g.signedDate ? " · " + g.signedDate : ""}`, pageW / 2, y, { align: "center" }); y += 9;
+          }
           y += 6;
         });
         const waiting = exp.filter(e => !revs[e]);
@@ -2983,7 +3320,7 @@ window.PresentDocs = (function () {
       for (let si = 0; si < surfaces.length; si++) {
         const sf = surfaces[si], comp = composites[si];
         if (si > 0) newPage();                      // pages 2+ get the slim header
-        const pins = (sf && sf.pins) || [];
+        const pins = isVideoV(v) ? videoPins(sf) : ((sf && sf.pins) || []);
         let cW = imgW, cH = imgH;
         if (si > 0 && comp) {                       // measure this page's own bitmap
           const probe2 = new Image();
@@ -2998,6 +3335,13 @@ window.PresentDocs = (function () {
           pdf.addImage(comp, "JPEG", M + (boxW - w) / 2, y + (boxH - h) / 2, w, h);
           y += boxH + 14;
         }
+        if (isVideoV(v)) {                          // a video round: the link IS the artwork
+          setF("Inter", "bold", 9, INK); pdf.text("VIDEO REVIEW", M, y, { charSpace: 0.4 }); y += 13;
+          setF("Inter", "normal", 8.5, [30, 90, 200]);
+          const vl = pdf.splitTextToSize(String(v.videoUrl), pageW - M * 2);
+          try { pdf.textWithLink(vl[0], M, y, { url: v.videoUrl }); } catch (e) { pdf.text(vl[0], M, y); }
+          y += 12 * vl.length + 8;
+        }
         if (surfaces.length > 1) {                  // label which page this is
           setF("Inter", "bold", 7, GRAY);
           pdf.text(`PAGE ${si + 1} OF ${surfaces.length}`, M, y, { charSpace: 0.4 });
@@ -3006,7 +3350,8 @@ window.PresentDocs = (function () {
         if (pins.length) {
           setF("Inter", "bold", 9, INK); pdf.text(`COMMENTS (${pins.length})`, M, y, { charSpace: 0.4 }); y += 14;
           pins.forEach((pn, i) => {
-            const lines = pdf.splitTextToSize(`${pn.by ? pn.by + ": " : ""}${pn.text || "(no note)"}${pn.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
+            const at = isVideoV(v) ? `[${pn.t != null ? fmtT(pn.t) : "no time"}] ` : "";
+            const lines = pdf.splitTextToSize(`${at}${pn.by ? pn.by + ": " : ""}${pn.text || "(no note)"}${pn.resolved ? "   [resolved]" : ""}`, pageW - M * 2 - 22);
             if (y + lines.length * 11.5 > bottom()) newPage();
             pdf.setFillColor(...(pn.resolved ? [54, 194, 117] : ORANGE));
             pdf.circle(M + 6, y - 3, 6, "F");
@@ -3168,7 +3513,7 @@ window.PresentDocs = (function () {
     document.addEventListener("keydown", e => {
       const m = $("pdModal"); if (!m || !m.classList.contains("open")) return;
       const typing = /INPUT|TEXTAREA/.test(e.target.tagName || "") || e.target.isContentEditable;
-      if (e.code === "Space" && !typing) { spaceDown = true; const w = $("pdWrap"); if (w) w.classList.add("space-pan"); e.preventDefault(); return; }
+      if (e.code === "Space" && !typing && !m.classList.contains("pd-videomode")) { spaceDown = true; const w = $("pdWrap"); if (w) w.classList.add("space-pan"); e.preventDefault(); return; }
       if (e.key === "Escape") closeModal();
       // ← / → page through a multi-page proof (not while typing a note)
       else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !typing) {
@@ -3195,6 +3540,18 @@ window.PresentDocs = (function () {
     // Shared helper — a bare click listener closed this dialog while you were typing the
     // subject/message (drag-select out of a field fires click on the overlay).
     window.TJA_UI.backdropClose($("pdUpOverlay"), closeUploadDialog);
+    // Video-link review
+    if ($("pdVidBtn")) $("pdVidBtn").addEventListener("click", () => openVideoDialog(null));
+    if ($("pdVidCancel")) $("pdVidCancel").addEventListener("click", closeVideoDialog);
+    if ($("pdVidSend")) $("pdVidSend").addEventListener("click", commitVideo);
+    if ($("pdVidUrl")) ["input", "paste"].forEach(ev => $("pdVidUrl").addEventListener(ev, videoPreview));
+    if ($("pdVidOverlay")) window.TJA_UI.backdropClose($("pdVidOverlay"), closeVideoDialog);
+    if ($("pdVComment")) $("pdVComment").addEventListener("click", addVideoComment);
+    if ($("pdVTimeline")) $("pdVTimeline").addEventListener("click", e => {
+      const mk = e.target.closest("[data-seek]"); if (!mk) return;
+      vidSeek(+mk.dataset.seek);
+      if (mk.dataset.pin) document.querySelectorAll(".pd-comment").forEach(c => c.classList.toggle("sel", c.dataset.row === mk.dataset.pin));
+    });
     // Keyword-exercise builder
     if ($("pdKwBtn")) $("pdKwBtn").addEventListener("click", () => openKeywordDialog(null));
     if ($("pdKwCancel")) $("pdKwCancel").addEventListener("click", closeKeywordDialog);
@@ -3210,6 +3567,11 @@ window.PresentDocs = (function () {
     // A new round of a KEYWORD deliverable edits the words — it never asks for a file.
     $("pdResubmit").addEventListener("click", () => {
       const d = deliv(curId);
+      if (d && isVideoDoc(d)) {
+        if (!isDraft(d) && blockNewRound(d)) return;
+        closeModal(); openVideoDialog(isDraft(d) ? null : d);
+        return;
+      }
       if (d && isKeywordDoc(d)) {
         if (!isDraft(d) && blockNewRound(d)) return;
         closeModal();
@@ -3306,8 +3668,17 @@ window.PresentDocs = (function () {
       const res = e.target.closest("[data-resolve]"); if (res) { toggleResolve(res.dataset.resolve); return; }
       const del = e.target.closest("[data-pindel]"); if (del) { deletePin(del.dataset.pindel); return; }
       if (handleReplyClick(e, $("pdPinList"))) return;
+      const sk = e.target.closest("[data-seek]"); if (sk) { e.stopPropagation(); vidSeek(+sk.dataset.seek); return; }
+      if (e.target.closest("[data-pintime]")) return;
       const card = e.target.closest(".pd-comment");
       if (card && e.target.tagName !== "TEXTAREA" && !e.target.closest(".pd-reply-new")) selectPin(card.dataset.row);  // highlight pin + open its in-image note
+    });
+    // a typed time on a comment (players that can't report their position)
+    $("pdPinList").addEventListener("change", e => {
+      const inp = e.target.closest && e.target.closest("[data-pintime]"); if (!inp) return;
+      const v = curSurface(); const p = (v.pins || []).find(x => x.id === inp.dataset.pintime);
+      const t = parseT(inp.value);
+      if (p && canEditPin(p) && t != null) { p.t = t; saveCur(); renderPins(); renderPinList(); }
     });
     $("pdPinList").addEventListener("keydown", e => {
       // ⌘/Ctrl+Enter sends a reply

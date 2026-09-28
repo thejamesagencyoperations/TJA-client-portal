@@ -235,7 +235,10 @@ async function notifyRound(clientId: string, d: any, v: any): Promise<Record<str
           `<p style="margin:0 0 14px">They&rsquo;ve reviewed &ldquo;<b>${esc(nameLine)}</b>&rdquo; in the portal.</p>` +
           peopleHtml +
           `<p style="margin:14px 0">${nComments > 0 ? `${nComments} comment${nComments === 1 ? " was" : "s were"} left on the proof.` : "No comments were left on the proof."}</p>` +
-          (folderUrl ? `<p style="margin:0 0 14px;font-size:13px"><a href="${folderUrl}" style="color:#F68E21">Open the deliverable's Drive folder →</a> (the signed proof PDF is saved there)</p>` : ""),
+          (folderUrl ? `<p style="margin:0 0 14px;font-size:13px"><a href="${folderUrl}" style="color:#F68E21">Open the deliverable's Drive folder →</a> (the signed proof PDF is saved there)</p>` : "") +
+          // say so when Slack couldn't be used — a silent skip is how SRP's approvals never reached Slack
+          ((result.slack || prev?.slack) === "skipped"
+            ? `<p style="margin:0 0 14px;font-size:13px;color:#b45309">⚠ This was NOT posted to Slack — no Slack channel is set for ${esc(clientName)}. Add it under Clients → Edit → Integrations and /invite the portal bot to the channel.</p>` : ""),
         metaRows: [["Client", clientName], ["Response", statusLabel]],
         ctaText: "Open it in the portal",
         ctaUrl: REVIEW_URL,
@@ -353,7 +356,7 @@ Deno.serve(async (req) => {
             required: exp.length, requiredIn: exp.filter((e) => revs[e]).length, reviewsTotal: Object.keys(revs).length,
             verdicts: Object.values(revs).map((r) => r.status || "?"),
             complete: roundComplete(v), reviewedAt: !!v.reviewedAt, completedAtMs: v.completedAtMs ? new Date(v.completedAtMs).toISOString() : null,
-            signatures: Array.isArray(v.signatures) ? v.signatures.length : (v.signature ? 1 : 0),
+            signatures: (v.signatures && typeof v.signatures === "object") ? Object.keys(v.signatures).length : (v.signature ? 1 : 0),
             archivedPdf: !!v.reviewedPdfUrl,
             tracker: tr ? { state: tr.state, slack: tr.slack, email: tr.email, attempts: tr.attempts, pdf: !!tr.pdf,
                             error: tr.lastError ? String(tr.lastError).replace(/[\w.+-]+@[\w.-]+/g, "<email>").slice(0, 160) : undefined } : "NOT IN TRACKER",

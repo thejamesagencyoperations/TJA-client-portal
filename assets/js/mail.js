@@ -194,11 +194,13 @@ window.TJA_MAIL = (function () {
     const token = await accessToken();
     if (!token) return { ok: false, skipped: true, staleSession: true };
     try {
-      const r = await fetch(fnBase() + "/send-review-notification", {
-        method: "POST", keepalive: true,
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-        body: JSON.stringify(Object.assign({ mode: "notify" }, payload)),
-      });
+      const opts = { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify(Object.assign({ mode: "notify" }, payload)) };
+      let r;
+      // keepalive lets it finish if the tab closes — but some browsers refuse a keepalive request
+      // that needs a CORS preflight, so fall straight back to a normal request rather than lose it
+      try { r = await fetch(fnBase() + "/send-review-notification", Object.assign({ keepalive: true }, opts)); }
+      catch (e) { r = await fetch(fnBase() + "/send-review-notification", opts); }
       return Object.assign({ httpOk: r.ok }, await r.json().catch(() => ({})));
     } catch (e) { return { ok: false, error: String(e) }; }
   }

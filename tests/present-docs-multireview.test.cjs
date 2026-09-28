@@ -9,7 +9,7 @@ const SRC = fs.readFileSync(__dirname + "/../assets/js/present-docs.js", "utf8")
   .replace("return { render, init, openDoc, liveRefresh };",
     "return { render, init, openDoc, liveRefresh, __t: { get items(){return items;}, set items(v){items=v;}, get curId(){return curId;}, set curId(v){curId=v;}," +
     " mergeMineInto, mergeStaff, normalizeRounds, unreviewedSentVersion, finishSubmitInner, pushDeliverables, flushPending, SAVE, LOCK, dirtyAnno," +
-    " pendingSel, saveMyDraft, annoLoaded, myDraftOf, addReply, confirmSign: null, setBase, get baseItems(){return baseItems;}, viewerCanMarkup, reviewersForSend, stampRound, archiveProof } };");
+    " pendingSel, saveMyDraft, annoLoaded, myDraftOf, addReply, confirmSign: null, setBase, get baseItems(){return baseItems;}, viewerCanMarkup, parseVideoUrl, allSignatures, iHaveSigned, fmtT, parseT, videoPins, reviewersForSend, stampRound, archiveProof } };");
 const SYNC = fs.readFileSync(__dirname + "/../assets/js/supabase-sync.js", "utf8");
 const casSrc = SYNC.slice(SYNC.indexOf("  async function casUpdate("), SYNC.indexOf("  // delete every scope row for a client"));
 
@@ -263,6 +263,46 @@ async function submit(b, status, notes) {
     c.ctx.TJA_MAIL.reviewLock = async () => ({ ok: false, holder: { name: "Bob" } });
     await submit(c, "revisions", "x");
     ok(!serverV(srv).reviews[A.email] && c.alerts.some(m => /session ended/.test(m)), "submit with a lapsed lock is refused, clearly");
+  }
+  // ---- every approver signs; every signature is kept ----
+  {
+    const log = []; const srv = makeServer(); seedRound(srv);
+    const a = makeBrowser(srv, A, log), b = makeBrowser(srv, B, log);
+    await load(a, srv); await load(b, srv);
+    await Promise.all([submit(a, "approved", "yes"), submit(b, "changes", "tiny tweak")]);
+    const v = serverV(srv);
+    ok(v.signatures && v.signatures[A.email] && v.signatures[B.email], "both approvers' signatures saved");
+    ok(a.t.allSignatures(v).length === 2, "PDF/modal read two signatures");
+    ok(!!v.signature, "first signature still mirrored for older readers");
+    const c = makeBrowser(srv, A, log); await load(c, srv);
+    ok(c.t.iHaveSigned(c.t.items[0].versions[0]) === true, "a signer isn't asked to sign twice");
+  }
+  // ---- video links ----
+  {
+    const b = makeBrowser(makeServer(), STAFF, []);
+    const P = b.t.parseVideoUrl;
+    ok(P("https://youtu.be/dQw4w9WgXcQ").provider === "youtube" && P("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=3").id === "dQw4w9WgXcQ", "YouTube links (short + watch)");
+    ok(P("https://youtube.com/shorts/abcdefghijk").id === "abcdefghijk", "YouTube Shorts");
+    ok(P("https://vimeo.com/76979871/abc123ef").embed === "https://player.vimeo.com/video/76979871?h=abc123ef", "Vimeo unlisted link keeps its hash");
+    ok(P("https://drive.google.com/file/d/1AbC_dEf/view?usp=sharing").embed.endsWith("/1AbC_dEf/preview") && !P("https://drive.google.com/file/d/1AbC_dEf/view").timed, "Drive → preview embed, typed times");
+    ok(P("https://www.loom.com/share/abc123").provider === "loom", "Loom");
+    ok(P("https://cdn.example.com/cut.mp4").provider === "file" && P("https://cdn.example.com/cut.mp4").timed, "direct video file is timed");
+    ok(P("not a link") === null && P("javascript:alert(1)") === null, "rejects non-links / non-http");
+    ok(b.t.fmtT(83) === "1:23" && b.t.fmtT(3723) === "1:02:03" && b.t.parseT("1:23") === 83, "time format/parse");
+    const vp = b.t.videoPins({ pins: [{ id: "c", t: null }, { id: "b", t: 40 }, { id: "a", t: 5 }] }).map(p => p.id).join("");
+    ok(vp === "abc", "video comments listed in time order, untimed last");
+  }
+  // ---- video comments merge like any pin (timestamps survive, replies kept) ----
+  {
+    const log = []; const srv = makeServer();
+    seedRound(srv, { videoUrl: "https://youtu.be/dQw4w9WgXcQ", videoProvider: "youtube", url: undefined });
+    const a = makeBrowser(srv, A, log), b = makeBrowser(srv, B, log);
+    await load(a, srv); await load(b, srv);
+    a.t.items[0].versions[0].pins.push({ id: "va", t: 12.5, x: null, y: null, text: "logo late", byEmail: A.email, by: "Ann" });
+    b.t.items[0].versions[0].pins.push({ id: "vb", t: 40, x: null, y: null, text: "music loud", byEmail: B.email, by: "Bob" });
+    await Promise.all([a.t.pushDeliverables(), b.t.pushDeliverables()]);
+    const pins = serverV(srv).pins;
+    ok(pins.length === 2 && pins.find(p => p.id === "va").t === 12.5, "timestamped comments from both reviewers saved");
   }
   // ---- #1: reviewers are stamped BEFORE the send; a failed lookup sends nothing ----
   {
