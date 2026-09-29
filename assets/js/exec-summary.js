@@ -1183,9 +1183,9 @@ window.ExecSummary = (function () {
     if (window.TJA_TEXTSIZE) {
       const pct = Math.round(window.TJA_TEXTSIZE.get() * 100);
       ctl.unshift(`<div class="exec-textsize" role="group" aria-label="Text size">
-        <button class="exec-ts-btn" data-textsize="-1" title="Smaller text"${window.TJA_TEXTSIZE.atMin() ? " disabled" : ""}>A−</button>
+        <button class="exec-ts-btn" data-textsize="-1" title="Smaller text" aria-label="Smaller text"${window.TJA_TEXTSIZE.atMin() ? " disabled" : ""}>−</button>
         <button class="exec-ts-btn exec-ts-reset" data-textsize="0" title="Reset to the normal size">${pct}%</button>
-        <button class="exec-ts-btn" data-textsize="1" title="Larger text"${window.TJA_TEXTSIZE.atMax() ? " disabled" : ""}>A+</button>
+        <button class="exec-ts-btn" data-textsize="1" title="Larger text" aria-label="Larger text"${window.TJA_TEXTSIZE.atMax() ? " disabled" : ""}>+</button>
       </div>`);
     }
     const controls = ctl.length ? `<div class="exec-controls">${ctl.join("")}</div>` : "";

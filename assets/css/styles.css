@@ -206,7 +206,10 @@ a { color: inherit; text-decoration: none; }
 /* ============================================================
    APP SHELL
    ============================================================ */
-.app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; overflow: hidden; }
+/* Sidebar width is in rem (12.889rem = 232px at the normal 18px root) so it grows WITH a
+   person's text-size choice — otherwise at larger text the nav labels (e.g. "Executive Summary",
+   which is nowrap) ran out of the fixed 232px column and over the page. */
+.app { display: grid; grid-template-columns: 12.889rem 1fr; height: 100vh; overflow: hidden; }
 
 .sidebar {
   background: var(--panel);
@@ -217,6 +220,10 @@ a { color: inherit; text-decoration: none; }
   position: sticky;
   top: 0;
   height: 100vh;
+  min-width: 0;
+  overflow-x: hidden;                 /* nothing in the sidebar may ever spill over the page */
+  overflow-y: auto;                   /* a long nav at a large text size scrolls instead */
+  box-sizing: border-box;
 }
 .sidebar .brand-mark { font-size: .95rem; padding: 0 8px 18px; }
 
@@ -243,6 +250,7 @@ a { color: inherit; text-decoration: none; }
    moment a font or zoom level shifts. ("Media Creative Asset Request" still wraps by design —
    it's far too long for one line at any readable size.) */
 .nav-item[data-page="exec"] { font-size: .8rem; white-space: nowrap; }
+.nav-item { min-width: 0; overflow: hidden; }   /* a label can never run outside its row */
 .nav-item:hover { background: var(--panel-2); color: var(--text); }
 .nav-item.active {
   background: var(--panel-2);
@@ -2210,7 +2218,7 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 
   .sidebar {
     position: sticky; top: 0; z-index: 6;
-    height: auto;
+    height: auto; overflow: visible;   /* the phone nav is a horizontal strip that scrolls itself */
     flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px;
     padding: 8px 12px;
     border-right: none; border-bottom: 1px solid var(--line);
@@ -2293,7 +2301,8 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 
 /* ---------- Exec Summary: reading size + browser-zoom compensation ---------- */
 .exec-textsize { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; margin-right: auto; }
-.exec-ts-btn { background: transparent; border: 0; color: var(--text); font: 700 .74rem Inter, sans-serif; padding: 6px 11px; cursor: pointer; }
+.exec-ts-btn { background: transparent; border: 0; color: var(--text); font: 700 .9rem Inter, sans-serif; line-height: 1; padding: 6px 12px; cursor: pointer; }
+.exec-ts-reset { font-size: .72rem !important; }
 .exec-ts-btn + .exec-ts-btn { border-left: 1px solid var(--line); }
 .exec-ts-btn:hover:not(:disabled) { background: rgba(246,142,33,.12); color: var(--orange); }
 .exec-ts-btn:disabled { opacity: .35; cursor: default; }
@@ -2301,6 +2310,8 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 /* The tile CONTENT follows the browser zoom (the tile boxes keep filling the page): scale the
    module up by --tile-zoom and shrink its layout box by the same factor, so it reflows into the
    tile and scrolls inside it exactly as it does at 100%. */
+/* long words / links / numbers wrap inside a tile instead of pushing past its edge */
+.exec-tile > .module { overflow-wrap: break-word; }
 .exec-canvas.zoomed-content .exec-tile > .module {
   width: calc(100% / var(--tile-zoom)); height: calc(100% / var(--tile-zoom));
   transform: scale(var(--tile-zoom)); transform-origin: 0 0;
