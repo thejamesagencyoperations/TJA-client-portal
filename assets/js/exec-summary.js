@@ -1179,6 +1179,15 @@ window.ExecSummary = (function () {
       ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>`);
     if (canAdmin())
       ctl.push(`<button class="exec-actuals-btn" data-customize title="Add or remove tiles, sections and tabs on this page">⚙ Customize</button>`);
+    // Reading size — EVERYONE gets it (clients too). Per-person: stored in this browser only.
+    if (window.TJA_TEXTSIZE) {
+      const pct = Math.round(window.TJA_TEXTSIZE.get() * 100);
+      ctl.unshift(`<div class="exec-textsize" role="group" aria-label="Text size">
+        <button class="exec-ts-btn" data-textsize="-1" title="Smaller text"${window.TJA_TEXTSIZE.atMin() ? " disabled" : ""}>A−</button>
+        <button class="exec-ts-btn exec-ts-reset" data-textsize="0" title="Reset to the normal size">${pct}%</button>
+        <button class="exec-ts-btn" data-textsize="1" title="Larger text"${window.TJA_TEXTSIZE.atMax() ? " disabled" : ""}>A+</button>
+      </div>`);
+    }
     const controls = ctl.length ? `<div class="exec-controls">${ctl.join("")}</div>` : "";
     return `
     ${window.DASH.projectBack ? window.DASH.projectBack() : ""}
@@ -1565,6 +1574,19 @@ window.ExecSummary = (function () {
     canvas.querySelectorAll(".exec-tile").forEach(t => { maxR = Math.max(maxR, t.offsetLeft + t.offsetWidth); maxB = Math.max(maxB, t.offsetTop + t.offsetHeight); });
     return { maxR, maxB };
   }
+  /* The browser's page-zoom level. Chrome, Edge and Safari report the window's size in screen
+     pixels (outerWidth) and the page's in CSS pixels (innerWidth), so their ratio IS the zoom.
+     Snapped to the browser's real zoom steps; anything that isn't close to one (e.g. DevTools
+     docked beside the page) is treated as 100%, which is exactly the old behaviour. */
+  const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+  function browserZoom() {
+    const ow = window.outerWidth, iw = window.innerWidth;
+    if (!ow || !iw) return 1;
+    const r = ow / iw;
+    let best = 1, err = Infinity;
+    ZOOM_STEPS.forEach(z => { const e = Math.abs(z - r) / z; if (e < err) { err = e; best = z; } });
+    return err < 0.035 ? best : 1;
+  }
   // scale the whole tile canvas down to fit narrower windows so the right-hand
   // tiles are never cut off / forced into horizontal scroll (arrangement preserved)
   function fitCanvas() {
@@ -1583,9 +1605,17 @@ window.ExecSummary = (function () {
     Object.values(lay.free).forEach(p => { baseR = Math.max(baseR, p.x + p.w); baseB = Math.max(baseB, p.y + (p.h || 0)); });
     if (stacked) {   // mobile: static stacked layout (media query) — no transform, natural sizing
       canvas.style.width = ""; canvas.style.height = ""; canvas.style.transform = ""; canvas.style.transformOrigin = ""; canvas.style.marginBottom = "";
+      canvas.style.removeProperty("--tile-zoom"); canvas.classList.remove("zoomed-content");
       return;
     }
     const sc = Math.max(0.4, Math.min(2, baseR ? avail / baseR : 1));
+    /* BROWSER ZOOM. Fitting the canvas to the width divides out the browser's zoom (at 150% the
+       content area is 1/1.5 as many CSS px wide, so the fit scale shrinks by the same amount) —
+       which is why ⌘+ grew the top bar and sidebar but never the tiles. The tiles still fill the
+       page, but their CONTENT is scaled back up by the zoom level and reflows inside the tile. */
+    const bz = browserZoom();
+    canvas.style.setProperty("--tile-zoom", String(bz));
+    canvas.classList.toggle("zoomed-content", Math.abs(bz - 1) > 0.01);
     // VERTICAL FILL: stretch tile heights + row positions (only — no font/width change, no
     // reordering) so the grid's bottom row lands exactly on the bottom of the viewport.
     // Boxes get longer/shorter; content scrolls inside tiles when shorter.
@@ -1645,6 +1675,14 @@ window.ExecSummary = (function () {
       const target = document.querySelector(".content") || document.body;
       new ResizeObserver(requestFit).observe(target);
     }
+
+    // reading-size buttons (per person, this browser only)
+    s.addEventListener("click", e => {
+      const b = e.target.closest("[data-textsize]"); if (!b || !window.TJA_TEXTSIZE) return;
+      const dir = +b.dataset.textsize;
+      if (dir === 0) window.TJA_TEXTSIZE.set(1); else window.TJA_TEXTSIZE.step(dir);
+      rerender();
+    });
 
     // service-line allocation sliders (admin): live-update while dragging, persist on release
     s.addEventListener("input", e => {
