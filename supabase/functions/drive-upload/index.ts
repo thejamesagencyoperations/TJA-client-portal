@@ -168,11 +168,17 @@ Deno.serve(async (req) => {
     if (want && await isUnder(token, want, tree.folderId)) targetId = want;
     else if (sub && fresh) targetId = await createFolder(token, folderId, sub);
     else if (sub) targetId = await ensureFolder(token, folderId, sub);
+    // childFolder: a named subfolder INSIDE the deliverable's folder — a multi-page proof's page
+    // images go to "<deliverable>/V1 pages/" instead of sitting loose beside the PDFs. The
+    // deliverable folder (targetId) is still what we hand back as folderId, so V2, the signed
+    // proof etc. keep landing in the deliverable folder itself.
+    const child = String(form.get("childFolder") ?? "").trim().replace(/[\\/'"\r\n]+/g, " ").slice(0, 120);
+    const uploadId = (child && targetId !== folderId) ? await ensureFolder(token, targetId, child) : targetId;
 
     const base = Deno.env.get("SUPABASE_URL");
     const results = [];
     for (const f of files) {
-      const up = await uploadToDrive(token, targetId, f);
+      const up = await uploadToDrive(token, uploadId, f);
       // Never hand back webViewLink for DISPLAY — the file is restricted, so a browser can't
       // fetch it. The authenticated proxy path is what the portal stores and renders.
       results.push({

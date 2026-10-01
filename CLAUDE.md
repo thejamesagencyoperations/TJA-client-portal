@@ -40,7 +40,7 @@ Push to `main` → deploy in ~35s (GitHub Pages has occasionally run 5–10 min)
 ## Versioning (do this on EVERY change to a local asset)
 - Every local `<script>`/`<link>` carries a cache-buster `?v=NN`.
 - The sidebar shows a version pill `Sandbox · vX.Y`.
-- **Currently `?v=385`** (and `version.json` `{"v": 385}`). Bump it across EVERY
+- **Currently `?v=386`** (and `version.json` `{"v": 386}`). Bump it across EVERY
   `*.html` + `version.json` on any asset edit, and add a `README.md` changelog row.
 
 ## Present Docs writes — never blind-overwrite

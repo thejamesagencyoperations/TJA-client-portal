@@ -1078,37 +1078,40 @@ window.PresentDocs = (function () {
     const folderId = (opts && opts.folderId) || "";
     const isNewDoc = !opts;              // V1 of a new deliverable → its own fresh folder
     const built = dataUrls.map(() => ({ pins: [], annotation: null }));
-    const out0 = {};                     // carries driveFolderId back out of the upload block
-
-    if (store) {
-      busySub(multi ? `Uploading ${dataUrls.length} pages…` : "");
-      try {
-        // batched: 6 pages per request rather than one request per page
-        const res = await window.TJA_FILES.uploadDataUrls(dataUrls,
-          { category: "present-docs", clientId: sess.client, name, subfolder, folderId, newFolder: isNewDoc },
-          (done, total) => busySub(total > 1 ? `Uploaded ${done} of ${total} pages…` : ""));
-        res.forEach((r, i) => { if (r && r.url && built[i]) built[i].url = r.url; });
-        if (res[0] && res[0].folderId) out0.driveFolderId = res[0].folderId;
-      } catch (e) { console.warn("pdf page upload — keeping inline", e); }
-    }
-    dataUrls.forEach((du, i) => { if (!built[i].url) built[i].dataUrl = du; });
-
-    const out = Object.assign({ name, pdfPages: pages, pdfRendered: rendered }, out0);
-    // Page 1 doubles as the version's own image so the gallery thumbnail and anything predating
-    // pages keeps working with no special case.
-    if (built[0].url) out.url = built[0].url; else out.dataUrl = built[0].dataUrl;
-    if (multi) out.pages = built;
-    // Keep the ORIGINAL pdf beside its pages — the reviewer can open the real document, and it
-    // matters when a deck runs past the render cap.
+    const out = { name, pdfPages: pages, pdfRendered: rendered };
+    /* ORIGINAL PDF FIRST — it creates (or joins) the deliverable's own folder, so the page images
+       can then go into a tidy "<round> pages" subfolder INSIDE it rather than sitting loose beside
+       the PDFs (Cameron 2026-10-01). Present Docs / <title> / { the PDFs, V1 pages/, V2 pages/ }. */
     if (store) {
       busySub("Saving the original PDF…");
       try {
         const src = await window.TJA_FILES.upload(file, { category: "present-docs", clientId: sess.client, name: file.name, subfolder,
-          folderId: folderId || out.driveFolderId, newFolder: isNewDoc && !out.driveFolderId });
+          folderId, newFolder: isNewDoc });
         if (src && src.url) { out.sourceUrl = src.url; out.sourceName = file.name; }
-        if (src && src.folderId && !out.driveFolderId) out.driveFolderId = src.folderId;
-      } catch (e) { console.warn("original pdf upload failed — page images still stand", e); }
+        if (src && src.folderId) out.driveFolderId = src.folderId;
+      } catch (e) { console.warn("original pdf upload failed — page images still saved", e); }
     }
+    if (store) {
+      busySub(multi ? `Uploading ${dataUrls.length} pages…` : "");
+      try {
+        const round = String((opts && opts.roundLabel) || "V1").replace(/\s*\(proposed\)\s*/i, "").trim() || "V1";
+        // batched: 6 pages per request rather than one request per page
+        const res = await window.TJA_FILES.uploadDataUrls(dataUrls,
+          { category: "present-docs", clientId: sess.client, name, subfolder,
+            folderId: folderId || out.driveFolderId || "",
+            newFolder: isNewDoc && !out.driveFolderId,
+            // a multi-page proof's pages get their own subfolder; a single page stays beside its PDF
+            childFolder: multi ? round + " pages" : "" },
+          (done, total) => busySub(total > 1 ? `Uploaded ${done} of ${total} pages…` : ""));
+        res.forEach((r, i) => { if (r && r.url && built[i]) built[i].url = r.url; });
+        if (res[0] && res[0].folderId && !out.driveFolderId) out.driveFolderId = res[0].folderId;
+      } catch (e) { console.warn("pdf page upload — keeping inline", e); }
+    }
+    dataUrls.forEach((du, i) => { if (!built[i].url) built[i].dataUrl = du; });
+    // Page 1 doubles as the version's own image so the gallery thumbnail and anything predating
+    // pages keeps working with no special case.
+    if (built[0].url) out.url = built[0].url; else out.dataUrl = built[0].dataUrl;
+    if (multi) out.pages = built;
     return out;
   }
 
@@ -1904,7 +1907,8 @@ window.PresentDocs = (function () {
     let p;
     // V2 must land in V1's folder, not a new one named after the new file — that was why the
     // resubmitted file went missing from the deliverable's folder (Cameron 2026-07-31).
-    try { p = await processFile(file, { folderId: d.driveFolderId || "", subfolder: d.name || "" }); }
+    try { p = await processFile(file, { folderId: d.driveFolderId || "", subfolder: d.name || "",
+      roundLabel: "V" + (d.versions.length + 1) }); }   // the round these pages belong to
     catch (e) { hideBusy(); window.TJA_UI.alert("Couldn't prepare that file — please try again."); return; }
     hideBusy();
     if (!isDraft(d)) {

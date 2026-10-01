@@ -49,7 +49,7 @@ window.TJA_FILES = (function () {
   /* items: [{ blob, name }] — one request per call. `subfolder` groups them inside the asset
      folder (a multi-page PDF's pages belong together under the deliverable's name, not scattered
      across Present Docs). Batching matters for speed too: one invocation, one folder lookup. */
-  async function putMany(items, { category, clientId, subfolder, folderId, newFolder } = {}) {
+  async function putMany(items, { category, clientId, subfolder, folderId, newFolder, childFolder } = {}) {
     if (!fnBase() || !(window.SUPA && window.SUPA.client)) throw new Error("storage-not-configured");
     const t = await token();
     if (!t) throw new Error("session-stale");   // surfaces as an upload error, never a silent skip
@@ -64,6 +64,8 @@ window.TJA_FILES = (function () {
     // newFolder: the FIRST file of a brand-new deliverable — always make a fresh folder rather
     // than reuse one that merely shares its name (two "proof.pdf" uploads used to share a folder).
     else if (newFolder && subfolder) fd.append("newFolder", "1");
+    // childFolder: a named subfolder INSIDE the deliverable's folder (multi-page proofs → "V1 pages")
+    if (childFolder) fd.append("childFolder", String(childFolder));
     const r = await fetch(fnBase() + "/drive-upload", {
       method: "POST", headers: { Authorization: "Bearer " + t }, body: fd,
     });
@@ -145,7 +147,8 @@ window.TJA_FILES = (function () {
       })));
       const res = await putMany(items, opts);
       out.push(...res);
-      // every later chunk joins the folder the first one landed in (never a second new folder)
+      // every later chunk joins the folder the first one landed in (never a second new folder);
+      // childFolder stays set, so the server finds the same "Vn pages" subfolder by name
       if (res[0] && res[0].folderId) { opts.folderId = res[0].folderId; opts.newFolder = false; }
       if (onProgress) onProgress(Math.min(i + CHUNK, dataUrls.length), dataUrls.length);
     }
