@@ -8,7 +8,12 @@ name: AM/PM assignment sync
 on:
   schedule:
     - cron: "30 16 * * *"    # 16:30 UTC daily
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Dry run (report only, write nothing)"
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -19,7 +24,8 @@ jobs:
           SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
           ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
         run: |
-          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/assign-sync" \
+          DRY="${{ inputs.dry && '?dry=1' || '' }}"
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/assign-sync${DRY}" \
             -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
             -H "Authorization: Bearer ${ANON_KEY}" \
             -w "\nHTTP %{http_code}\n"
