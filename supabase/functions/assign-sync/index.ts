@@ -41,6 +41,7 @@ const MONTHS: Record<string, number> = {
 const CLIENT_ALIAS: Record<string, string> = {
   "ray cammack shows": "rcs-inc",
   "department of child safety": "arizona-department-of-child-safety",
+  "az department of child safety": "arizona-department-of-child-safety",
   "dellshire opening projects": "dellshire-resort",
   "santan brewing company": "santan-brewing",
   "hopco": "healthcare-outcome-performance-company",
@@ -173,6 +174,8 @@ Deno.serve(async (req) => {
     const qAm: Record<string, { ams: string[]; tab: string; sheetClient: string }> = {};
     const qUnmatched: string[] = [];
     for (const r of qRows) {
+      // internal / non-portal rows (TJA itself) are ignored here exactly as on the monthly sheet
+      if (IGNORE_CLIENTS.has(norm(r.client)) || r.code === "TJA") continue;
       const c = (r.code && byCode[r.code]) || matchClient(r.client);
       if (!c) { if (r.ams.length && !IGNORE_CLIENTS.has(norm(r.client))) qUnmatched.push(`${r.client || r.code} (${r.tab})`); continue; }
       if (qAm[c.id] || !r.ams.length) continue;               // newer tab already set it / blank → older tab
