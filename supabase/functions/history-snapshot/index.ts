@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
   const secret = Deno.env.get("SNAPSHOT_SECRET");
   if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
   if (!Deno.env.get("GOOGLE_SA_KEY")) return json(req, 503, { error: "GOOGLE_SA_KEY missing" });
-  const rootId = Deno.env.get("DRIVE_HISTORY_FOLDER_ID");
+  let rootId = Deno.env.get("DRIVE_HISTORY_FOLDER_ID");
   if (!rootId) return json(req, 428, { error: "DRIVE_HISTORY_FOLDER_ID not set — designate the Drive history folder (shared with the service account) and set this secret." });
 
   const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -46,6 +46,22 @@ Deno.serve(async (req) => {
   const { data: stRow } = await svc.from("app_state").select("data").eq("client_id", STATE_CLIENT).eq("scope", STATE_SCOPE).maybeSingle();
   const st: any = (stRow?.data && typeof stRow.data === "object" && !Array.isArray(stRow.data)) ? stRow.data : {};
   st.folders = st.folders || {}; st.lastSnapshot = st.lastSnapshot || {};
+  /* SELF-HEALING ROOT (2026-10-05). The DRIVE_HISTORY_FOLDER_ID folder went missing (deleted,
+     trashed or un-shared from the service account): every mkdir/upload into it came back 404 and
+     the run aborted daily. If that happens we fall back to "Portal History" inside the main
+     storage tree (DRIVE_ROOT_FOLDER_ID, which the portal already writes to), remember it in
+     state, and report it — so history keeps being written instead of silently failing. */
+  const warnings: string[] = [];
+  if (st.historyRootOverride) { rootId = st.historyRootOverride; warnings.push("using fallback history folder (Portal History in the main storage tree) — DRIVE_HISTORY_FOLDER_ID was unreachable"); }
+  const is404 = (e: unknown) => /\b404\b|not ?found/i.test(String((e as Error)?.message || e));
+  async function useFallbackRoot(): Promise<boolean> {
+    const mainRoot = Deno.env.get("DRIVE_ROOT_FOLDER_ID");
+    if (!mainRoot || st.historyRootOverride) return false;
+    const id = await driveEnsureFolder(token, mainRoot, "Portal History");
+    st.historyRootOverride = id; rootId = id; st.folders = {};
+    warnings.push("DRIVE_HISTORY_FOLDER_ID is missing or no longer shared with the service account — switched to \"Portal History\" in the main storage tree");
+    return true;
+  }
 
   // Per-client History folder ids, so a snapshot lands in that client's own folder inside the
   // main storage tree rather than a separate parallel hierarchy. Read once per run.
@@ -62,9 +78,24 @@ Deno.serve(async (req) => {
   async function folder(path: string): Promise<string> {
     if (st.folders[path]) return st.folders[path];
     let id = rootId!;
-    for (const part of path.split("/")) id = await driveEnsureFolder(token, id, part);
+    try {
+      for (const part of path.split("/")) id = await driveEnsureFolder(token, id, part);
+    } catch (e) {
+      // the ROOT itself is unreachable → switch to the fallback root once, then retry
+      if (is404(e) && await useFallbackRoot()) { id = rootId!; for (const part of path.split("/")) id = await driveEnsureFolder(token, id, part); }
+      else throw e;
+    }
     st.folders[path] = id;
     return id;
+  }
+  // Run fn(folderId); if a CACHED folder id turns out to be gone (404), forget it and retry once.
+  async function inFolder<T>(path: string, fn: (id: string) => Promise<T>): Promise<T> {
+    try { return await fn(await folder(path)); }
+    catch (e) {
+      if (!is404(e)) throw e;
+      delete st.folders[path];
+      return await fn(await folder(path));
+    }
   }
 
   let snapshotted = 0, skipped = 0, failed = 0, remaining = 0;
@@ -111,8 +142,8 @@ Deno.serve(async (req) => {
         // one place — Cameron 2026-07-31. Falls back to the legacy snapshots/<client> path under
         // DRIVE_HISTORY_FOLDER_ID when a client hasn't been provisioned yet.
         const histId = reg.get(cid)?.integrations?.driveFolders?.History;
-        const fid = histId || await folder(`snapshots/${cid}`);
-        await driveUploadBytes(token, fid, `${today}.json.gz`, gz, "application/gzip");
+        if (histId) await driveUploadBytes(token, histId, `${today}.json.gz`, gz, "application/gzip");
+        else await inFolder(`snapshots/${cid}`, (fid) => driveUploadBytes(token, fid, `${today}.json.gz`, gz, "application/gzip"));
         st.lastSnapshot[cid] = { date: today, stamp: m.newest, bytes: gz.length };
         snapshotted++;
       } catch (e) { failed++; errors.push(`${cid}: ${String((e as Error).message || e).slice(0, 120)}`); }
@@ -129,13 +160,14 @@ Deno.serve(async (req) => {
       // group by calendar month so each archive file is <YYYY-MM>.ndjson.gz
       const byMonth: Record<string, any[]> = {};
       for (const r of old) (byMonth[String(r.ts).slice(0, 7)] ||= []).push(r);
-      const archiveFolder = await folder("audit-archive");
       for (const [month, list] of Object.entries(byMonth)) {
         try {
           const nd = list.map((r) => JSON.stringify(r)).join("\n");
           const gz = await gzipBytes(enc.encode(nd));
-          // one file per run (timestamped) — append-only by convention; we never rewrite history
-          await driveUploadBytes(token, archiveFolder, `${month}--${Date.now()}.ndjson.gz`, gz, "application/gzip");
+          // one file per run (timestamped) — append-only by convention; we never rewrite history.
+          // (Folder resolved INSIDE the try: a Drive failure here used to abort the whole run
+          // before progress was saved, so every client was re-snapshotted every day.)
+          await inFolder("audit-archive", (fid) => driveUploadBytes(token, fid, `${month}--${Date.now()}.ndjson.gz`, gz, "application/gzip"));
           // ONLY delete after the upload came back clean
           const ids = list.map((r) => r.id);
           const { error: delErr } = await svc.from("audit_log").delete().in("id", ids);
@@ -145,15 +177,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // remember folder ids + snapshot stamps for next run
+    await saveState();
+    // `remaining` > 0 means the deadline stopped us — run again to finish (the cron will).
+    // Per-item failures make the run report 500 so the workflow (and its email) goes red.
+    const status = failed || errors.length ? 500 : 200;
+    return json(req, status, { ok: status === 200, date: today, snapshotted, skipped, failed, remaining, archived, warnings, errors: errors.slice(0, 10) });
+  } catch (e) {
+    await saveState().catch(() => {});      // never lose the progress we DID make
+    return json(req, 500, { error: String((e as Error).message || e).slice(0, 300), snapshotted, failed, warnings });
+  }
+  // remember folder ids + snapshot stamps for next run
+  async function saveState() {
     await svc.from("app_state").upsert(
       { client_id: STATE_CLIENT, scope: STATE_SCOPE, data: st, updated_at: new Date().toISOString() },
       { onConflict: "client_id,scope" },
     );
-
-    // `remaining` > 0 means the deadline stopped us — run again to finish (the cron will).
-    return json(req, 200, { ok: true, date: today, snapshotted, skipped, failed, remaining, archived, errors: errors.slice(0, 10) });
-  } catch (e) {
-    return json(req, 500, { error: String((e as Error).message || e).slice(0, 300), snapshotted, failed });
   }
 });
