@@ -28,6 +28,7 @@ import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { driveAccessToken } from "../_shared/google.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { updateRegistry } from "../_shared/registry.ts";
 // The folder list + tree helpers live in _shared so drive-upload can provision on demand with
 // exactly the same definition. Add a folder type THERE and re-run this to back-fill everyone.
 import { ASSET_FOLDERS, ensureClientTree } from "../_shared/drive-tree.ts";
@@ -104,11 +105,16 @@ Deno.serve(async (req) => {
 
   // ONE write of the registry at the end (service role, so it bypasses RLS). Writing per-client
   // would multiply the chance of racing a browser's roster push.
-  const { error: werr } = await db.from("app_state").upsert(
-    { client_id: "_registry", scope: "clients", data: roster, updated_at: new Date().toISOString() },
-    { onConflict: "client_id,scope" },
-  );
-  if (werr) return json(req, 500, { error: "registry write failed: " + werr.message, created: createdAll, failed });
+  // Apply ONLY the folder ids we provisioned onto a fresh copy (compare-and-set) — a blind
+  // whole-row write here could undo a manager/toggle change made while we were provisioning.
+  const folderIds = new Map(roster.filter((c: any) => c?.integrations?.driveFolderId).map((c: any) => [String(c.id), c.integrations]));
+  const w = await updateRegistry((fresh) => {
+    for (const fc of fresh) {
+      const ig: any = folderIds.get(String(fc.id)); if (!ig) continue;
+      fc.integrations = Object.assign({}, fc.integrations, { driveFolderId: ig.driveFolderId, driveFolders: ig.driveFolders });
+    }
+  });
+  if (!w.ok) return json(req, 500, { error: "registry write failed: " + w.error, created: createdAll, failed });
 
   return json(req, 200, {
     ok: true, clients: targets.length, provisioned: touched, alreadyDone: skipped,

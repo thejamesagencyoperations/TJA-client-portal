@@ -25,6 +25,7 @@ import { audit } from "../_shared/audit.ts";
 import { csvToRows } from "../_shared/plan.ts";
 import { reportHealth } from "../_shared/health.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { updateRegistry, managersFor } from "../_shared/registry.ts";
 
 const SHEET_ID = "1_I3UlEU__O4ea9SVV2J4ERKww3XWumc68wGDr0cDrQM";
 /* The quarterly CLIENT HEALTH workbook (tabs "Q2-2026", "Q3-2026", …). Since 2026-10-02 it is the
@@ -66,6 +67,34 @@ Deno.serve(async (req) => {
   if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
 
   const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+  /* PIN / UNPIN a manager by hand (?op=pin|unpin&client=<id>&name=<Full Name>). A pinned person
+     stays on the client's managers through every sheet sync — the fix for people being "kicked
+     off" when the sheet doesn't list them. Same secret gate as the sync. */
+  const op = url.searchParams.get("op");
+  if (op === "pin" || op === "unpin") {
+    const cid = String(url.searchParams.get("client") || "").trim();
+    const who = String(url.searchParams.get("name") || "").trim();
+    if (!cid || !who) return json(req, 400, { error: "client and name required" });
+    const w = await updateRegistry((fresh) => {
+      const c = fresh.find((x: any) => x.id === cid); if (!c) return null;
+      const ig = Object.assign({}, c.integrations);
+      const pins: string[] = Array.isArray(ig.managersPinned) ? ig.managersPinned.slice() : [];
+      const has = pins.some((p) => norm(p) === norm(who));
+      if (op === "pin" && !has) pins.push(who);
+      const nextPins = op === "unpin" ? pins.filter((p) => norm(p) !== norm(who)) : pins;
+      ig.managersPinned = nextPins; c.integrations = ig;
+      const cur: string[] = Array.isArray(c.managers) ? c.managers : [];
+      c.managers = op === "pin"
+        ? [...new Set([...cur, who])]
+        : cur.filter((m) => norm(m) !== norm(who) || norm(m) === norm(c.am) || norm(m) === norm(c.pm));
+      return { client: c.id, managers: c.managers, pinned: nextPins };
+    });
+    if (!w.ok || !w.result) return json(req, w.ok ? 404 : 503, { error: w.ok ? "client not found" : w.error });
+    audit({ clientId: "_registry", scope: "clients", action: op === "pin" ? "manager.pinned" : "manager.unpinned",
+      summary: `${op === "pin" ? "pinned" : "unpinned"} ${who} as a manager of ${cid}`, changes: [], n: 1 });
+    return json(req, 200, { ok: true, op, ...w.result });
+  }
   try {
     // 1) most-recent "<Month> <Year>" tab, from the public htmlview tab list
     const html = await fetchText(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/htmlview`);
@@ -213,8 +242,8 @@ Deno.serve(async (req) => {
         if (am.issue) nameIssues.push(`${sheetClient}: AM ${am.issue}`);
         if (am.name) amNames = [am.name];
       }
-      const managers = [...new Set([...amNames, pm.name].filter(Boolean))] as string[];
-      applied.push({ client: c.id, name: c.name, sheetClient, am: amNames[0] || null, pm: pm.name || null, managers, amFrom });
+      const managers = managersFor(amNames[0], pm.name, c, amNames.slice(1));
+      applied.push({ client: c.id, name: c.name, sheetClient, am: amNames[0] || null, pm: pm.name || null, managers, amFrom, extraAms: amNames.slice(1) });
     }
     // clients ONLY the quarterly workbook lists (not on the monthly tab): set their AM, keep their PM
     for (const id of Object.keys(qAm)) {
@@ -227,20 +256,26 @@ Deno.serve(async (req) => {
       const amNames = res.map((x) => x.r.name).filter(Boolean) as string[];
       if (!amNames.length) continue;
       const keepPm = c.pm || null;
-      const managers = [...new Set([...amNames, keepPm].filter(Boolean))] as string[];
-      applied.push({ client: c.id, name: c.name, sheetClient: q.sheetClient, am: amNames[0], pm: keepPm, managers, amFrom: q.tab, pmKept: true });
+      const managers = managersFor(amNames[0], keepPm, c, amNames.slice(1));
+      applied.push({ client: c.id, name: c.name, sheetClient: q.sheetClient, am: amNames[0], pm: keepPm, managers, amFrom: q.tab, pmKept: true, extraAms: amNames.slice(1) });
     }
 
     if (!dry) {
-      for (const a of applied) {
-        // NEVER wipe a client's managers because a name failed to resolve — only write when we
-        // got at least one real login for this client. (Manual/unresolved clients keep theirs.)
-        if (!a.managers.length) continue;
-        const c = roster.find((x) => x.id === a.client); if (!c) continue;
-        c.am = a.am; c.pm = a.pm; c.managers = a.managers;
-      }
-      await svc.from("app_state").update({ data: roster, updated_at: new Date().toISOString() })
-        .eq("client_id", "_registry").eq("scope", "clients");
+      // Apply ONLY am/pm/managers onto a FRESH copy of the registry (compare-and-set). The old
+      // blind whole-row write could undo a reviewer toggle or a manual assignment someone saved
+      // while the sync was running.
+      const w = await updateRegistry((fresh) => {
+        for (const a of applied) {
+          // NEVER wipe a client's managers because a name failed to resolve — only write when we
+          // got at least one real login for this client. (Manual/unresolved clients keep theirs.)
+          if (!a.managers.length) continue;
+          const c = fresh.find((x: any) => x.id === a.client); if (!c) continue;
+          if (c.integrations?.amPmManual === true) continue;          // set by hand meanwhile
+          c.am = a.am; c.pm = a.pm;
+          c.managers = managersFor(a.am, a.pm, c, a.extraAms || []);   // pins re-read from the fresh copy
+        }
+      });
+      if (!w.ok) return json(req, 503, { error: "registry write failed: " + w.error });
       // on the record: who ended up assigned where, per run
       audit({
         clientId: "_registry", scope: "clients", action: "assignments.synced",

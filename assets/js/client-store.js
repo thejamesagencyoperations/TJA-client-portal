@@ -123,31 +123,72 @@ window.TJA_STORE = (function () {
   }
   function writeAdded(arr) {
     try { localStorage.setItem(LS_KEY, JSON.stringify(arr)); } catch (e) { console.warn("client store full", e); }
-    if (window.SUPA && window.SUPA.enabled) pushRosterMerged(arr);
   }
-  /* Merge-before-push for the roster. The registry's per-client `integrations` map is written
-     by SERVER-SIDE actors too (Slack channel links, per-client prefs from other admins'
-     browsers) — and this push used to be a blind whole-roster upsert, so any tab holding a
-     roster hydrated BEFORE those writes clobbered them wholesale (2026-07-28: every client's
-     slackChannel wiped at once). Now: pull the server copy first and per-KEY merge each
-     client's integrations — a key this tab has (even set to "" — a deliberate clear) wins;
-     keys this tab never knew about survive. List membership stays last-write-wins (deletes
-     must stick). If the pull fails we push as before — a delayed clobber beats a lost edit. */
-  async function pushRosterMerged(arr) {
-    let merged = arr;
-    try {
-      const remote = await window.SUPA.pullScope(REG_CLIENT, REG_SCOPE, 12000);
-      if (Array.isArray(remote) && remote.length) {
-        const remoteById = new Map(remote.map(c => [c.id, c]));
-        merged = arr.map(c => {
-          const r = remoteById.get(c.id);
-          if (!r || (!r.integrations && !c.integrations)) return c;
-          return Object.assign({}, c, { integrations: Object.assign({}, r.integrations, c.integrations) });
-        });
-        try { localStorage.setItem(LS_KEY, JSON.stringify(merged)); } catch (e) {}
+  /* ---------- registry writes: OPERATIONS, not whole-roster pushes (2026-10-13) ----------
+     This browser used to push its WHOLE local copy of every client whenever any one changed —
+     so a tab opened hours earlier wrote its stale managers / am / pm / reviewer toggles back over
+     everyone ("I keep getting kicked off as a Manager", reviewer toggles reverting). Now each
+     add / update / remove is queued as an operation carrying ONLY the fields that were edited,
+     and replayed onto a FRESH server copy with a compare-and-set write (SUPA.casUpdate). A
+     stale tab can no longer touch a field it didn't change. The queue lives in localStorage, so
+     an edit made just before a reload still lands. */
+  const OPS_KEY = "tja_clients_ops";
+  function readOps() { try { const a = JSON.parse(localStorage.getItem(OPS_KEY)); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function writeOps(a) { try { localStorage.setItem(OPS_KEY, JSON.stringify(a)); } catch (e) {} }
+  function queueOp(op) { const a = readOps(); a.push(Object.assign({ at: Date.now() }, op)); writeOps(a); schedulePush(); }
+  const lowerName = (x) => String(x || "").trim().toLowerCase();
+  // replay queued operations onto `roster` (the fresh server copy); returns it
+  function applyOps(roster, ops) {
+    ops.forEach(op => {
+      if (op.t === "add") { if (!roster.some(c => c.id === op.entry.id)) roster.push(op.entry); return; }
+      if (op.t === "rm") { const i = roster.findIndex(c => c.id === op.id); if (i > -1) roster.splice(i, 1); return; }
+      if (op.t !== "patch") return;
+      let c = roster.find(x => x.id === op.id);
+      if (!c) { if (!op.seed) return; c = Object.assign({}, op.seed); roster.push(c); }   // a built-in being edited first time
+      const patch = Object.assign({}, op.patch);
+      // integrations: only the KEYS this edit touched
+      if (patch.integrations) { c.integrations = Object.assign({}, c.integrations, patch.integrations); delete patch.integrations; }
+      // managers edited BY HAND → record pins, so the daily sheet sync never drops someone added
+      // here, and un-pin anyone removed here
+      if (Array.isArray(patch.managers) && op.manual) {
+        const before = (Array.isArray(c.managers) ? c.managers : []).map(lowerName);
+        const after = patch.managers.map(lowerName);
+        const ig = Object.assign({}, c.integrations);
+        let pins = Array.isArray(ig.managersPinned) ? ig.managersPinned.slice() : [];
+        patch.managers.forEach(m => { if (before.indexOf(lowerName(m)) === -1 && !pins.some(p => lowerName(p) === lowerName(m))) pins.push(m); });
+        pins = pins.filter(p => after.indexOf(lowerName(p)) > -1);
+        ig.managersPinned = pins; c.integrations = ig;
       }
-    } catch (e) { /* pull failed — push local as-is (previous behavior) */ }
-    window.SUPA.pushScope(REG_CLIENT, REG_SCOPE, merged);
+      Object.assign(c, patch);
+    });
+    return roster;
+  }
+  let pushTimer = null, pushing = false, pushFails = 0;
+  function schedulePush(ms) { clearTimeout(pushTimer); pushTimer = setTimeout(pushOps, ms == null ? 500 : ms); }
+  async function pushOps() {
+    if (!(window.SUPA && window.SUPA.enabled && window.SUPA.casUpdate)) return;
+    if (pushing) { schedulePush(800); return; }
+    const ops = readOps(); if (!ops.length) return;
+    pushing = true;
+    try {
+      const r = await window.SUPA.casUpdate(REG_CLIENT, REG_SCOPE, (fresh) => applyOps(Array.isArray(fresh) ? fresh : [], ops));
+      if (r.ok) {
+        // drop exactly the ops we applied (more may have been queued meanwhile)
+        const done = new Set(ops.map(o => o.at + ":" + (o.id || (o.entry && o.entry.id))));
+        writeOps(readOps().filter(o => !done.has(o.at + ":" + (o.id || (o.entry && o.entry.id)))));
+        adoptRemote(r.data);
+        pushFails = 0;
+        if (readOps().length) schedulePush(200);
+      } else { pushFails++; schedulePush(Math.min(30000, 2000 * Math.pow(2, pushFails - 1))); console.warn("roster save failed — retrying", r.error); }
+    } finally { pushing = false; }
+  }
+  // overlay the server roster onto the local cache, then re-apply anything still queued
+  function adoptRemote(remote) {
+    if (!Array.isArray(remote) || !remote.length) return;
+    const map = new Map(readAdded().map(c => [c.id, c]));
+    remote.forEach(c => { const cur = map.get(c.id); map.set(c.id, cur ? Object.assign({}, cur, c) : c); });
+    const arr = applyOps([...map.values()], readOps());
+    writeAdded(arr);
   }
 
   // built-in seed clients (cannot be deleted) flagged so the UI can hide destructive controls
@@ -197,25 +238,31 @@ window.TJA_STORE = (function () {
     const added = readAdded();
     added.push(entry);
     writeAdded(added);
+    queueOp({ t: "add", entry });
     return entry;
   }
 
-  function update(id, patch) {
+  // opts.manual = a person edited this by hand (managers changes become pins — see applyOps)
+  function update(id, patch, opts) {
     const added = readAdded();
     const i = added.findIndex(c => c.id === id);
+    let seed = null;
     if (i >= 0) { added[i] = Object.assign({}, added[i], patch); }
     else {
       // editing a built-in: store an override entry that list() merges on top
       const b = get(id); if (!b) return null;
+      seed = Object.assign({}, b, { id }); delete seed.builtin;
       added.push(Object.assign({}, b, patch, { id }));
     }
     writeAdded(added);
+    queueOp({ t: "patch", id, patch, seed, manual: !!(opts && opts.manual) });
     return get(id);
   }
 
   function remove(id) {
     const added = readAdded().filter(c => c.id !== id);
     writeAdded(added);
+    queueOp({ t: "rm", id });
     // wipe this client's workspace data locally + in Supabase
     ["tja_dashboard_", "tja_files_", "tja_deliverables_"].forEach(p => { try { localStorage.removeItem(p + id); } catch {} });
     if (window.SUPA && window.SUPA.enabled && window.SUPA.removeClient) window.SUPA.removeClient(id);
@@ -312,17 +359,10 @@ window.TJA_STORE = (function () {
       .catch(() => {});
     try {
       const remote = await window.SUPA.pullScope(REG_CLIENT, REG_SCOPE);
-      if (Array.isArray(remote) && remote.length) {
-        const local = readAdded();
-        const map = new Map(local.map(c => [c.id, c]));
-        // OVERLAY remote onto local (was additive-only). The registry is the server-owned
-        // source of truth for admin fields — manager tags, am/pm assignments, integrations —
-        // so an existing client must adopt those from remote, else assignment/access changes
-        // made elsewhere never reach an already-loaded browser. Server READ updating local is
-        // the safe direction (the WMJ-wipe was about local WRITES clobbering the server).
-        remote.forEach(c => { const cur = map.get(c.id); map.set(c.id, cur ? Object.assign({}, cur, c) : c); });
-        try { localStorage.setItem(LS_KEY, JSON.stringify([...map.values()])); } catch {}
-      }
+      // OVERLAY remote onto local — the registry is the server-owned truth for managers, am/pm,
+      // integrations — then re-apply this browser's still-unsaved edits on top (and send them).
+      if (Array.isArray(remote) && remote.length) adoptRemote(remote);
+      if (readOps().length) schedulePush(0);
     } catch (e) { console.warn("roster hydrate", e); }
     await setP;
   }

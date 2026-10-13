@@ -14,6 +14,17 @@ on:
         description: "Dry run (report only, write nothing)"
         type: boolean
         default: false
+      op:
+        description: "Optional: pin or unpin a manager instead of syncing"
+        type: choice
+        options: ["sync", "pin", "unpin"]
+        default: "sync"
+      client:
+        description: "pin/unpin: client id (e.g. salt-river-project)"
+        required: false
+      name:
+        description: "pin/unpin: full name (e.g. Alex Duggan)"
+        required: false
 
 jobs:
   sync:
@@ -22,10 +33,18 @@ jobs:
       - name: Trigger assign-sync
         env:
           SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          OP: ${{ inputs.op }}
+          CLIENT: ${{ inputs.client }}
+          NAME: ${{ inputs.name }}
+          DRYQ: ${{ inputs.dry && '?dry=1' || '' }}
           ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
         run: |
-          DRY="${{ inputs.dry && '?dry=1' || '' }}"
-          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/assign-sync${DRY}" \
+          if [ "$OP" = "pin" ] || [ "$OP" = "unpin" ]; then
+            Q="?op=${OP}&client=$(jq -rn --arg v "$CLIENT" '$v|@uri')&name=$(jq -rn --arg v "$NAME" '$v|@uri')"
+          else
+            Q="${DRYQ}"
+          fi
+          curl -sS --fail-with-body -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/assign-sync${Q}" \
             -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
             -H "Authorization: Bearer ${ANON_KEY}" \
             -w "\nHTTP %{http_code}\n"

@@ -368,7 +368,20 @@ Deno.serve(async (req) => {
         }
         const notifyOff = new Set((c.integrations?.notifyOff ?? []).map(lower));
         const teamTo = [...new Set([...(c.login?.email ? [c.login.email] : []), ...(c.integrations?.emailRecipients ?? [])].filter(Boolean).map(lower))];
+        // registry fields that decide who can edit + who must review (staff names are internal;
+        // client emails are masked to their domain)
+        const maskE = (e: string) => /@thejamesagency\.com$/i.test(e) ? lower(e) : "<client>@" + String(e).split("@")[1];
+        const { data: aud } = await svc().from("audit_log").select("ts,actor_name,actor_role,action,summary,changes")
+          .eq("client_id", "_registry").order("ts", { ascending: false }).limit(400);
+        const mine = (aud || []).filter((a: any) => JSON.stringify(a.changes || []).toLowerCase().includes(lower(c.name)) || lower(a.summary).includes(lower(c.name)))
+          .slice(0, 15).map((a: any) => ({ ts: a.ts, by: a.actor_name || a.actor_role || "?", action: a.action,
+            fields: (Array.isArray(a.changes) ? a.changes : []).filter((x: any) => lower(JSON.stringify(x)).includes(lower(c.name)))
+              .slice(0, 6).map((x: any) => String(`${x.f || ""}: ${JSON.stringify(x.t ?? "")}`).replace(/[\w.+-]+@(?!thejamesagency)[\w.-]+/g, "<client email>").slice(0, 160)) }));
         out.push({ client: c.id, name: c.name, code: c.code || null,
+          am: c.am || null, pm: c.pm || null, managers: c.managers || [],
+          amPmManual: !!c.integrations?.amPmManual,
+          approvalOff: (c.integrations?.approvalOff || []).map(maskE),
+          registryHistory: mine,
           slackChannel: c.integrations?.slackChannel || null,
           reviewEmailGoesTo: teamTo.filter((e) => !notifyOff.has(e)).map(showAddr),
           mutedByNotifyOff: teamTo.filter((e) => notifyOff.has(e)).map(showAddr),

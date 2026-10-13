@@ -557,9 +557,9 @@ window.WMJ_SYNC = (function () {
         .catch(err => { noteErr("retainer-value sync", err); })
         .then(() => syncAccountManagers())
         .catch(err => { noteErr("account-manager sync", err); })
-        // the AM/PM assignment sheet runs LAST so its manager tags win over the
-        // WMJ-derived seed for any client it names (it's the team-owned truth)
-        .then(() => (window.MGR_SHEET ? window.MGR_SHEET.sync() : null))
+        // (The old in-browser AM/PM sheet sync — MGR_SHEET — is retired: it overwrote every
+        // client's managers from the stale monthly tab on every open Clients page, ignoring
+        // pins and the quarterly sheet. The server's daily assign-sync is the single source now.)
         .catch(err => { noteErr("mgr-sheet sync", err); })
         .then(() => {
           // Only stamp "synced at" when the run actually brought data in. Stamping after a

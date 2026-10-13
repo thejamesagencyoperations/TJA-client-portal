@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=386" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=386">
+<link rel="icon" href="assets/img/favicon.ico?v=387" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=387">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=386">
-<script src="assets/js/text-size.js?v=386"></script>
+<link rel="stylesheet" href="assets/css/styles.css?v=387">
+<script src="assets/js/text-size.js?v=387"></script>
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -234,12 +234,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=386"></script>
-<script src="assets/js/version-check.js?v=386"></script>
-<script src="assets/js/supabase-sync.js?v=386"></script>
-<script src="assets/js/ui.js?v=386"></script>
-<script src="assets/js/auth.js?v=386"></script>
-<script src="assets/js/chrome-menu.js?v=386"></script>
+<script src="assets/js/supabase-config.js?v=387"></script>
+<script src="assets/js/version-check.js?v=387"></script>
+<script src="assets/js/supabase-sync.js?v=387"></script>
+<script src="assets/js/ui.js?v=387"></script>
+<script src="assets/js/auth.js?v=387"></script>
+<script src="assets/js/chrome-menu.js?v=387"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -249,9 +249,9 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=386"></script>
-<script src="assets/js/client-template.js?v=386"></script>
-<script src="assets/js/client-store.js?v=386"></script>
+<script src="assets/js/clients.js?v=387"></script>
+<script src="assets/js/client-template.js?v=387"></script>
+<script src="assets/js/client-store.js?v=387"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -356,21 +356,64 @@
         }
         const approvalOff = boxes.filter(b => !b.checked).map(b => String(b.dataset.approver).toLowerCase());
         $("tmPrefsErr").textContent = "Saving…";
-        try { await writeClientPrefs(prefsClient, { approvalOff }); $("tmPrefsErr").textContent = "Saved ✓"; }
+        try {
+          await writeClientPrefs(prefsClient, { approvalOff });
+          const n = await applyApprovalOffToOpenRounds(prefsClient, approvalOff);
+          $("tmPrefsErr").textContent = n ? `Saved ✓ — also applied to ${n} round${n === 1 ? "" : "s"} already out for review` : "Saved ✓";
+        }
         catch (err) { $("tmPrefsErr").textContent = "Couldn't save — " + (err.message || err); }
       });
     }
   }
   // server-first read-modify-write of ONE client's integrations prefs (never clobber the roster)
+  /* Registry writes are COMPARE-AND-SET and change only THIS client's named fields on a fresh
+     copy — a blind whole-roster push here (or anywhere) is what let stale tabs revert reviewer
+     toggles and manager assignments (Alex, 2026-10-05). */
+  async function casRegistry(clientId, fn) {
+    let found = false, out = null;
+    const r = await window.SUPA.casUpdate("_registry", "clients", (fresh) => {
+      const roster = Array.isArray(fresh) ? fresh : [];
+      const c = roster.find(x => x.id === clientId);
+      found = !!c; if (!c) return undefined;            // abort — nothing to write
+      fn(c); out = c;
+      return roster;
+    });
+    if (!found) throw new Error("this client isn't in the registry yet");
+    if (!r.ok) throw new Error("couldn't save (" + (r.error || "network") + ") — please try again");
+    try { const lc = window.TJA_STORE.get(clientId); if (lc) Object.assign(lc, { am: out.am, pm: out.pm, managers: out.managers, integrations: out.integrations }); } catch (e) {}
+    return out;
+  }
   async function writeClientPrefs(clientId, prefs) {
-    const roster = await window.SUPA.pullScope("_registry", "clients");
-    if (!Array.isArray(roster)) throw new Error("couldn't read the client registry");
-    const c = roster.find(x => x.id === clientId);
-    if (!c) throw new Error("this client isn't in the registry yet");
-    c.integrations = Object.assign({}, c.integrations, prefs);
-    await window.SUPA.pushScopeNow("_registry", "clients", roster);
-    try { const lc = window.TJA_STORE.get(clientId); if (lc) lc.integrations = c.integrations; } catch (e) {}
+    const c = await casRegistry(clientId, (cl) => { cl.integrations = Object.assign({}, cl.integrations, prefs); });
     return c.integrations;
+  }
+  /* Turning a reviewer OFF also takes them off rounds ALREADY out for review (they used to stay
+     required on those until waived by hand). Someone who already reviewed keeps their review; a
+     round left complete is stamped complete, which triggers the team notification as usual. */
+  async function applyApprovalOffToOpenRounds(clientId, offEmails) {
+    const off = new Set((offEmails || []).map(e => String(e).toLowerCase()));
+    if (!off.size || !(window.SUPA && window.SUPA.casUpdate)) return 0;
+    let changed = 0;
+    const stampNow = () => { try { const d = new Date(); return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) + " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); } catch (e) { return new Date().toISOString(); } };
+    const r = await window.SUPA.casUpdate(clientId, "deliverables", (fresh) => {
+      if (!Array.isArray(fresh)) return undefined;
+      changed = 0;
+      fresh.forEach(d => (d.versions || []).forEach(v => {
+        if (!v || v.state === "pending_approval" || v.reviewedAt || !Array.isArray(v.expectedReviewers)) return;
+        const revs = v.reviews || {};
+        const exp = v.expectedReviewers.map(e => String(e).toLowerCase());
+        const keep = exp.filter(e => !off.has(e) || revs[e]);
+        if (!keep.length || keep.length === exp.length) return;   // never leave a round requiring nobody
+        v.expectedReviewers = keep; changed++;
+        if (keep.every(e => revs[e])) {                           // everyone still required is in
+          const st = Object.values(revs).map(x => x && x.status).filter(Boolean);
+          v.status = st.indexOf("revisions") > -1 ? "revisions" : st.indexOf("changes") > -1 ? "changes" : (st.length ? "approved" : v.status);
+          v.reviewedAt = stampNow(); v.reviewedStatus = v.status || null; v.completedAtMs = Date.now();
+        }
+      }));
+      return changed ? fresh : undefined;
+    });
+    return r.ok ? changed : 0;
   }
   async function savePrefs() {
     if (!prefsClient) return;
@@ -389,17 +432,12 @@
      registry write, so this is admin-only. */
   let assignName = "";
   const eqName = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
-  function syncManagers(c) { c.managers = [...new Set([c.am, c.pm].filter(Boolean))]; }
-  async function mutateClient(clientId, fn) {
-    const roster = await window.SUPA.pullScope("_registry", "clients");
-    if (!Array.isArray(roster)) throw new Error("couldn't read the client registry");
-    const c = roster.find(x => x.id === clientId);
-    if (!c) throw new Error("client not found in the registry");
-    fn(c);
-    await window.SUPA.pushScopeNow("_registry", "clients", roster);
-    try { const lc = window.TJA_STORE.get(clientId); if (lc) { lc.am = c.am; lc.pm = c.pm; lc.managers = c.managers; lc.integrations = c.integrations; } } catch (e) {}
-    return roster;
+  // managers = AM + PM + anyone PINNED by hand (pins survive every sheet sync)
+  function syncManagers(c) {
+    const pins = (c.integrations && Array.isArray(c.integrations.managersPinned)) ? c.integrations.managersPinned : [];
+    c.managers = [...new Set([c.am, c.pm, ...pins].filter(Boolean))];
   }
+  async function mutateClient(clientId, fn) { return casRegistry(clientId, fn); }
   // clients this manager is on, freshest first from the registry
   function assignmentsFor(name, roster) {
     const list = [];

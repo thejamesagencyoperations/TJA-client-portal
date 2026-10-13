@@ -11,6 +11,7 @@
    client, which is the requirement (Cameron 2026-07-31 — folders must be updated for all
    clients, existing and future, whenever a feature adds a type).
    ============================================================ */
+import { updateRegistry } from "./registry.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 export const ASSET_FOLDERS = [
@@ -110,12 +111,10 @@ export async function ensureClientFolders(token: string, rootId: string, clientI
     return { folderId: String(integ.driveFolderId), folders: known };      // already complete
   }
   const tree = await ensureClientTree(token, rootId, String(c.name || clientId), known);
-  integ.driveFolderId = tree.folderId;
-  integ.driveFolders = tree.folders;
-  c.integrations = integ;
-  await db.from("app_state").upsert(
-    { client_id: "_registry", scope: "clients", data: roster, updated_at: new Date().toISOString() },
-    { onConflict: "client_id,scope" },
-  );
+  // write ONLY this client's folder ids onto a fresh copy of the registry (never a stale whole row)
+  await updateRegistry((fresh) => {
+    const fc = fresh.find((x: any) => String(x.id) === clientId); if (!fc) return;
+    fc.integrations = Object.assign({}, fc.integrations, { driveFolderId: tree.folderId, driveFolders: tree.folders });
+  });
   return { folderId: tree.folderId, folders: tree.folders };
 }
