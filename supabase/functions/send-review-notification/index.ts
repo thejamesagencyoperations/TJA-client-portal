@@ -391,6 +391,47 @@ Deno.serve(async (req) => {
       return json(req, 200, { ok: true, matches: out.length, clients: out });
     }
 
+    /* ---- PRDIAG (secret-gated, READ-ONLY): why isn't a client's PR sheet showing? ----
+       Public log → only status, header row, row/parse counts — never the hits themselves. */
+    if (mode === "prdiag") {
+      const secret = Deno.env.get("SNAPSHOT_SECRET");
+      if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
+      const want = lower(body.client);
+      const { data: rows } = await svc().from("app_state").select("client_id,data").eq("scope", "dashboard").ilike("client_id", `%${want}%`);
+      const out = [];
+      for (const r of rows || []) {
+        const engs: any = (r.data as any)?.engagements || {};
+        const list = [{ k: "retainer", e: engs.retainer }, ...((engs.projects || []) as any[]).map((p, i) => ({ k: "project " + i, e: p }))];
+        for (const { k, e } of list) {
+          if (!e) continue;
+          const url = String(e.prSheetUrl || "");
+          const rec: any = { client: r.client_id, engagement: k, prSheetUrl: url ? url.replace(/(\/d\/[\w-]{6})[\w-]+/, "$1…") : null,
+            prSource: e.prSource || null, prHitsStored: Array.isArray(e.prCoverage) ? e.prCoverage.length : 0 };
+          const id = (/\/d\/([a-zA-Z0-9-_]{20,})/.exec(url) || /^([a-zA-Z0-9-_]{20,})$/.exec(url.trim()) || [])[1];
+          const gid = (/[#?&]gid=(\d+)/.exec(url) || [])[1] || "0";
+          rec.gid = gid;
+          if (id) {
+            try {
+              const resp = await fetch(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`, { redirect: "manual" });
+              rec.httpStatus = resp.status; rec.contentType = resp.headers.get("content-type");
+              const text = resp.status === 200 ? await resp.text() : "";
+              const lines = text.split("\n");
+              rec.rows = lines.length;
+              rec.headerRow = (lines[0] || "").slice(0, 220);
+              rec.secondRowColumns = (lines[1] || "").split(",").length;
+              const firstPending = lines.findIndex((l) => /\bpending\b/i.test(l) && !/https?:\/\//i.test(l));
+              rec.pendingDividerAtRow = firstPending;   // parsing stops here (-1 = none)
+              // tabs in the workbook, to spot a wrong gid
+              const hv = await (await fetch(`https://docs.google.com/spreadsheets/d/${id}/htmlview`)).text();
+              rec.tabs = [...hv.matchAll(/name:\s*"([^"]+)"[^}]*?gid:\s*"(\d+)"/g)].map((m) => `${m[1]} (gid ${m[2]})`).slice(0, 15);
+            } catch (err) { rec.fetchError = String((err as Error).message || err).slice(0, 160); }
+          }
+          out.push(rec);
+        }
+      }
+      return json(req, 200, { ok: true, results: out });
+    }
+
     /* ---- a signed-in caller ---- */
     const caller = await getCaller(req);
     if (!caller) return json(req, 401, { error: "not signed in" });

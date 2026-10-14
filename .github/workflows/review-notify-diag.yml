@@ -14,6 +14,11 @@ on:
         description: "Look back this many days"
         required: false
         default: "14"
+      check:
+        description: "What to check"
+        type: choice
+        options: ["reviews", "pr-sheet"]
+        default: "reviews"
 
 jobs:
   diag:
@@ -25,8 +30,10 @@ jobs:
           ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
           CLIENT: ${{ inputs.client }}
           DAYS: ${{ inputs.days }}
+          CHECK: ${{ inputs.check }}
         run: |
-          body=$(jq -nc --arg c "$CLIENT" --arg d "$DAYS" '{mode:"diag", client:$c, days:($d|tonumber)}')
+          MODE=diag; [ "$CHECK" = "pr-sheet" ] && MODE=prdiag
+          body=$(jq -nc --arg m "$MODE" --arg c "$CLIENT" --arg d "${DAYS:-14}" '{mode:$m, client:$c, days:($d|tonumber)}')
           curl -sS --fail-with-body -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/send-review-notification" \
             -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" \
             -H "Authorization: Bearer ${ANON_KEY}" \
