@@ -397,16 +397,19 @@ Deno.serve(async (req) => {
       const secret = Deno.env.get("SNAPSHOT_SECRET");
       if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
       const want = lower(body.client);
-      const { data: rows } = await svc().from("app_state").select("client_id,data").eq("scope", "dashboard").ilike("client_id", `%${want}%`);
+      // select ONLY the PR fields (the full dashboard row is multi-MB and crashed the worker)
+      const { data: rows, error: qe } = await svc().from("app_state")
+        .select("client_id, url:data->engagements->retainer->>prSheetUrl, src:data->engagements->retainer->>prSource, hits:data->engagements->retainer->prHits")
+        .eq("scope", "dashboard").ilike("client_id", `%${want}%`);
+      if (qe) return json(req, 500, { error: qe.message });
       const out = [];
-      for (const r of rows || []) {
-        const engs: any = (r.data as any)?.engagements || {};
-        const list = [{ k: "retainer", e: engs.retainer }, ...((engs.projects || []) as any[]).map((p, i) => ({ k: "project " + i, e: p }))];
+      for (const r of (rows || []) as any[]) {
+        const list = [{ k: "retainer", e: { prSheetUrl: r.url, prSource: r.src, prCoverage: [], prHits: r.hits } }];
         for (const { k, e } of list) {
           if (!e) continue;
           const url = String(e.prSheetUrl || "");
           const rec: any = { client: r.client_id, engagement: k, prSheetUrl: url ? url.replace(/(\/d\/[\w-]{6})[\w-]+/, "$1…") : null,
-            prSource: e.prSource || null, prHitsStored: Array.isArray(e.prCoverage) ? e.prCoverage.length : 0 };
+            prSource: e.prSource || null, prHitsStored: e.prHits ?? null };
           const id = (/\/d\/([a-zA-Z0-9-_]{20,})/.exec(url) || /^([a-zA-Z0-9-_]{20,})$/.exec(url.trim()) || [])[1];
           const gid = (/[#?&]gid=(\d+)/.exec(url) || [])[1] || "0";
           rec.gid = gid;
@@ -414,16 +417,15 @@ Deno.serve(async (req) => {
             try {
               const resp = await fetch(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`, { redirect: "manual" });
               rec.httpStatus = resp.status; rec.contentType = resp.headers.get("content-type");
-              const text = resp.status === 200 ? await resp.text() : "";
+              const text = resp.status === 200 ? (await resp.text()).slice(0, 200000) : "";
+              rec.redirectTo = resp.status >= 300 && resp.status < 400 ? String(resp.headers.get("location") || "").slice(0, 60) : undefined;
               const lines = text.split("\n");
               rec.rows = lines.length;
               rec.headerRow = (lines[0] || "").slice(0, 220);
               rec.secondRowColumns = (lines[1] || "").split(",").length;
               const firstPending = lines.findIndex((l) => /\bpending\b/i.test(l) && !/https?:\/\//i.test(l));
               rec.pendingDividerAtRow = firstPending;   // parsing stops here (-1 = none)
-              // tabs in the workbook, to spot a wrong gid
-              const hv = await (await fetch(`https://docs.google.com/spreadsheets/d/${id}/htmlview`)).text();
-              rec.tabs = [...hv.matchAll(/name:\s*"([^"]+)"[^}]*?gid:\s*"(\d+)"/g)].map((m) => `${m[1]} (gid ${m[2]})`).slice(0, 15);
+
             } catch (err) { rec.fetchError = String((err as Error).message || err).slice(0, 160); }
           }
           out.push(rec);
