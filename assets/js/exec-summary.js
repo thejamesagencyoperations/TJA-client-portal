@@ -943,8 +943,11 @@ window.ExecSummary = (function () {
       }).join("");
       const n = e.prHits != null ? e.prHits : list.length;
       const connectBtn = canAdmin() ? `<button class="row-add pr-connect" data-prconnect title="${esc(e.prSheetUrl || "")}">✎ Change sheet</button>` : "";
+      // staff see WHY a connected sheet isn't showing (sharing, wrong tab) instead of an empty tile
+      const warn = (canAdmin() && e.prSheetError) ? `<div class="pr-sheet-warn">⚠ ${esc(e.prSheetError)}</div>` : "";
       return `<div class="module">
         <div class="module-head"><span class="module-title">${IC.pr}PR Coverage · Recent Wins</span><span class="rsvc-legend">${n} hits YTD</span></div>
+        ${warn}
         <div class="pr-scroll">${rows || `<div class="pr-date">No coverage logged yet.</div>`}</div>
         ${connectBtn}
       </div>`;
@@ -1915,7 +1918,12 @@ window.ExecSummary = (function () {
         eng.prSheetUrl = raw.trim();
         pc.disabled = true; pc.textContent = "Connecting…";
         window.DASH.refreshPRSheet(eng, cfg).then(ok => {
-          if (!ok) window.TJA_UI.alert("Couldn't read that sheet — check it's shared “Anyone with the link – Viewer” and try again.");
+          // say exactly what happened on connect — a new client's sheet should never just look empty
+          if (!ok || eng.prSheetError) {
+            window.TJA_UI.alert("Couldn't read that sheet — " + (eng.prSheetError || "check it's shared “Anyone with the link – Viewer”") + ".", { title: "PR sheet not connected" });
+          } else if (!(eng.prCoverage || []).length) {
+            window.TJA_UI.alert("Connected, but no secured hits were found on that tab.\n\nThe portal reads: A = Date, B = Outlet, C = Link, D = Impressions, E = Ad value. Rows under a “Pending …” label are hidden until a “Secured …” label. Check the link points at the right tab.", { title: "No hits found" });
+          }
           window.DASH.saveState(); rerender();
         });
         return;

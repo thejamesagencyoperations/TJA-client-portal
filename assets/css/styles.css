@@ -2316,3 +2316,7 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
   width: calc(100% / var(--tile-zoom)); height: calc(100% / var(--tile-zoom));
   transform: scale(var(--tile-zoom)); transform-origin: 0 0;
 }
+
+/* PR tile: a connected sheet that can't be read says so (staff only) */
+.pr-sheet-warn { margin: 4px 0 8px; padding: 7px 10px; border-radius: 8px; font-size: .72rem; font-weight: 600;
+  color: #b45309; background: rgba(245,179,66,.12); border: 1px solid rgba(245,179,66,.4); }

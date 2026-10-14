@@ -240,13 +240,15 @@ function setPath(obj, path, val) {
 function refreshPRSheet(ret, cfg) {
   const reg = window.CLIENT_PR_SHEETS;
   if (!reg || !cfg || !ret) return Promise.resolve(false);
-  return fetch(reg.csvUrl(cfg), { cache: "no-store" })
-    .then(r => (r.ok ? r.text() : null))
-    .then(text => {
-      if (!text) return false;
+  return reg.fetchPRText(cfg)
+    .then(res => {
+      // a sheet that can't be read is SAID on the tile (admins) instead of silently showing nothing
+      if (!res || !res.text) { ret.prSheetError = (res && res.error) || "couldn't read the PR sheet"; return true; }
+      const text = res.text;
       ret.prCoverage = reg.parseHits(text);
       ret.prSource = "sheet";
       ret.prHits = reg.hitCount(text, ret.prCoverage.length);
+      delete ret.prSheetError;
       return true;
     })
     .catch(() => false);

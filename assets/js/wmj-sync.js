@@ -438,7 +438,7 @@ window.WMJ_SYNC = (function () {
     for (const id of Object.keys(reg.SHEETS)) {
       const cfg = reg.forClient(id); if (!cfg) continue;
       let text;
-      try { const res = await fetch(reg.csvUrl(cfg), { cache: "no-store" }); if (!res.ok) throw new Error("PR fetch " + res.status); text = await res.text(); }
+      try { const res = await reg.fetchPRText(cfg); if (!res.text) throw new Error(res.error || "PR fetch failed"); text = res.text; }
       catch (e) { console.warn("PR sync", id, e); continue; }
       const ls = await loadStateSafe(id); if (!ls.ok) continue;
       const state = ls.state;

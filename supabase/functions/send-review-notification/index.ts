@@ -415,7 +415,8 @@ Deno.serve(async (req) => {
           rec.gid = gid;
           if (id) {
             try {
-              const resp = await fetch(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`, { redirect: "manual" });
+              // the same exact-text export the portal now reads through pr-sheet
+              const resp = await fetch(`https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`, { redirect: "follow" });
               rec.httpStatus = resp.status; rec.contentType = resp.headers.get("content-type");
               const text = resp.status === 200 ? (await resp.text()).slice(0, 200000) : "";
               rec.redirectTo = resp.status >= 300 && resp.status < 400 ? String(resp.headers.get("location") || "").slice(0, 60) : undefined;
@@ -424,7 +425,39 @@ Deno.serve(async (req) => {
               rec.headerRow = (lines[0] || "").slice(0, 220);
               rec.secondRowColumns = (lines[1] || "").split(",").length;
               const firstPending = lines.findIndex((l) => /\bpending\b/i.test(l) && !/https?:\/\//i.test(l));
-              rec.pendingDividerAtRow = firstPending;   // parsing stops here (-1 = none)
+              rec.firstPendingLabelRow = firstPending;
+              // the portal's section-aware parser, run here: how many SECURED vs PENDING hits
+              let pend = false, secured = 0, pendingHits = 0;
+              // quote-aware CSV parse (export output only quotes cells that need it)
+              const parsedRows: string[][] = []; { let row: string[] = [], f = "", q = false;
+                for (let i = 0; i < text.length; i++) { const c = text[i];
+                  if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+                  else if (c === '"') q = true; else if (c === ",") { row.push(f); f = ""; } else if (c === "\n") { row.push(f); parsedRows.push(row); row = []; f = ""; } else if (c !== "\r") f += c; }
+                if (f || row.length) { row.push(f); parsedRows.push(row); } }
+              for (const cells of parsedRows) {
+                const line = cells.join(" ");
+                const t = line.toLowerCase(), link = /https?:\/\//.test(t);
+                if (!link && (/\bpending\b/.test(t) || /\bsecured\b/.test(t))) {
+                  const pi = t.search(/\bpending\b/), si = t.search(/\bsecured\b/);
+                  pend = pi > -1 && si > -1 ? pi > si : pi > -1; continue;
+                }
+                const outlet = (cells[1] || "").trim();
+                if (!outlet || /^outlet$/i.test(outlet)) continue;
+                if (pend) pendingHits++; else { secured++;
+                  if (!/https?:\/\//.test(cells[2] || "")) (rec.securedNoLink = (rec.securedNoLink || 0) + 1);
+                  if (!/\d/.test(cells[0] || "")) (rec.securedNoDate = (rec.securedNoDate || [])).push((cells[0] || "").slice(0, 30));
+                }
+              }
+              rec.parsed = { secured, pendingHidden: pendingHits };
+              // layout of the rows that matter: column A (dates / section labels — not hit
+              // content), plus whether the row has an outlet and a link
+              rec.layout = lines.map((line, i) => {
+                const cells = line.split('","').map((c) => c.replace(/^"|"$/g, ""));
+                return { i, a: (cells[0] || "").slice(0, 40), outlet: !!(cells[1] || "").trim(), link: /https?:\/\//.test(line), cols: cells.length };
+              }).filter((x) => x.i < 8 || /pending|secured|coverage/i.test(x.a));
+              const LABEL = /^(?:.*\b(?:pending|secured|coverage|hits|date|outlet|link|impressions|ad value|fall|spring|summer|winter|q[1-4])\b.*)$/i;
+              rec.cells = lines.slice(0, 6).map((line) => line.split('","').map((c) => c.replace(/^"|"$/g, "").trim())
+                .map((c) => !c ? "" : (LABEL.test(c) && c.length < 70 ? c : (/^https?:/.test(c) ? "<link>" : /^\d/.test(c) ? "<num/date>" : "<text " + c.length + ">"))));
 
             } catch (err) { rec.fetchError = String((err as Error).message || err).slice(0, 160); }
           }

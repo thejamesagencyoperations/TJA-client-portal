@@ -20,6 +20,37 @@ window.CLIENT_PR_SHEETS = (function () {
   function forClient(id) { return SHEETS[id] || null; }
   function csvUrl(cfg) { return "https://docs.google.com/spreadsheets/d/" + cfg.sheetId + "/gviz/tq?tqx=out:csv&gid=" + cfg.gid; }
 
+  /* PR sheets are read through the pr-sheet Edge Function, which returns the cells EXACTLY as
+     typed. The browser's gviz endpoint (csvUrl) guesses column types and blanks anything that
+     doesn't fit — and PR sheets keep their "PENDING COVERAGE" / "SECURED COVERAGE" labels in the
+     Date column, so gviz deleted them and pending vs secured couldn't be told apart (M Culinary,
+     2026-10-14). gviz stays as the fallback when the function can't be reached.
+     → { text } on success, { error } when the sheet can't be read (shown to admins on the tile). */
+  async function fetchPRText(cfg) {
+    let serverErr = "";
+    try {
+      const base = window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.url;
+      const sess = window.SUPA && window.SUPA.client && (await window.SUPA.client.auth.getSession()).data.session;
+      if (base && sess) {
+        const r = await fetch(base.replace(/\/$/, "") + "/functions/v1/pr-sheet", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + sess.access_token },
+          body: JSON.stringify({ url: "https://docs.google.com/spreadsheets/d/" + cfg.sheetId + "/edit#gid=" + cfg.gid }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (j && j.ok && typeof j.csv === "string") return { text: j.csv };
+        serverErr = (j && j.error) || ("HTTP " + r.status);
+      }
+    } catch (e) { serverErr = String(e && e.message || e); }
+    // fallback: the browser's gviz read (works for public sheets; may miss section labels)
+    try {
+      const r = await fetch(csvUrl(cfg), { cache: "no-store" });
+      const t = r.ok ? await r.text() : "";
+      if (t && !/^\s*<(!doctype|html)/i.test(t)) return { text: t, degraded: !!serverErr };
+    } catch (e) {}
+    return { error: serverErr || "couldn't read the PR sheet — check it's shared \"Anyone with the link → Viewer\"" };
+  }
+
   // Admin/AM-PM paste a normal "Share" URL (…/d/<id>/edit#gid=123, or with ?gid=123,
   // or just the bare id) — pull {sheetId, gid} out of whatever they pasted.
   function parseSheetUrl(raw) {
@@ -47,17 +78,29 @@ window.CLIENT_PR_SHEETS = (function () {
   const dateKey = (d) => { const m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(d || ""); if (!m) return 0; const y = m[3].length === 2 ? +("20" + m[3]) : +m[3]; return y * 10000 + (+m[1]) * 100 + (+m[2]); };
 
   // → [{date, outlet, link, impressions, adValue, source:"sheet"}], newest first
+  /* SECTION-AWARE: a row that says "pending" (and carries no link) STARTS a pending section; a
+     row that says "secured" (no link) starts a secured one. Pending rows are anticipated /
+     not-yet-launched coverage and must never show as PR (esp. client-facing) — but the sections
+     can come in EITHER order. This used to `break` at the first "pending" label, which suited
+     A New Leaf (secured first, pending at the bottom) and silently hid ALL of M Culinary's hits
+     (pending at the top, secured below — 2026-10-14). */
+  function sectionOf(rowText) {
+    if (/https?:\/\//i.test(rowText)) return null;              // a real hit, not a label
+    const t = rowText.toLowerCase();
+    const p = t.search(/\bpending\b/), sc = t.search(/\bsecured\b/);
+    if (p < 0 && sc < 0) return null;
+    if (p > -1 && sc > -1) return p > sc ? "pending" : "secured";  // merged labels: the LAST one is in force
+    return p > -1 ? "pending" : "secured";
+  }
   function parseHits(text) {
     const hits = [];
     const rows = parseRows(text);
+    let pending = false;
     for (const r of rows) {
-      // A "Pending Media Coverage" (or any "Pending …") DIVIDER row marks the start of
-      // anticipated / not-yet-launched coverage. Everything below it is NOT a real hit and
-      // must never show as secured PR (esp. client-facing). We detect the divider as a row
-      // that says "pending" but carries NO link (a section label, not an article), then stop.
-      // No manual management: keep the pending rows under that divider and they're auto-hidden.
       const rowText = r.join(" ");
-      if (/\bpending\b/i.test(rowText) && !/https?:\/\//i.test(rowText)) break;
+      const sec = sectionOf(rowText);
+      if (sec) { pending = sec === "pending"; continue; }
+      if (pending) continue;                                      // anticipated coverage — never shown
       const date = (r[0] || "").trim(), outlet = (r[1] || "").trim(), link = (r[2] || "").trim(),
         impressions = (r[3] || "").trim(), adValue = (r[4] || "").trim();
       if (!outlet) continue;                                // skip blank / spacer rows
@@ -204,5 +247,5 @@ window.CLIENT_PR_SHEETS = (function () {
     return { meta, groups };
   }
 
-  return { SHEETS, forClient, csvUrl, parseSheetUrl, parseRows, parseHits, hitCount, parseProjectPlan, planStatedPct };
+  return { SHEETS, forClient, csvUrl, fetchPRText, parseSheetUrl, parseRows, parseHits, hitCount, parseProjectPlan, planStatedPct };
 })();
