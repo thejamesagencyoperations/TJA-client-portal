@@ -31,6 +31,15 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import "../_shared/wmj-transform.js";
 // deno-lint-ignore no-explicit-any
 const T = (globalThis as any).WMJ_TRANSFORM;
+// key-order-insensitive JSON (jsonb does not preserve key order, so a plain stringify reports
+// phantom changes on every run)
+// deno-lint-ignore no-explicit-any
+function stableStr(v: any): string {
+  // deno-lint-ignore no-explicit-any
+  const walk = (x: any): any => (x === null || typeof x !== "object") ? x
+    : Array.isArray(x) ? x.map(walk) : Object.keys(x).sort().reduce((o: any, k) => { o[k] = walk(x[k]); return o; }, {});
+  return JSON.stringify(walk(v));
+}
 
 /* Every column the transform reads. Same guard as the browser: a report missing any of these
    is the WRONG report, and must fail loudly rather than write a half-parsed picture over
@@ -127,36 +136,51 @@ Deno.serve(async (req) => {
     if (c.wmjName) idByName.set(normName(c.wmjName), c.id);
   });
 
-  let updated = 0, projects = 0, failed = 0;
+  let updated = 0, unchanged = 0, projects = 0, failed = 0;
   const unmatched: string[] = [];
 
   for (const wc of wmjClients) {
     const cid = idByName.get(normName(wc.wmjName));
     if (!cid) { unmatched.push(wc.wmjName); continue; }
 
-    const { data: row, error: rerr } = await svc.from("app_state").select("data")
-      .eq("client_id", cid).eq("scope", "dashboard").maybeSingle();
-    if (rerr || !row) { failed++; continue; }
-
-    const state = row.data || {};
-    state.engagements = state.engagements || {};
-    const existing = Array.isArray(state.engagements.projects) ? state.engagements.projects : [];
-    // deno-lint-ignore no-explicit-any
-    const byId = new Map(existing.map((p: any) => [p.id, p]));
-    // manual (non-WMJ) projects are the admin's and are kept untouched
-    // deno-lint-ignore no-explicit-any
-    const manual = existing.filter((p: any) => p.source !== "wmj");
-    // deno-lint-ignore no-explicit-any
-    const wmjProjects = wc.projects.map((w: any) => mergeProject(byId.get(w.id), w));
-    state.engagements.projects = manual.concat(wmjProjects);
-
-    const { error: werr } = await svc.from("app_state")
-      .update({ data: state }).eq("client_id", cid).eq("scope", "dashboard");
-    if (werr) { failed++; continue; }
-    updated++; projects += wmjProjects.length;
+    /* COMPARE-AND-SET (2026-10-15). This used to read the client's dashboard, replace its
+       projects and write the WHOLE row back blind — and without bumping updated_at. So an admin
+       edit landing between the read and the write was silently lost, and an open admin tab
+       (whose guarded writes key on updated_at) could just as silently write stale projects back
+       over the sync. Now: re-read → merge ONLY the WMJ projects into that fresh copy → write it
+       only if nobody saved in between (and stamp updated_at so open tabs know to re-merge) →
+       otherwise retry. Unchanged clients aren't written at all. */
+    let outcome: "updated" | "unchanged" | "failed" = "failed", nWmj = 0;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: row, error: rerr } = await svc.from("app_state").select("data,updated_at")
+        .eq("client_id", cid).eq("scope", "dashboard").maybeSingle();
+      if (rerr || !row) break;
+      const state = row.data || {};
+      state.engagements = state.engagements || {};
+      const existing = Array.isArray(state.engagements.projects) ? state.engagements.projects : [];
+      // deno-lint-ignore no-explicit-any
+      const byId = new Map(existing.map((p: any) => [p.id, p]));
+      // manual (non-WMJ) projects are the admin's and are kept untouched
+      // deno-lint-ignore no-explicit-any
+      const manual = existing.filter((p: any) => p.source !== "wmj");
+      // deno-lint-ignore no-explicit-any
+      const wmjProjects = wc.projects.map((w: any) => mergeProject(byId.get(w.id), w));
+      const next = manual.concat(wmjProjects);
+      nWmj = wmjProjects.length;
+      if (stableStr(next) === stableStr(existing)) { outcome = "unchanged"; break; }
+      state.engagements.projects = next;
+      const { data: w, error: werr } = await svc.from("app_state")
+        .update({ data: state, updated_at: new Date().toISOString() })
+        .eq("client_id", cid).eq("scope", "dashboard").eq("updated_at", row.updated_at).select("updated_at");
+      if (!werr && w && w.length) { outcome = "updated"; break; }
+      await new Promise((r) => setTimeout(r, 150 + Math.random() * 300 * (attempt + 1)));   // someone saved first → re-merge
+    }
+    if (outcome === "failed") { failed++; continue; }
+    if (outcome === "unchanged") { unchanged++; projects += nWmj; continue; }
+    updated++; projects += nWmj;
   }
 
-  const result = { ok: true, reportFrom, clientsInReport: wmjClients.length, updated, projects, failed,
+  const result = { ok: true, reportFrom, clientsInReport: wmjClients.length, updated, unchanged, projects, failed,
     unmatched: unmatched.length, unmatchedNames: unmatched.slice(0, 30) };
   await reportHealth("sync-projects", result);
   return json(req, 200, result);
