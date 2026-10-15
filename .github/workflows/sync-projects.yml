@@ -14,7 +14,10 @@ name: Project data sync
 
 on:
   schedule:
-    - cron: "25 * * * *"      # hourly, off the hour so it doesn't queue behind the :00 crowd
+    # :47 — the quiet end of the hour. The internal TJA dashboard's Workamajig jobs fire at :00
+    # and GitHub often starts them 10–25 min late; Workamajig allows only 5 report calls per
+    # 15 min for the WHOLE account, so the old :25 slot kept landing on top of them (429s).
+    - cron: "47 * * * *"
   workflow_dispatch: {}
 
 jobs:
