@@ -1,3 +1,4 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
 /* ============================================================
    WMJ RETAINER ACTUALS (Deno port, for the scheduled snapshot)
    A lean server-side read of the Workamajig RETAINER timesheet:
@@ -116,16 +117,55 @@ export function wmjReportRequest(reportKey: string): { url: string; init: Reques
   };
 }
 
+/* ---------- ONE shared cache for every Workamajig report (2026-10-15) ----------
+   Workamajig allows only 5 report calls per 15 minutes for the WHOLE account. Every caller used
+   to hit it directly — the hourly projects sync, the retainer snapshot, and EVERY staff browser
+   with the Clients page open (2 reports on load + hourly) — and each failure retried, so a busy
+   moment burned the budget and "Project data sync" failed with HTTP 429 on all 3 attempts.
+   Now: a report fetched within CACHE_TTL is served from one app_state row; a fresh fetch is
+   made at most once per TTL per report; a rate-limited (or failed) fetch falls back to the last
+   good copy if it's under STALE_OK old; and a 429 is never retried (fetchT only retries 5xx). */
+const CACHE_TTL_MS = 15 * 60_000;
+const STALE_OK_MS = 6 * 3600_000;
+export type WmjCsv = { csv: string; cachedAt: number; stale: boolean; source: "cache" | "wmj"; failure?: string };
+export async function fetchWmjReportCached(
+  reportKey: string, label: string, validate: (csv: string) => void,
+  opts: { maxAgeMs?: number; staleOkMs?: number; timeoutMs?: number } = {},
+): Promise<WmjCsv> {
+  const rq = wmjReportRequest(reportKey);
+  if (!rq) throw new Error(`${label}: WMJ direct API not configured`);
+  const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const cid = "_wmj_cache_" + reportKey.replace(/[^\w]/g, "").slice(-12);
+  const { data: row } = await svc.from("app_state").select("data").eq("client_id", cid).eq("scope", "clients").maybeSingle();
+  const c: any = row?.data || null;
+  const age = c && c.at ? Date.now() - c.at : Infinity;
+  if (c && c.csv && age < (opts.maxAgeMs ?? CACHE_TTL_MS)) return { csv: c.csv, cachedAt: c.at, stale: false, source: "cache" };
+  let failure = "";
+  try {
+    const res = await fetchT(rq.url, rq.init, { timeoutMs: opts.timeoutMs ?? 45_000, retries: 1, label });
+    if (res.ok) {
+      const csv = await res.text();
+      validate(csv);                                      // wrong report / error envelope → throws
+      const at = Date.now();
+      await svc.from("app_state").upsert({ client_id: cid, scope: "clients", data: { at, label, csv }, updated_at: new Date(at).toISOString() },
+        { onConflict: "client_id,scope" });
+      return { csv, cachedAt: at, stale: false, source: "wmj" };
+    }
+    failure = `HTTP ${res.status} ${(await res.text()).slice(0, 200)}`;
+  } catch (e) { failure = String((e as Error).message || e).slice(0, 300); }
+  // rate-limited / down: serve the last good copy rather than failing the whole job
+  if (c && c.csv && age < (opts.staleOkMs ?? STALE_OK_MS)) return { csv: c.csv, cachedAt: c.at, stale: true, source: "cache", failure };
+  throw new Error(`${label}: ${failure}`);
+}
+
 async function fetchRetainerCsv(): Promise<string> {
   const e = wmjEnv();
   const direct = wmjReportRequest(e.rk || "");
   if (direct) {
-    const res = await fetchT(direct.url, direct.init,
-      { timeoutMs: 30_000, retries: 2, label: "WMJ retainer report (direct API)" });
-    if (!res.ok) throw new Error(`WMJ retainer report failed: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-    const text = await res.text();
-    assertLooksLikeTimesheetCsv(text, "WMJ retainer report (direct API)");
-    return text;
+    const r = await fetchWmjReportCached(e.rk!, "WMJ retainer report (direct API)",
+      (t) => assertLooksLikeTimesheetCsv(t, "WMJ retainer report (direct API)"), { timeoutMs: 30_000 });
+    if (r.stale) console.warn("retainer report served from cache (WMJ unavailable):", r.failure);
+    return r.csv;
   }
   /* Timed + retried, NOT a bare fetch. This call hung mid-transfer on 2026-08-26 and took the
      whole snapshot down with a Supabase 150s IDLE_TIMEOUT (see _shared/http.ts). */

@@ -27,7 +27,7 @@
 import { handleOptions, json, corsHeaders } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { fetchT } from "../_shared/http.ts";
-import { assertLooksLikeWmjCsv, wmjReportRequest } from "../_shared/wmj.ts";
+import { assertLooksLikeWmjCsv, wmjReportRequest, fetchWmjReportCached } from "../_shared/wmj.ts";
 
 // Which report, and the column that proves we got the right one back.
 const REPORTS: Record<string, { env: string; label: string; requiredCol: string }> = {
@@ -60,13 +60,12 @@ Deno.serve(async (req) => {
   if (!request) return json(req, 503, { error: `WMJ direct API not configured (need WMJ_SUBDOMAIN, WMJ_API_ACCESS_TOKEN, WMJ_USER_TOKEN and ${spec.env})` });
 
   try {
-    const res = await fetchT(request.url, request.init,
-      { timeoutMs: 30_000, retries: 2, label: spec.label });
-    if (!res.ok) return json(req, 502, { error: `${spec.label}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}` });
-    const csv = await res.text();
+    // Through the SHARED 15-minute cache: however many staff have the Clients page open, WMJ
+    // sees at most one call per report per 15 minutes (the account allows 5 per 15 min total).
     // Same guard the scheduled path uses: an HTTP 200 full of #N/A, or a JSON error envelope,
     // must NOT reach a parser that would read it as "no rows".
-    assertLooksLikeWmjCsv(csv, spec.label, spec.requiredCol);
+    const got = await fetchWmjReportCached(key, spec.label, (c) => assertLooksLikeWmjCsv(c, spec.label, spec.requiredCol), { timeoutMs: 30_000 });
+    const csv = got.csv;
     return new Response(csv, {
       status: 200,
       headers: { ...corsHeaders(req), "Content-Type": "text/csv; charset=utf-8", "Cache-Control": "no-store" },

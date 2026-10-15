@@ -41,7 +41,10 @@ jobs:
               exit 0
             fi
             echo "attempt $attempt failed"
-            if [ "$attempt" -lt 3 ]; then sleep 30; fi
+            # Workamajig allows 5 report calls / 15 min account-wide — back off properly instead of
+            # spending the budget straight back into the limit (the function now also serves a
+            # recent cached copy when WMJ is rate-limiting, so a retry is rarely needed at all)
+            if [ "$attempt" -lt 3 ]; then sleep 120; fi
           done
           echo "::error::sync-projects failed all 3 attempts"
           exit 1

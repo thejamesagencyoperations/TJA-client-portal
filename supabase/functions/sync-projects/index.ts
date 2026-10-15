@@ -21,7 +21,7 @@
    ============================================================ */
 import { json, handleOptions } from "../_shared/cors.ts";
 import { fetchT } from "../_shared/http.ts";
-import { assertLooksLikeWmjCsv, wmjReportRequest, normName } from "../_shared/wmj.ts";
+import { assertLooksLikeWmjCsv, wmjReportRequest, normName, fetchWmjReportCached } from "../_shared/wmj.ts";
 import { reportHealth } from "../_shared/health.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 /* The BROWSER's transform, byte-for-byte — imported for its side effect (it assigns to
@@ -94,17 +94,20 @@ Deno.serve(async (req) => {
 
   // ---- fetch + validate the report
   let rows: Record<string, string>[];
+  let reportFrom = "wmj";
   try {
-    const rq = wmjReportRequest(Deno.env.get("WMJ_PROJECTS_REPORTKEY") || "");
-    if (!rq) throw new Error("WMJ direct API not configured (WMJ_SUBDOMAIN / tokens / WMJ_PROJECTS_REPORTKEY)");
-    const res = await fetchT(rq.url, rq.init, { timeoutMs: 45_000, retries: 2, label: "WMJ projects report" });
-    if (!res.ok) throw new Error(`WMJ projects report: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-    const csv = await res.text();
-    assertLooksLikeWmjCsv(csv, "WMJ projects report", "Task_Full_Name");
-    const head = csv.split(/\r?\n/)[0] || "";
-    const miss = PROJECT_COLS.filter((c) => !new RegExp(c.replace(/_/g, "[ _]"), "i").test(head));
-    if (miss.length) throw new Error(`WMJ projects report is missing [${miss.join(", ")}] — WMJ_PROJECTS_REPORTKEY is pointing at the wrong report`);
-    rows = T.parseCSV(csv);
+    const key = Deno.env.get("WMJ_PROJECTS_REPORTKEY") || "";
+    if (!wmjReportRequest(key)) throw new Error("WMJ direct API not configured (WMJ_SUBDOMAIN / tokens / WMJ_PROJECTS_REPORTKEY)");
+    // shared 15-min cache: rate-limit-proof (see _shared/wmj.ts fetchWmjReportCached)
+    const got = await fetchWmjReportCached(key, "WMJ projects report", (csv) => {
+      assertLooksLikeWmjCsv(csv, "WMJ projects report", "Task_Full_Name");
+      const head = csv.split(/\r?\n/)[0] || "";
+      const miss = PROJECT_COLS.filter((c) => !new RegExp(c.replace(/_/g, "[ _]"), "i").test(head));
+      if (miss.length) throw new Error(`WMJ projects report is missing [${miss.join(", ")}] — WMJ_PROJECTS_REPORTKEY is pointing at the wrong report`);
+    });
+    if (got.stale) console.warn("projects report served from cache — WMJ unavailable:", got.failure);
+    reportFrom = got.stale ? `cache (${Math.round((Date.now() - got.cachedAt) / 60000)} min old — WMJ: ${got.failure})` : got.source;
+    rows = T.parseCSV(got.csv);
   } catch (e) {
     const msg = String((e as Error).message || e);
     await reportHealth("sync-projects", { ok: false, error: msg });
@@ -153,7 +156,7 @@ Deno.serve(async (req) => {
     updated++; projects += wmjProjects.length;
   }
 
-  const result = { ok: true, clientsInReport: wmjClients.length, updated, projects, failed,
+  const result = { ok: true, reportFrom, clientsInReport: wmjClients.length, updated, projects, failed,
     unmatched: unmatched.length, unmatchedNames: unmatched.slice(0, 30) };
   await reportHealth("sync-projects", result);
   return json(req, 200, result);
