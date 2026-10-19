@@ -50,7 +50,7 @@
       cadence: "twice daily", staleHrs: 30,
       why: "Freezes each client's month-end burn and rolls everyone into the new month." },
     { key: "plan-refresh", label: "Project plan auto-refresh",
-      cadence: "every 5 min", staleHrs: 3,
+      cadence: "every 5 min (database scheduler)", staleHrs: 1,   // v394: pg_cron, no longer GitHub-delayed
       why: "Re-pulls connected project-plan sheets so edits appear without anyone clicking refresh." },
     { key: "assign-sync", label: "AM/PM assignment sync",
       cadence: "daily", staleHrs: 30,

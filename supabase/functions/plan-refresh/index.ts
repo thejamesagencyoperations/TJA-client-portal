@@ -12,6 +12,7 @@
    JWT — deploy with --no-verify-jwt.
      supabase functions deploy plan-refresh --use-api --no-verify-jwt
    ============================================================ */
+import { cronAuthorized } from "../_shared/cron-auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { handleOptions, json } from "../_shared/cors.ts";
 import { driveAccessToken, driveGetMeta, parseDriveFileId, parseSheetGid } from "../_shared/google.ts";
@@ -22,8 +23,7 @@ import { reportHealth } from "../_shared/health.ts";
 Deno.serve(async (req) => {
   const pre = handleOptions(req); if (pre) return pre;
   if (req.method !== "POST") return json(req, 405, { error: "POST only" });
-  const secret = Deno.env.get("SNAPSHOT_SECRET");
-  if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
+  if (!cronAuthorized(req)) return json(req, 401, { error: "bad or missing secret" });
   if (!Deno.env.get("GOOGLE_SA_KEY")) return json(req, 503, { error: "GOOGLE_SA_KEY missing" });
 
   const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);

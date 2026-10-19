@@ -24,6 +24,7 @@
            pdfBase64?, pdfName?, pdfDriveLink? }
    Deploy: supabase functions deploy send-review-notification --use-api --project-ref sliutkbdpuimxxmvsbek
    ============================================================ */
+import { cronAuthorized } from "../_shared/cron-auth.ts";
 import { handleOptions, json } from "../_shared/cors.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { registryEntry } from "../_shared/registry.ts";
@@ -302,8 +303,7 @@ Deno.serve(async (req) => {
   try {
     /* ---- SWEEP (cron): every recently completed round the tracker hasn't confirmed ---- */
     if (mode === "sweep") {
-      const secret = Deno.env.get("SNAPSHOT_SECRET");
-      if (!secret || req.headers.get("x-snapshot-secret") !== secret) return json(req, 401, { error: "bad or missing secret" });
+      if (!cronAuthorized(req)) return json(req, 401, { error: "bad or missing secret" });
       // only workspaces whose deliverables changed inside the window (a completion is a write),
       // so the sweep never drags every client's multi-MB row through the function
       const since = new Date(Date.now() - SWEEP_WINDOW_MS).toISOString();

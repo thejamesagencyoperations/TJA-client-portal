@@ -742,7 +742,7 @@ window.ExecSummary = (function () {
         <div class="rsvc-top"><span class="rsvc-name">Overage</span><span class="rsvc-right"><span class="rsvc-status is-over">Billable</span></span></div>
         <div class="rsvc-cap">${round1(overage)} hrs beyond ${extCap > 0 ? "the scope extension" : "contracted hours"}${(crfActive(e) && +e.crf.rate > 0) ? ` · ≈ $${Math.round(overage * e.crf.rate).toLocaleString()} at $${e.crf.rate}/hr` : ""}</div>
       </div>` : "";
-    const setupNote = (admin && unset && !e.projectOnly)
+    const setupNote = (admin && unset && !e.projectOnly && !(retainerTotalContracted(e) > 0))
       ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0
             ? `The burn total (~${round1(e.retainerValueTarget)} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
             : `No contracted hours yet — set them per discipline.`}</div>` : "";
@@ -753,7 +753,9 @@ window.ExecSummary = (function () {
        Staff only; clients never see the warning. */
     const split = splitStatus(e);
     const splitNote = (admin && split.off)
-      ? `<div class="rsvc-split-warn" role="alert">⚠ Service line hours add up to <b>${round1(split.sum)}</b> of <b>${round1(split.total)}</b> contracted hours (${split.pct}%) — ${split.diff > 0 ? `${round1(split.diff)} hrs over` : `${round1(-split.diff)} hrs short`}. Adjust them so they total 100%.</div>` : "";
+      ? split.unset
+        ? `<div class="rsvc-split-warn" role="alert">⚠ No service-line hours yet (0%). Split the <b>${round1(split.total)}</b> contracted hours across the service lines so they total 100%.</div>`
+        : `<div class="rsvc-split-warn" role="alert">⚠ Service line hours add up to <b>${round1(split.sum)}</b> of <b>${round1(split.total)}</b> contracted hours (${split.pct}%) — ${split.diff > 0 ? `${round1(split.diff)} hrs over` : `${round1(-split.diff)} hrs short`}. Adjust them so they total 100%.</div>` : "";
     return `<div class="module${split.off && admin ? " rsvc-split-off" : ""}">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span style="display:flex;align-items:center;gap:10px"><span class="module-link" data-go="status">View plan →</span><span class="rsvc-legend">% of retainer</span></span></div>
       <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}${extRow}${overRow}${miscRow}</div>
@@ -768,7 +770,9 @@ window.ExecSummary = (function () {
     const total = round2(retainerTotalContracted(e));
     const sum = round2((e.serviceDisciplines || []).reduce((t, d) => t + (+d.contracted || 0), 0));
     const diff = round2(sum - total);
-    return { total, sum, diff, pct: total > 0 ? Math.round(sum / total * 100) : 0, off: total > 0 && sum > 0 && Math.abs(diff) >= 0.05 };
+    // a split of all zeros against a real contracted total doesn't add up either (it's 0%) —
+    // the RULE applies to every retainer, not just the ones that have started a split
+    return { total, sum, diff, pct: total > 0 ? Math.round(sum / total * 100) : 0, unset: total > 0 && sum <= 0, off: total > 0 && Math.abs(diff) >= 0.05 };
   }
   // any manual % override active (service-line sliders)? → show the Reset-to-actuals control
   function hasActualsOverride(e) {
