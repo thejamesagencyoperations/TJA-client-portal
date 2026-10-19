@@ -69,7 +69,48 @@ function pickTab(names: string[], label: string): string | null {
 }
 
 type SapItem = { name: string; notes: string };
-type SapSection = { name: string; notes: string; items: SapItem[] };
+type SapSection = { name: string; notes: string; items: SapItem[]; pct?: number | null; discipline?: string };
+
+/* % ALLOCATION — the Executive Summary is the RULING number (Cameron 2026-10-20), not the sheet:
+   a section's % = its linked service line's contracted hours ÷ the retainer's total, exactly the
+   share the Service Lines tile shows. Linked by canon discipline (section.discipline, else the
+   name). KEEP IN SYNC with client-template.js canonDiscipline + exec-summary retainerTotalContracted. */
+export function canonDiscipline(s: string): string {
+  s = String(s || "").toLowerCase();
+  if (/social/.test(s)) return "social";
+  if (/public relation|(^|[^a-z])pr([^a-z]|$)/.test(s)) return "pr";
+  if (/paid media|(^|[^a-z])media/.test(s)) return "media";
+  if (/creativ|design/.test(s)) return "creative";
+  if (/web|seo|develop|coding/.test(s)) return "web";
+  if (/client experience|strateg|oversight|account|client service|management|leadership|project manage/.test(s)) return "oversight";
+  return s.replace(/[^a-z0-9]/g, "");
+}
+// deno-lint-ignore no-explicit-any
+function liveShares(e: any): Record<string, number> {
+  const disc = Array.isArray(e?.serviceDisciplines) ? e.serviceDisciplines : [];
+  const crfOk = e?.crf && e?.burn && e.crf.period === e.burn.periodLabel && +e.crf.baseHours > 0;
+  const sowOk = e?.retainerValueMonthly === true && +e?.retainerValueTarget > 0;
+  // deno-lint-ignore no-explicit-any
+  const sum = disc.reduce((t: number, d: any) => t + (+d.contracted || 0), 0);
+  const total = crfOk ? +e.crf.baseHours : sowOk ? +e.retainerValueTarget : sum > 0 ? sum : (+e?.burn?.contractedHours || 0);
+  const out: Record<string, number> = {};
+  if (!(total > 0)) return out;
+  // deno-lint-ignore no-explicit-any
+  disc.forEach((d: any) => { const k = canonDiscipline(d.name); out[k] = (out[k] || 0) + (+d.contracted || 0); });
+  Object.keys(out).forEach((k) => { out[k] = Math.round(out[k] / total * 100); });
+  return out;
+}
+const sectionKey = (sec: SapSection) => sec.discipline || canonDiscipline(sec.name);
+// the content a signature covers — the wording, NOT the %s (those are frozen into signed.pcts)
+const contentOf = (sections: SapSection[], terms: string) => ({
+  sections: (sections || []).map((x) => ({ name: x.name, notes: x.notes || "", items: (x.items || []).map((i) => ({ name: i.name, notes: i.notes || "" })) })),
+  terms: terms || "",
+});
+function monthFromKey(key: string) {
+  const mt = /^(\d{4})-(\d{2})$/.exec(String(key || "")); if (!mt) return null;
+  const yr = +mt[1], mi = +mt[2] - 1; if (mi < 0 || mi > 11) return null;
+  return { key, label: `${FULL[mi]} ${yr}`, mi, yr };
+}
 
 /* ---- parse one month tab ----
    Layout (DNA 2026): a few title rows, then a header row "Retainer Items | Hours Planned |
@@ -97,7 +138,8 @@ function parseSap(rows: string[][]): { sections: SapSection[]; terms: string } |
     const notes = notesCol >= 0 ? String((r && r[notesCol]) ?? "").trim() : "";
     const isHeading = pctCol >= 0 ? !!cell(r, pctCol) : (name === name.toUpperCase() && /[A-Z]/.test(name));
     name = name.replace(/\s+/g, " ");
-    if (isHeading || !out.length) out.push({ name, notes, items: [] });
+    const pctRaw = pctCol >= 0 ? cell(r, pctCol).replace(/[^0-9.]/g, "") : "";
+    if (isHeading || !out.length) out.push({ name, notes, items: [], pct: pctRaw ? Math.round(+pctRaw) : null });
     else out[out.length - 1].items.push({ name, notes });
     void hrsCol;
   }
@@ -157,6 +199,7 @@ async function refresh(clientId: string, force = false): Promise<any> {
   if (!e || !e.sapUrl) return e;
   if (m.key < START_KEY) return e;
   const cur = e.sap?.months?.[m.key];
+  if (cur && cur.source === "portal") return e;          // built in the portal → the sheet no longer drives it
   if (!force && cur && cur.fetchedAt && Date.now() - Date.parse(cur.fetchedAt) < 5 * 60 * 1000) return e;
   let got;
   try { got = await readMonth(e.sapUrl, m.label); }
@@ -166,7 +209,7 @@ async function refresh(clientId: string, force = false): Promise<any> {
     return await casRetainer(clientId, (x) => { x.sap = x.sap || { months: {} }; x.sap.error = nice; x.sap.checkedAt = new Date().toISOString(); });
   }
   const content = got.sections ? { tab: got.tab, sections: got.sections, terms: got.terms || "" } : null;
-  const hash = content ? await sha(stableStr(content)) : "";
+  const hash = content ? await sha(stableStr(contentOf(content.sections, content.terms))) : "";
   return await casRetainer(clientId, (x) => {
     x.sap = x.sap || { months: {} };
     x.sap.months = x.sap.months || {};
@@ -214,9 +257,16 @@ async function buildPdf(clientName: string, month: any, signer: { name: string; 
   write("Service Allocation Plan", bold, 20, ORANGE);
   write(`${clientName} · ${month.label}`, font, 12, INK); y -= 10;
   page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 1, color: ORANGE }); y -= 14;
-  for (const s of month.sections || []) {
+  const pcts: Array<number | null> = month.signedPcts || [];
+  (month.sections || []).forEach((_: unknown, i: number) => { if (pcts[i] == null) pcts[i] = month.sections[i].pct ?? null; });
+  if (pcts.some((p) => p != null)) {   // column header, like the sheet's "% Planned"
+    page.drawText("% PLANNED", { x: W - M - bold.widthOfTextAtSize("% PLANNED", 8), y: y - 8, size: 8, font: bold, color: DIM }); y -= 12;
+  }
+  for (const [si, s] of (month.sections || []).entries()) {
     ensure(40); y -= 4;
-    write(s.name, bold, 12, INK);
+    const pc = pcts[si];
+    if (pc != null) { const t = `${pc}%`; page.drawText(t, { x: W - M - bold.widthOfTextAtSize(t, 12), y: y - 12, size: 12, font: bold, color: ORANGE }); }
+    write(s.name, bold, 12, INK, M, W - 2 * M - 50);
     if (s.notes) write(s.notes, font, 9, DIM, M + 10, W - 2 * M - 10);
     for (const it of s.items || []) {
       write("- " + it.name, font, 10, INK, M + 12, W - 2 * M - 12, 2);
@@ -244,7 +294,7 @@ const b64 = (u: Uint8Array) => { let s = ""; for (let i = 0; i < u.length; i += 
 // deno-lint-ignore no-explicit-any
 const publicView = (e: any) => ({
   connected: !!(e && e.sapUrl), sapUrl: e?.sapUrl || "", fileName: e?.sap?.fileName || "",
-  error: e?.sap?.error || "", months: e?.sap?.months || {}, current: nowMonth().key,
+  error: e?.sap?.error || "", months: e?.sap?.months || {}, current: nowMonth().key, shares: liveShares(e),
 });
 
 Deno.serve(async (req) => {
@@ -291,14 +341,46 @@ Deno.serve(async (req) => {
       return json(req, 200, { ok: true, view: publicView(e) });
     }
 
+    /* SAVE a portal-built month (staff). The portal is where SAPs get built from now on
+       (Cameron 2026-10-20); a saved month is marked source:"portal" so the sheet stops
+       driving it. A signed month can still be edited — the page then says it changed. */
+    if (action === "save") {
+      if (!staff) return json(req, 403, { error: "staff only" });
+      const mk = monthFromKey(String(body.month || ""));
+      if (!mk || mk.key < START_KEY) return json(req, 400, { error: "Pick a month from October 2026 on." });
+      // deno-lint-ignore no-explicit-any
+      const clean = (x: any, n = 2000) => String(x ?? "").slice(0, n);
+      // deno-lint-ignore no-explicit-any
+      const sections: SapSection[] = (Array.isArray(body.sections) ? body.sections : []).slice(0, 40).map((x: any) => ({
+        name: clean(x.name, 200).trim() || "Untitled service", notes: clean(x.notes),
+        // deno-lint-ignore no-explicit-any
+        items: (Array.isArray(x.items) ? x.items : []).slice(0, 60).map((i: any) => ({ name: clean(i.name, 300).trim(), notes: clean(i.notes) })).filter((i: SapItem) => i.name || i.notes),
+        pct: (x.pct === "" || x.pct == null || isNaN(+x.pct)) ? null : Math.max(0, Math.min(100, Math.round(+x.pct))),
+        ...(x.discipline ? { discipline: clean(x.discipline, 40) } : {}),
+      }));
+      if (!sections.length) return json(req, 400, { error: "Add at least one service." });
+      const terms = clean(body.terms, 4000);
+      const hash = await sha(stableStr(contentOf(sections, terms)));
+      const e = await casRetainer(clientId, (x) => {
+        x.sap = x.sap || { months: {} }; x.sap.months = x.sap.months || {};
+        const prev = x.sap.months[mk.key] || {};
+        x.sap.months[mk.key] = Object.assign({}, prev, { key: mk.key, label: mk.label, sections, terms, hash, source: "portal",
+          savedAt: new Date().toISOString(), savedBy: caller.email || "" });
+        delete x.sap.months[mk.key].missing;
+      });
+      return json(req, 200, { ok: true, view: publicView(e) });
+    }
+
     if (action === "sign") {
       const name = String(body.name || "").trim().slice(0, 120);
       if (!name) return json(req, 400, { error: "Type your full name to sign." });
       const sig = String(body.signature || "");
       const sigPng = /^data:image\/png;base64,/.test(sig) && sig.length < 600_000
         ? Uint8Array.from(atob(sig.split(",")[1]), (c) => c.charCodeAt(0)) : null;
-      if (!sigPng) return json(req, 400, { error: "Draw your signature first." });
-      const m = nowMonth();
+      if (!sigPng) return json(req, 400, { error: "Type your name to create a signature." });
+      // the viewed month (default: this one) — a plan can be approved for this month or an upcoming one
+      const m = monthFromKey(String(body.month || "")) || nowMonth();
+      if (m.key < nowMonth().key) return json(req, 409, { error: "That month has closed." });
       const e0 = await refresh(clientId, true);
       const month = e0?.sap?.months?.[m.key];
       if (!month || !month.sections) return json(req, 409, { error: "There's no plan for this month to sign yet." });
@@ -308,7 +390,11 @@ Deno.serve(async (req) => {
       let won = false;
       await casRetainer(clientId, (e) => {
         const mm = e.sap?.months?.[m.key]; if (!mm || mm.signed) return false;
-        mm.signed = { ...signer, hash: mm.hash, role: caller.role };
+        // freeze the %s as approved (the Executive Summary's live shares for linked sections)
+        const shares = liveShares(e);
+        const pcts = (mm.sections || []).map((x: SapSection) => { const k = sectionKey(x); return shares[k] != null ? shares[k] : (x.pct ?? null); });
+        mm.signed = { ...signer, hash: mm.hash, role: caller.role, pcts };
+        month.signedPcts = pcts;
         won = true;
       });
       if (!won) return json(req, 409, { error: "Someone on your team just signed this plan." });

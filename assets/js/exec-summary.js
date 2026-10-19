@@ -2238,5 +2238,14 @@ window.ExecSummary = (function () {
     });
   }
 
-  return { render, init };
+  /* The service-line SHARES the Service Lines tile shows (contracted ÷ the retainer total), keyed
+     by canon discipline — the ruling % for the Service Allocation Plan (sap.js). */
+  function serviceShares(e) {
+    const out = {}; if (!e) return out;
+    const total = retainerTotalContracted(e); if (!(total > 0)) return out;
+    (e.serviceDisciplines || []).forEach((d) => { const k = canon(d.name); out[k] = (out[k] || 0) + (+d.contracted || 0); });
+    Object.keys(out).forEach((k) => { out[k] = Math.round(out[k] / total * 100); });
+    return out;
+  }
+  return { render, init, serviceShares };
 })();

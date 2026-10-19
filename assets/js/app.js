@@ -1072,7 +1072,7 @@ function applyEngagement() {
   if (ns) ns.innerHTML = "";
   el("#navBacklog").style.display = isRetainer() ? "" : "none";   // Backlog = Monthly-Services-only
   // the "status" page is the Service Allocation Plan on Monthly Services (v390)
-  const stLbl = el("#navStatusLabel"); if (stLbl) stLbl.textContent = isRetainer() ? "Service Allocation Plan" : "Status";
+  const stLbl = el("#navStatusLabel"); if (stLbl) stLbl.textContent = isRetainer() ? "Service Allocation Plan\u00a0(SAP)" : "Status";   // nbsp: "(SAP)" never wraps alone
   // Project Plan lives on any project-type client with at least one project — including
   // the folder/tile-picker view, not just once a specific project is open.
   const planOk = !isRetainer() && getProjects().length > 0;

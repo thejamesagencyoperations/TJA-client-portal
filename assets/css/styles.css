@@ -2372,3 +2372,52 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
 .sap-sign .btn { width: auto; align-self: flex-start; }
 .sap-sign .btn:disabled { opacity: .5; cursor: not-allowed; }
 .sap-sign { display: flex; flex-direction: column; }
+/* v391 — SAP laid out like the team's spreadsheet */
+.sap-sheet { padding: 0; overflow: hidden; }
+.sap-sheet-head { text-align: center; padding: 18px 16px 14px; border-bottom: 2px solid var(--orange); }
+.sap-client { font-size: 1.15rem; font-weight: 800; }
+.sap-month { font-size: .9rem; font-weight: 600; color: var(--orange); margin-top: 2px; }
+.sap-src { font-size: .68rem; color: var(--text-faint); margin-top: 4px; }
+.sap-table-wrap { overflow-x: auto; }
+.sap-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.sap-table th { text-align: left; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); background: var(--input); padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.sap-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.sap-table th.sap-pct, .sap-table td.sap-pct { width: 96px; text-align: center; white-space: nowrap; }
+.sap-sec-row td { background: rgba(255,120,0,.08); font-weight: 700; }
+.sap-sec-row td:first-child { color: var(--orange); }
+.sap-sec-row td.sap-pct { color: var(--orange); font-size: .95rem; }
+.sap-item-row td:first-child { padding-left: 28px; font-weight: 500; }
+.sap-note { color: var(--text-dim); font-weight: 400 !important; font-size: .8rem; line-height: 1.45; width: 42%; overflow-wrap: anywhere; }
+.sap-sheet .sap-terms { margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.sap-sig-table th { width: 50%; }
+.sap-sig-cell { min-height: 70px; }
+.sap-sig-name { font-family: 'Great Vibes', 'Brush Script MT', cursive; font-size: 40px; line-height: 1.1; color: var(--text); }
+.sap-sig-preview.pd-sign-preview { height: 84px; font-size: 42px; margin-bottom: 8px; }
+.sap-date-cell { font-weight: 600; vertical-align: middle !important; }
+.sap-dim { color: var(--text-faint); }
+.sap-below { padding: 12px 16px 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.sap-below:empty { display: none; }
+.sap-approve { min-width: 140px; }
+.sap-approve:disabled { opacity: .5; cursor: not-allowed; }
+.sap-below .sap-err:empty { display: none; }
+/* editor */
+.sap-in { width: 100%; box-sizing: border-box; font: inherit; font-size: .82rem; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel, #fff); color: var(--text); resize: vertical; }
+.sap-in:focus { outline: none; border-color: var(--orange); }
+.sap-in-sec { font-weight: 700; }
+.sap-in-pct { width: 56px; text-align: center; }
+.sap-row-tools { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.sap-link { width: auto; max-width: 220px; font-size: .72rem; padding: 3px 6px; }
+.sap-item-row td:first-child { display: flex; gap: 6px; align-items: center; }
+.sap-add-row td { padding: 4px 28px 10px; border-bottom: 1px solid var(--line); }
+.sap-editing > .row-add, .sap-editing > .sap-lbl, .sap-editing > .sap-err { margin: 12px 16px 0; }
+.sap-edit-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 16px; }
+@media (max-width: 640px) {
+  .sap-table td, .sap-table th { padding: 7px 8px; }
+  .sap-table th.sap-pct, .sap-table td.sap-pct { width: 64px; }
+  .sap-item-row td:first-child { padding-left: 16px; }
+}
+.sap-months { flex-wrap: wrap; }
+.sap-months .mom-chip { flex: 0 0 116px; }
+.sap-months .mom-chip.active { background: rgba(255,120,0,.10); }
+.sap-below .btn { width: auto; align-self: flex-start; }
+.sap-sig-cell .sap-name { max-width: 320px; }
