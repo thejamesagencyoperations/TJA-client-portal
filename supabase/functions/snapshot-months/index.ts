@@ -69,7 +69,11 @@ async function loadCrf(roster: any[], monthKey: string): Promise<Map<string, Crf
       try {
         const rows = parseCsvText(await (await fetch(`https://docs.google.com/spreadsheets/d/${CRF_ID}/export?format=csv&gid=${t.gid}`)).text());
         const h = (rows[0] || []).map((x) => x.trim());
-        const iName = h.indexOf("SOW Name"), iType = h.indexOf("Type"), iRate = h.indexOf("$ Rate/Hr"), iStat = h.indexOf("Status");
+        // some tabs have a mangled "SOW Name" header (ANL's reads " with ") → it's the column
+        // just before "Total Contract $"
+        let iName = h.findIndex((x) => /sow\s*name/i.test(x));
+        if (iName < 0) { const iTot = h.findIndex((x) => /total contract/i.test(x)); if (iTot > 0) iName = iTot - 1; }
+        const iType = h.indexOf("Type"), iRate = h.indexOf("$ Rate/Hr"), iStat = h.indexOf("Status");
         const yr = monthKey.slice(-4);
         const monthCols = h.map((x, k) => ({ x, k })).filter((o) => new RegExp(`^[A-Z][a-z]{2} ${yr}$`).test(o.x));
         const firstCols = new Map<string, number>(); monthCols.forEach((o) => { if (!firstCols.has(o.x)) firstCols.set(o.x, o.k); });
@@ -79,12 +83,20 @@ async function loadCrf(roster: any[], monthKey: string): Promise<Map<string, Crf
           if (!/^retainer$/i.test((r[iType] || "").trim())) continue;
           if (/pending|proposal|draft|on\s*hold/i.test(`${r[iName]} ${r[iStat] || ""}`)) continue;
           const rt = money(r[iRate]); if (!(rt > 0)) continue;
-          const months = [...firstCols.values()].map((k) => money(r[k])).filter((v) => v > 0);
+          const cols = [...firstCols.values()];
+          const curIdx = cols.indexOf(firstCols.get(monthKey)!);
           const now = money(r[firstCols.get(monthKey)!]);
-          const freq = new Map<number, number>(); months.forEach((v) => freq.set(v, (freq.get(v) || 0) + 1));
-          let normal = 0, best = 1;
-          freq.forEach((n, v) => { if (n > best || (n === best && n >= 2 && v > normal)) { best = n; normal = v; } });
-          if (best < 2) normal = now;                     // no repeating month → no inferred extension
+          /* the NORMAL month = the value that repeats in the months AROUND this one (±3, this month
+             excluded), so a mid-year step-up (ANL $10,745 → $15,245 in June) doesn't make the old
+             rate look "normal". No repeat nearby → the whole year's most common value → else none. */
+          const modeOf = (vals: number[]) => {
+            const f = new Map<number, number>(); vals.filter((v) => v > 0).forEach((v) => f.set(v, (f.get(v) || 0) + 1));
+            let nv = 0, nb = 1; f.forEach((n, v) => { if (n > nb || (n === nb && n >= 2 && v > nv)) { nb = n; nv = v; } });
+            return nb >= 2 ? nv : 0;
+          };
+          const near = cols.filter((_, k) => k !== curIdx && Math.abs(k - curIdx) <= 3).map((k) => money(r[k]));
+          let normal = modeOf(near) || modeOf(cols.filter((_, k) => k !== curIdx).map((k) => money(r[k])));
+          if (!normal) normal = now;                      // no repeating month → no inferred extension
           base += Math.min(now, normal) / rt; ext += Math.max(0, now - normal) / rt;
           monthD += now; baseD += Math.min(now, normal); rate = rt; sows.push(String(r[iName]).trim());
           if (!code) code = String(r[iName] || "").trim().split(/\s+/)[0].toUpperCase();
