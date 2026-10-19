@@ -2421,3 +2421,24 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
 .sap-months .mom-chip.active { background: rgba(255,120,0,.10); }
 .sap-below .btn { width: auto; align-self: flex-start; }
 .sap-sig-cell .sap-name { max-width: 320px; }
+/* v392 — SAP inline editing, % column on the right, one-box signature */
+.sap-ce { display: inline-block; min-width: 3ch; min-height: 1.2em; padding: 1px 4px; margin: -1px -4px; border-radius: 5px; outline: none; cursor: text; white-space: pre-wrap; }
+.sap-ce-multi { display: block; }
+.sap-ce:hover { background: rgba(255,120,0,.08); }
+.sap-ce:focus { background: var(--panel, #fff); box-shadow: 0 0 0 2px var(--orange); }
+.sap-ce:empty::before { content: attr(data-ph); color: var(--text-faint); font-weight: 400; }
+.sap-ce-pct { min-width: 2.5ch; text-align: center; }
+.sap-x { background: none; border: 0; color: var(--text-faint); cursor: pointer; font-size: .72rem; padding: 0 4px; margin-left: 4px; opacity: 0; transition: opacity .15s; }
+.sap-admin-edit tr:hover .sap-x, .sap-x:focus { opacity: 1; }
+.sap-x:hover { color: #E5484D; }
+.sap-admin-edit .sap-row-tools { margin-top: 4px; opacity: .55; transition: opacity .15s; }
+.sap-admin-edit tr:hover .sap-row-tools, .sap-row-tools:focus-within { opacity: 1; }
+.sap-link { font: inherit; font-size: .68rem; font-weight: 500; padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: var(--text-dim); max-width: 220px; }
+.sap-add-sec { padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.sap-savestate { align-self: center; font-size: .72rem; color: var(--text-faint); }
+.sap-table td.sap-note { width: auto; }
+.sap-table th.sap-pct, .sap-table td.sap-pct { width: 110px; text-align: right; padding-right: 18px; }
+.sap-sign-input { width: 100%; max-width: 460px; box-sizing: border-box; height: 72px; padding: 4px 14px; background: #fff; border: 1px dashed #c9c9cf; border-radius: 10px;
+  font-family: 'Great Vibes', 'Brush Script MT', cursive; font-size: 40px; color: #111; outline: none; }
+.sap-sign-input::placeholder { color: #c2c2c8; }
+.sap-sign-input:focus { border-color: var(--orange); border-style: solid; }

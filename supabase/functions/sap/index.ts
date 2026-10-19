@@ -196,8 +196,29 @@ async function refresh(clientId: string, force = false): Promise<any> {
   const { data: row } = await db.from("app_state").select("ret:data->engagements->retainer").eq("client_id", clientId).eq("scope", "dashboard").maybeSingle();
   // deno-lint-ignore no-explicit-any
   const e: any = row?.ret;
-  if (!e || !e.sapUrl) return e;
-  if (m.key < START_KEY) return e;
+  if (!e || m.key < START_KEY) return e;
+  /* ROLLOVER FROM THE PORTAL (Cameron 2026-10-20). Once a client's plan has been built or
+     edited in the portal, a new month starts as a copy of the LATEST portal month — wording,
+     line items, notes, links — never the sheet's tab. Runs on any visit and on the hourly sweep,
+     so the new month exists on the 1st even with nobody online. Unsigned, of course. */
+  const months0 = (e.sap && e.sap.months) || {};
+  if (!months0[m.key]) {
+    // deno-lint-ignore no-explicit-any
+    const prevKeys = Object.keys(months0).filter((k) => k < m.key && months0[k] && months0[k].source === "portal" && Array.isArray(months0[k].sections)).sort();
+    const srcKey = prevKeys[prevKeys.length - 1];
+    if (srcKey) {
+      const src = months0[srcKey];
+      const sections = JSON.parse(JSON.stringify(src.sections));
+      const hash = await sha(stableStr(contentOf(sections, src.terms || "")));
+      return await casRetainer(clientId, (x) => {
+        x.sap = x.sap || { months: {} }; x.sap.months = x.sap.months || {};
+        if (x.sap.months[m.key]) return false;              // someone beat us to it
+        x.sap.months[m.key] = { key: m.key, label: m.label, sections, terms: src.terms || "", hash, source: "portal",
+          rolledFrom: srcKey, savedAt: new Date().toISOString(), savedBy: "rollover" };
+      });
+    }
+  }
+  if (!e.sapUrl) return e;
   const cur = e.sap?.months?.[m.key];
   if (cur && cur.source === "portal") return e;          // built in the portal → the sheet no longer drives it
   if (!force && cur && cur.fetchedAt && Date.now() - Date.parse(cur.fetchedAt) < 5 * 60 * 1000) return e;
@@ -306,9 +327,9 @@ Deno.serve(async (req) => {
 
   if (action === "sweep") {
     if (req.headers.get("x-snapshot-secret") !== Deno.env.get("SNAPSHOT_SECRET")) return json(req, 401, { error: "bad secret" });
-    const { data: rows } = await svc().from("app_state").select("client_id, url:data->engagements->retainer->>sapUrl").eq("scope", "dashboard");
+    const { data: rows } = await svc().from("app_state").select("client_id, url:data->engagements->retainer->>sapUrl, portal:data->engagements->retainer->sap->>portal").eq("scope", "dashboard");
     // deno-lint-ignore no-explicit-any
-    const ids = (rows || []).filter((r: any) => r.url && !String(r.client_id).startsWith("_")).map((r: any) => r.client_id);
+    const ids = (rows || []).filter((r: any) => (r.url || r.portal) && !String(r.client_id).startsWith("_")).map((r: any) => r.client_id);
     let ok = 0, failed = 0;
     for (const id of ids) { try { await refresh(id, true); ok++; } catch (_e) { failed++; } }
     return json(req, 200, { ok: true, connected: ids.length, refreshed: ok, failed });   // counts only — the log is public
@@ -367,6 +388,7 @@ Deno.serve(async (req) => {
         x.sap.months[mk.key] = Object.assign({}, prev, { key: mk.key, label: mk.label, sections, terms, hash, source: "portal",
           savedAt: new Date().toISOString(), savedBy: caller.email || "" });
         delete x.sap.months[mk.key].missing;
+        x.sap.portal = true;   // the sweep keeps rolling this client's plan over even without a sheet
       });
       return json(req, 200, { ok: true, view: publicView(e) });
     }
