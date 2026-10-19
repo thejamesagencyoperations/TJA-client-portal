@@ -187,7 +187,8 @@
         if (ret.burn.periodLabel && ret.burn.periodLabel !== label) staleMonth.push(nameOf(id) + " — shows " + ret.burn.periodLabel);
         // a presentation override left over from an earlier month would make the gauge lie
         const hasOv = !!(ret.svcUtilOverride && Object.keys(ret.svcUtilOverride).length) ||
-                      !!(ret.hoursRealloc && Object.keys(ret.hoursRealloc).length);
+                      !!(ret.hoursRealloc && Object.keys(ret.hoursRealloc).length) ||
+                      !!(ret.hoursAdjust && Object.keys(ret.hoursAdjust).length);
         if (hasOv && ret.overrideMonth !== label) overrides.push(nameOf(id) + (ret.overrideMonth ? " — set in " + ret.overrideMonth : " — no month recorded"));
       }
 

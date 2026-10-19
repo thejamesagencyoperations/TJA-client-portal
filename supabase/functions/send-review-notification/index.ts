@@ -391,6 +391,32 @@ Deno.serve(async (req) => {
       return json(req, 200, { ok: true, matches: out.length, clients: out });
     }
 
+    /* ---- RETDIAG (DIAG_KEY-gated, READ-ONLY): a client's saved retainer/burn state. Called
+       only from an operator's own machine with the private DIAG_KEY — never from a (public)
+       Actions log — because it returns that client's hours. */
+    if (mode === "retdiag") {
+      const dk = Deno.env.get("DIAG_KEY");
+      if (!dk || req.headers.get("x-diag-key") !== dk) return json(req, 401, { error: "bad or missing diag key" });
+      const want = lower(body.client);
+      const { data: rows } = await svc().from("app_state")
+        .select("client_id, ret:data->engagements->retainer").eq("scope", "dashboard").ilike("client_id", `%${want}%`);
+      const out = (rows || []).map((r: any) => {
+        const e = r.ret || {};
+        const pick = (o: any, ks: string[]) => Object.fromEntries(ks.filter((k) => o && o[k] !== undefined).map((k) => [k, o[k]]));
+        return {
+          client: r.client_id,
+          burn: pick(e.burn || {}, ["usedHours", "contractedHours", "periodLabel", "pctOverride", "scopeExts", "scopeExtMonth"]),
+          overrideMonth: e.overrideMonth, svcUtilOverride: e.svcUtilOverride, hoursRealloc: e.hoursRealloc, hoursAdjust: e.hoursAdjust, crf: e.crf,
+          retainerValueTarget: e.retainerValueTarget, retainerValueMonthly: e.retainerValueMonthly, source: e.source,
+          serviceDisciplines: (e.serviceDisciplines || []).map((d: any) => pick(d, ["name", "contracted", "wmjDept", "manual", "allocationPct"])),
+          wmjServiceLines: (e.wmjServiceLines || []).map((l: any) => ({ name: l.name, billable: l.billable, allocated: l.allocated })),
+          autoDisciplines: e.autoDisciplines,
+          mom: (e.mom || []).slice(-4).map((m: any) => ({ month: m.month, year: m.year, used: m.usedHours, contracted: m.contractedHours, adjusted: m.adjusted, lines: m.lines })),
+        };
+      });
+      return json(req, 200, { ok: true, clients: out });
+    }
+
     /* ---- PRDIAG (secret-gated, READ-ONLY): why isn't a client's PR sheet showing? ----
        Public log → only status, header row, row/parse counts — never the hits themselves. */
     if (mode === "prdiag") {

@@ -27,6 +27,79 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const round2 = (n: number) => Math.round((+n || 0) * 100) / 100;
+// key-order-insensitive JSON (jsonb doesn't preserve key order)
+// deno-lint-ignore no-explicit-any
+function stableStr(v: any): string {
+  // deno-lint-ignore no-explicit-any
+  const walk = (x: any): any => (x === null || typeof x !== "object") ? x
+    : Array.isArray(x) ? x.map(walk) : Object.keys(x).sort().reduce((o: any, k) => { o[k] = walk(x[k]); return o; }, {});
+  return JSON.stringify(walk(v));
+}
+
+/* ---------- CLIENT REVENUE FORECAST (read directly; public CSV export) ----------
+   One tab per client. Retainer rows (Type = Retainer, signed, not pending) give the RATE and
+   each month's $. The NORMAL month is the amount the retainer bills most often (it must repeat
+   at least twice, else there's no reliable baseline and no extension is inferred). This month
+   above normal = scope extension; below normal = a lighter month (just fewer hours). */
+const CRF_ID = Deno.env.get("CRF_SHEET_ID") || "1kO3Ar6AQoS72VTfUwJ1GP037kRgAlQrX55qGB2yJNY0";
+export type CrfInfo = { month: string; tab: string; rate: number; monthDollars: number; baselineDollars: number;
+  baseHours: number; extHours: number; sows: string[] };
+function parseCsvText(text: string): string[][] {
+  const rows: string[][] = []; let row: string[] = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) { const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true; else if (c === ",") { row.push(f); f = ""; } else if (c === "\n") { row.push(f); rows.push(row); row = []; f = ""; } else if (c !== "\r") f += c; }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+const money = (s: string) => { const v = parseFloat(String(s || "").replace(/[^0-9.\-]/g, "")); return isFinite(v) ? v : 0; };
+// deno-lint-ignore no-explicit-any
+async function loadCrf(roster: any[], monthKey: string): Promise<Map<string, CrfInfo>> {
+  const out = new Map<string, CrfInfo>();
+  const html = await (await fetch(`https://docs.google.com/spreadsheets/d/${CRF_ID}/htmlview`)).text();
+  const tabs = [...html.matchAll(/name:\s*"([^"]+)"[^}]*?gid:\s*"(\d+)"/g)].map((m) => ({ name: m[1].trim(), gid: m[2] }))
+    .filter((t) => !/^(job aids|clients index|template)$/i.test(t.name));
+  const live = roster.filter((c) => c && c.id && !c.mergedInto);
+  const byCode = new Map(live.filter((c) => c.code).map((c) => [String(c.code).trim().toUpperCase(), c]));
+  const nn = (x: string) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  let i = 0;
+  const worker = async () => {
+    while (i < tabs.length) {
+      const t = tabs[i++];
+      try {
+        const rows = parseCsvText(await (await fetch(`https://docs.google.com/spreadsheets/d/${CRF_ID}/export?format=csv&gid=${t.gid}`)).text());
+        const h = (rows[0] || []).map((x) => x.trim());
+        const iName = h.indexOf("SOW Name"), iType = h.indexOf("Type"), iRate = h.indexOf("$ Rate/Hr"), iStat = h.indexOf("Status");
+        const yr = monthKey.slice(-4);
+        const monthCols = h.map((x, k) => ({ x, k })).filter((o) => new RegExp(`^[A-Z][a-z]{2} ${yr}$`).test(o.x));
+        const firstCols = new Map<string, number>(); monthCols.forEach((o) => { if (!firstCols.has(o.x)) firstCols.set(o.x, o.k); });
+        if (iName < 0 || iType < 0 || iRate < 0 || !firstCols.has(monthKey)) continue;
+        let base = 0, ext = 0, monthD = 0, baseD = 0, rate = 0; const sows: string[] = []; let code = "";
+        for (const r of rows.slice(1)) {
+          if (!/^retainer$/i.test((r[iType] || "").trim())) continue;
+          if (/pending|proposal|draft|on\s*hold/i.test(`${r[iName]} ${r[iStat] || ""}`)) continue;
+          const rt = money(r[iRate]); if (!(rt > 0)) continue;
+          const months = [...firstCols.values()].map((k) => money(r[k])).filter((v) => v > 0);
+          const now = money(r[firstCols.get(monthKey)!]);
+          const freq = new Map<number, number>(); months.forEach((v) => freq.set(v, (freq.get(v) || 0) + 1));
+          let normal = 0, best = 1;
+          freq.forEach((n, v) => { if (n > best || (n === best && n >= 2 && v > normal)) { best = n; normal = v; } });
+          if (best < 2) normal = now;                     // no repeating month → no inferred extension
+          base += Math.min(now, normal) / rt; ext += Math.max(0, now - normal) / rt;
+          monthD += now; baseD += Math.min(now, normal); rate = rt; sows.push(String(r[iName]).trim());
+          if (!code) code = String(r[iName] || "").trim().split(/\s+/)[0].toUpperCase();
+        }
+        if (!sows.length) continue;
+        const c = byCode.get(code) || live.find((x) => nn(x.name) === nn(t.name) || nn(x.name).startsWith(nn(t.name)) || nn(t.name) === nn(x.code));
+        if (!c) continue;
+        out.set(c.id, { month: monthKey, tab: t.name, rate, monthDollars: round2(monthD), baselineDollars: round2(baseD),
+          baseHours: round2(base), extHours: round2(ext), sows });
+      } catch (_e) { /* one tab failing never blocks the rest */ }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return out;
+}
 
 Deno.serve(async (req) => {
   if (req.method !== "POST" && req.method !== "GET") return json(req, 405, { error: "POST/GET only" });
@@ -61,30 +134,58 @@ Deno.serve(async (req) => {
     return json(req, 502, { error: msg });
   }
 
-  // every retainer dashboard row
+  // which clients have a dashboard (ids only — each client's data is re-read fresh below)
   const { data: rows, error } = await svc.from("app_state")
-    .select("client_id,data").eq("scope", "dashboard");
+    .select("client_id").eq("scope", "dashboard");
   if (error) return json(req, 500, { error: error.message });
 
-  let snapped = 0, skipped = 0, rolled = 0, suspect = 0, expired = 0;
-  const suspectClients: string[] = [], noDenominator: string[] = [];
+  // the Client Revenue Forecast, read DIRECTLY (rate + this month's $ + the normal month's $)
+  const crf = await loadCrf(roster, short + " " + yr).catch((e) => { console.warn("CRF read failed", e); return new Map<string, CrfInfo>(); });
+
+  let snapped = 0, skipped = 0, rolled = 0, suspect = 0, expired = 0, unchanged = 0;
+  // sets, not arrays: a client's mutation can run more than once when a save is retried
+  const suspectClients = new Set<string>(), noDenominator = new Set<string>(), expiredSet = new Set<string>();
   const matchedKeys = new Set<string>();      // WMJ clients that found a portal client
   for (const r of rows ?? []) {
     const clientId = r.client_id as string;
     if (!clientId || clientId.startsWith("_")) { skipped++; continue; }
-    const data = r.data;
-    const e = data?.engagements?.retainer;
-    if (!e || !e.burn) { skipped++; continue; }
-
-    /* DEMO / PITCH workspaces are hand-authored and have NO Workamajig counterpart, so every
-       run would find no actuals, blank wmjServiceLines and roll the burn to 0 — silently
-       emptying a mock built for a new-business pitch, within the hour. They opt out entirely.
-       Set `demo: true` at the top of the workspace state; nothing else in the portal reads it,
-       so a demo workspace otherwise behaves exactly like a real one. */
-    if (data?.demo === true) { skipped++; continue; }
     if (merged.has(clientId)) { skipped++; continue; }   // its hours now belong to the client it merged into
 
-    // match this client to WMJ actuals by normalized name (name or wmjName)
+    /* COMPARE-AND-SET (2026-10-19). This job used to read EVERY client up front and write each
+       whole record back later, blind and without bumping updated_at — so anything an admin
+       saved in between (a manual burn adjustment, a scope extension) was silently overwritten:
+       the "burn randomly resets / Reset to actuals disappeared / scope extension vanished" bug
+       (DNA, ANL). Now each client is re-read immediately before the write, only this job's own
+       fields are applied to that fresh copy, and the write lands only if nobody saved in
+       between (else re-read + retry). Clients with nothing new aren't written at all. */
+    let outcome = "skip";
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: row } = await svc.from("app_state").select("data,updated_at")
+        .eq("client_id", clientId).eq("scope", "dashboard").maybeSingle();
+      if (!row) break;
+      const data = row.data;
+      const e = data?.engagements?.retainer;
+      if (!e || !e.burn) break;
+      /* DEMO / PITCH workspaces are hand-authored and have NO Workamajig counterpart. */
+      if (data?.demo === true) break;
+      const before = stableStr(e);
+      const res = applyMonth(e, clientId);
+      if (res === "suspect") { outcome = "suspect"; break; }
+      if (stableStr(e) === before) { outcome = "unchanged"; break; }
+      const w = await svc.from("app_state").update({ data, updated_at: new Date().toISOString() })
+        .eq("client_id", clientId).eq("scope", "dashboard").eq("updated_at", row.updated_at).select("updated_at");
+      if (!w.error && w.data && w.data.length) { outcome = res; break; }
+      await new Promise((rr) => setTimeout(rr, 120 + Math.random() * 250 * (attempt + 1)));
+    }
+    if (outcome === "skip") skipped++;
+    else if (outcome === "unchanged") unchanged++;
+    else if (outcome === "suspect") suspect++;
+    else if (outcome === "snapped") snapped++;
+    else rolled++;
+  }
+
+  // ---- this job's changes to ONE client's retainer (pure: operates on the copy it's given) ----
+  function applyMonth(e: any, clientId: string): "snapped" | "rolled" | "suspect" {
     const nm = nameById[clientId] || { name: clientId, wmj: "" };
     const a = actuals.get(normName(nm.name)) || (nm.wmj && actuals.get(normName(nm.wmj))) || null;
     if (a) matchedKeys.add(a.norm);
@@ -103,20 +204,33 @@ Deno.serve(async (req) => {
     const priorMom: Array<{ month?: string; year?: number; usedHours?: number }> = Array.isArray(e.mom) ? e.mom : [];
     const existing = priorMom.find((m) => m && m.month === short && m.year === yr);
     if (!a && actuals.size === 0 && existing && +(existing.usedHours ?? 0) > 0) {
-      suspect++; suspectClients.push(nm.name || clientId); continue;
+      suspectClients.add(nm.name || clientId); return "suspect";
     }
 
     const used = a ? a.total : 0;
     const disc: any[] = Array.isArray(e.serviceDisciplines) ? e.serviceDisciplines : [];
     const sowOk = e.retainerValueMonthly === true && e.retainerValueTarget != null && +e.retainerValueTarget > 0;
-    const contracted = sowOk ? +e.retainerValueTarget
+    /* THE CLIENT REVENUE FORECAST is the governing truth for the rate and this month's $
+       (Cameron 2026-10-19). baseHours = the NORMAL retainer month; anything the CRF bills above
+       that normal month is a SCOPE EXTENSION (extHours), shown as its own line and dropped when
+       the month ends. ANL Oct: $18,845 vs normal $15,245 at $150/hr → 101.63h + 24h extension. */
+    const cr = crf.get(clientId);
+    if (cr) e.crf = { ...cr, period: periodLabel }; else delete e.crf;   // `period` = the burn label it belongs to
+    const contracted = cr ? cr.baseHours
+      : sowOk ? +e.retainerValueTarget
       : disc.reduce((s, d) => s + (+d.contracted || 0), 0);
 
     // per-discipline billable from fresh actuals, matched by canon key
     const actByCanon: Record<string, number> = {};
     if (a) for (const [dept, b] of Object.entries(a.byDept)) actByCanon[canon(dept)] = (actByCanon[canon(dept)] || 0) + (b as number);
+    /* MANUAL HOURS ADJUSTMENTS are a DELTA on top of actuals (Cameron 2026-10-19: "if i up it
+       from 20 to 30, then the actuals show 25, we should show 35"). They ride into THIS month's
+       record so the frozen month keeps what was presented. Keyed by canon discipline. */
+    const adj: Record<string, number> = (e.overrideMonth === periodLabel && e.hoursAdjust) ? e.hoursAdjust : {};
+    const adjTotal = Object.values(adj).reduce((s: number, v) => s + (+v || 0), 0);
     const lines = disc.map((d) => ({
-      name: d.name, contracted: +d.contracted || 0, billable: round2(actByCanon[canon(d.name)] || 0),
+      name: d.name, contracted: +d.contracted || 0,
+      billable: round2(Math.max(0, (actByCanon[canon(d.name)] || 0) + (+adj[canon(d.name)] || 0))),
     }));
 
     // upsert the current calendar month (freeze the past — never touch older entries).
@@ -127,7 +241,13 @@ Deno.serve(async (req) => {
     // never be mistaken for this one). KEEP IN SYNC with wmj-sync.js snapshotMonth and
     // exec-summary.js syncCurrentMonth.
     e.mom = Array.isArray(e.mom) ? e.mom : [];
-    const entry = { month: short, year: yr, usedHours: round2(used), contractedHours: round2(contracted), lines };
+    // the month record's denominator INCLUDES this month's extensions (CRF + hand-added), so a
+    // frozen month's % reads the way it was presented. KEEP IN SYNC with syncCurrentMonth.
+    const manualExt = (e.burn && e.burn.scopeExtMonth === periodLabel && Array.isArray(e.burn.scopeExts))
+      ? e.burn.scopeExts.reduce((s2: number, x: any) => s2 + (+x.hours || 0), 0) : 0;
+    const extNow = (cr ? (+cr.extHours || 0) : 0) + manualExt;
+    const entry: any = { month: short, year: yr, usedHours: round2(Math.max(0, used + adjTotal)), contractedHours: round2(contracted + extNow), lines };
+    entry.scopeExtHours = cr ? (+cr.extHours || 0) : 0;   // CRF extension for this month (frozen with it)
     let idx = e.mom.findIndex((m: { month?: string; year?: number }) => m && m.month === short && m.year === yr);
     if (idx < 0) {
       const last = e.mom[e.mom.length - 1];
@@ -166,23 +286,21 @@ Deno.serve(async (req) => {
        KEEP IN SYNC with exec-summary.js ovActive/stampOv. */
     if (e.overrideMonth !== periodLabel) {
       const had = !!(e.svcUtilOverride || e.hoursRealloc || (e.burn && e.burn.pctOverride != null));
-      delete e.svcUtilOverride; delete e.hoursRealloc; delete e.overrideMonth;
+      const hadAdj = !!(e.hoursAdjust && Object.keys(e.hoursAdjust).length);
+      delete e.svcUtilOverride; delete e.hoursRealloc; delete e.hoursAdjust; delete e.overrideMonth;
       if (e.burn) delete e.burn.pctOverride;
-      if (had) expired++;
+      if (had || hadAdj) expiredSet.add(clientId);
     }
 
     // A retainer with no contracted hours has no denominator, so its burn % is meaningless
     // (renders as "—"). Surfaced on the health page rather than silently looking fine.
-    if (!(contracted > 0)) noDenominator.push(nm.name || clientId);
+    if (!(contracted > 0)) noDenominator.add(nm.name || clientId);
 
     // keep the live burn fresh too (so the dashboard is current even with no admin online)
     e.burn.usedHours = round2(used);
     e.burn.periodLabel = periodLabel;
 
-    const { error: werr } = await svc.from("app_state")
-      .update({ data }).eq("client_id", clientId).eq("scope", "dashboard");
-    if (werr) { skipped++; continue; }
-    if (a) snapped++; else rolled++;      // rolled = carried into the new month at zero hours
+    return a ? "snapped" : "rolled";
   }
 
   // snapped = had hours this month · rolled = retainer client at 0 so far (label still moves
@@ -191,12 +309,11 @@ Deno.serve(async (req) => {
      every dashboard (Ignite, 2026-10-19), so they're reported here — and on the health page —
      with the hours at stake, so a name mismatch is visible the same day. */
   const unmatchedWmj = [...actuals.values()].filter((x) => !matchedKeys.has(x.norm) && x.total > 0)
-    .map((x) => `${x.wmjName} (${round2(x.total)}h)`);
-  const result = { ok: true, month: periodLabel, snapped, rolled, suspect, skipped, expired,
-    clientsInSheet: actuals.size, unmatchedWmj,
-    // every WMJ client in this month's retainer report, with hours (internal names only)
-    wmjClients: [...actuals.values()].map((x) => `${x.wmjName} ${round2(x.total)}h`),
-    suspectClients, noDenominator };
+    .map((x) => x.wmjName);
+  expired = expiredSet.size;
+  const result = { ok: true, month: periodLabel, snapped, rolled, unchanged, suspect, skipped, expired,
+    clientsInSheet: actuals.size, crfClients: crf.size, unmatchedWmj,
+    suspectClients: [...suspectClients], noDenominator: [...noDenominator] };
   await reportHealth("snapshot-months", result);
   return json(req, 200, result);
 });

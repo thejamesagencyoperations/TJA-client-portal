@@ -2320,3 +2320,55 @@ body[data-role="admin"] .nav-admin { display: flex !important; }
 /* PR tile: a connected sheet that can't be read says so (staff only) */
 .pr-sheet-warn { margin: 4px 0 8px; padding: 7px 10px; border-radius: 8px; font-size: .72rem; font-weight: 600;
   color: #b45309; background: rgba(245,179,66,.12); border: 1px solid rgba(245,179,66,.4); }
+
+/* v390 — scope extension / overage lines + CRF chip */
+.rsvc-ext { border-top: 1px dashed var(--line); padding-top: 10px; }
+.rsvc-ext .rsvc-bar span { background: #FFB066; }
+.rsvc-overage .rsvc-name { color: #E5484D; font-weight: 600; }
+.rsvc-overage .rsvc-cap { color: #E5484D; }
+.scope-chip--crf { border-style: dashed; }
+.rsvc-act { color: var(--text-dim); font-size: .68rem; }
+/* v390 — to-do ⇄ dependency links */
+.dep-link-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.dep-link-chip { display: inline-block; font-size: .66rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: rgba(255,120,0,.12); color: var(--orange); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.dep-link-chip.is-internal { background: var(--input); color: var(--text-dim); }
+.dep-link-btn { background: none; border: 0; cursor: pointer; font-size: .8rem; opacity: .55; padding: 0 3px; }
+.dep-link-btn:hover { opacity: 1; }
+.dep-link-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow: auto; margin: 6px 0 12px; }
+.dep-link-opt { display: flex; align-items: center; gap: 8px; font-size: .82rem; cursor: pointer; }
+.add-disc-opt { display: flex; justify-content: space-between; gap: 12px; align-items: center; text-align: left; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--input); color: var(--text); font: inherit; font-size: .82rem; cursor: pointer; }
+.add-disc-opt:hover { border-color: var(--orange); }
+.add-disc-opt span { color: var(--text-dim); font-size: .72rem; }
+/* v390 — Reporting link */
+.report-bar { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 14px; }
+.report-frame { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--card, #fff); }
+.report-frame iframe { display: block; width: 100%; height: 78vh; min-height: 520px; border: 0; }
+.report-note { font-size: .74rem; color: var(--text-dim); margin-top: 8px; }
+.report-empty p { margin: 0 0 12px; color: var(--text-dim); }
+/* v390 — Service Allocation Plan */
+.sap-admin { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.sap-months { margin: 4px 0 14px; }
+.sap-month-title { font-size: 1.05rem; font-weight: 700; margin: 4px 0 12px; }
+.sap-tab { font-size: .7rem; font-weight: 500; color: var(--text-faint); margin-left: 6px; }
+.sap-sec { margin-bottom: 12px; }
+.sap-sec-head { font-weight: 700; font-size: .95rem; color: var(--orange); margin-bottom: 6px; }
+.sap-items { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.sap-item { font-weight: 600; font-size: .86rem; }
+.sap-notes { color: var(--text-dim); font-size: .8rem; line-height: 1.45; margin-top: 2px; white-space: normal; overflow-wrap: anywhere; }
+.sap-terms { font-size: .72rem; color: var(--text-faint); line-height: 1.5; margin: 6px 2px 14px; }
+.sap-empty { color: var(--text-dim); }
+.sap-sign .sap-sub { color: var(--text-dim); font-size: .8rem; margin: 0 0 10px; }
+.sap-lbl { display: flex; flex-direction: column; gap: 4px; font-size: .75rem; font-weight: 600; color: var(--text-dim); margin-bottom: 10px; }
+div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.sap-name { font: inherit; font-size: .9rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); max-width: 360px; }
+.sap-pad { display: block; width: 100%; max-width: 600px; height: 160px; background: #fff; border: 1px dashed var(--line); border-radius: 10px; touch-action: none; cursor: crosshair; margin-bottom: 8px; }
+.sap-clear { background: none; border: 0; color: var(--orange); cursor: pointer; font: inherit; font-size: .72rem; }
+.sap-err { color: #E5484D; font-size: .78rem; min-height: 1em; margin-bottom: 8px; }
+.sap-signed-head { font-size: .92rem; margin-bottom: 8px; }
+.sap-banner { border-radius: 10px; padding: 8px 12px; font-size: .8rem; margin: 6px 0 10px; }
+.sap-banner--warn { background: rgba(255,170,0,.14); color: #a86200; }
+.sap-banner--err { background: rgba(229,72,77,.12); color: #c0282d; }
+.sap-sign div.sap-lbl { max-width: 600px; }
+.sap-sign .btn { width: auto; align-self: flex-start; }
+.sap-sign .btn:disabled { opacity: .5; cursor: not-allowed; }
+.sap-sign { display: flex; flex-direction: column; }

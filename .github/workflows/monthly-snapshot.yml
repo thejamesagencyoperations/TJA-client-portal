@@ -68,3 +68,16 @@ jobs:
           done
           echo "::error::snapshot-months failed all 3 attempts"
           exit 1
+      # SERVICE ALLOCATION PLANS (v390): refresh every connected client's current-month SAP so
+      # the month-end snapshot lands even if nobody opens the page. Separate step and allowed to
+      # fail on its own — a Google hiccup here must never mark the burn snapshot as failed.
+      - name: Refresh Service Allocation Plans
+        continue-on-error: true
+        env:
+          SNAPSHOT_SECRET: ${{ secrets.SNAPSHOT_SECRET }}
+          ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
+        run: |
+          curl -sS -X POST "https://sliutkbdpuimxxmvsbek.supabase.co/functions/v1/sap" \
+            -H "x-snapshot-secret: ${SNAPSHOT_SECRET}" -H "Authorization: Bearer ${ANON_KEY}" \
+            -H "content-type: application/json" -d '{"action":"sweep"}' \
+            --max-time 170 -w "\nHTTP %{http_code}\n" --fail-with-body

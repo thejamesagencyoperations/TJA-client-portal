@@ -168,28 +168,31 @@ window.WMJ_SYNC = (function () {
        • server row exists → that's the base (and heal localStorage from it);
        • server unreachable/errors → { ok:false } — the caller SKIPS this client, because
          "couldn't read" must never be treated as "doesn't exist";
-       • genuinely no server row (new client) → localStorage, then template. */
-  async function loadStateSafe(clientId) {
+       • genuinely no server row (new client) → localStorage, then template.
+     casMutate below keeps all three rules (casUpdate never writes after a failed read). */
+  /* COMPARE-AND-SET client writes (v390). This sync used to read a client's dashboard, change
+     the WMJ fields and push the WHOLE doc back blind a few seconds later — so an admin's edit
+     saved in between (a manual burn adjustment, a scope extension) was silently thrown away.
+     That was half of "the manual burn update resets randomly" (the hourly server job was the
+     other half; fixed the same way). Now: re-read the freshest copy → apply ONLY the WMJ
+     changes to it → write only if nobody saved in between, else re-read and re-apply.
+     `mutate(state)` edits in place; return false to skip the client. Unchanged → no write. */
+  async function casMutate(clientId, mutate) {
+    const apply = (cur) => {
+      const state = (cur && cur.engagements) ? cur : loadState(clientId);
+      const before = JSON.stringify(state);
+      if (mutate(state) === false) return undefined;
+      return JSON.stringify(state) === before ? undefined : state;
+    };
     if (window.SUPA && window.SUPA.enabled && window.SUPA.client) {
-      try {
-        const { data, error } = await window.SUPA.client.from("app_state")
-          .select("data").eq("client_id", clientId).eq("scope", "dashboard").maybeSingle();
-        if (error) throw new Error(error.message);
-        if (data && data.data && data.data.engagements) {
-          try { localStorage.setItem("tja_dashboard_" + clientId, JSON.stringify(data.data)); } catch (e) {}
-          return { ok: true, state: data.data };
-        }
-        // no row — fall through to local/template (a truly new client)
-      } catch (e) {
-        console.warn("wmj sync: can't read server copy for", clientId, "— skipping this round.", (e && e.message) || e);
-        return { ok: false, state: null };
-      }
+      const res = await window.SUPA.casUpdate(clientId, "dashboard", apply);
+      if (!res.ok) { console.warn("wmj sync: couldn't save", clientId, "—", res.error); return false; }
+      if (res.data) { try { localStorage.setItem("tja_dashboard_" + clientId, JSON.stringify(res.data)); } catch (e) {} }
+      return true;
     }
-    return { ok: true, state: loadState(clientId) };
-  }
-  function saveState(clientId, state) {
-    try { localStorage.setItem("tja_dashboard_" + clientId, JSON.stringify(state)); } catch (e) { console.warn("wmj save", e); }
-    if (window.SUPA && window.SUPA.enabled) window.SUPA.pushScope(clientId, "dashboard", state);
+    const next = apply(loadState(clientId));
+    if (next) { try { localStorage.setItem("tja_dashboard_" + clientId, JSON.stringify(next)); } catch (e) { console.warn("wmj save", e); } }
+    return true;
   }
 
   function projectShell(id) {
@@ -291,17 +294,19 @@ window.WMJ_SYNC = (function () {
         const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));
         if (ent && url && isAuto && ent.logo !== url) window.TJA_STORE.update(r.id, { logo: url });
       }
-      const ls = await loadStateSafe(r.id); if (!ls.ok) continue;
-      const state = ls.state;
-      state.engagements = state.engagements || {};
-      const existing = Array.isArray(state.engagements.projects) ? state.engagements.projects : [];
-      const byId = new Map(existing.map(p => [p.id, p]));
-      // keep manual (non-wmj) projects, refresh/insert wmj ones
-      const manual = existing.filter(p => p.source !== "wmj");
-      const wmjProjects = wc.projects.map(w => mergeProject(byId.get(w.id), w));
-      state.engagements.projects = manual.concat(wmjProjects);
-      projectCount += wmjProjects.length;
-      saveState(r.id, state);
+      let n = 0;
+      const ok = await casMutate(r.id, (state) => {
+        state.engagements = state.engagements || {};
+        const existing = Array.isArray(state.engagements.projects) ? state.engagements.projects : [];
+        const byId = new Map(existing.map(p => [p.id, p]));
+        // keep manual (non-wmj) projects, refresh/insert wmj ones
+        const manual = existing.filter(p => p.source !== "wmj");
+        const wmjProjects = wc.projects.map(w => mergeProject(byId.get(w.id), w));
+        state.engagements.projects = manual.concat(wmjProjects);
+        n = wmjProjects.length;
+      });
+      if (!ok) continue;
+      projectCount += n;
       if (!r.created) updated++;
     }
     try { localStorage.setItem(LAST_KEY, new Date().toISOString()); } catch (e) {}
@@ -358,7 +363,10 @@ window.WMJ_SYNC = (function () {
     // Only fall back to the discipline sum when there's no usable SOW figure — the sum of
     // service lines must NEVER become the total.
     const sowOk = e.retainerValueMonthly === true && e.retainerValueTarget != null && +e.retainerValueTarget > 0;
-    e.burn.contractedHours = sowOk ? +e.retainerValueTarget
+    // the CRF base (stamped by the server job) wins when it's for this month — KEEP IN SYNC with
+    // exec-summary crfActive/retainerTotalContracted and snapshot-months
+    const crfOk = e.crf && e.crf.period && e.crf.period === e.burn.periodLabel && +e.crf.baseHours > 0;
+    e.burn.contractedHours = crfOk ? +e.crf.baseHours : sowOk ? +e.retainerValueTarget
       : e.serviceDisciplines.reduce((s, d) => s + (+d.contracted || 0), 0);
     if (e.burn.periodLabel == null) e.burn.periodLabel = "";
     e.condition = e.condition || { level: "green", note: "" };
@@ -391,11 +399,20 @@ window.WMJ_SYNC = (function () {
     const canon = window.tjaCanonDiscipline || ((s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
     const act = {};
     (e.wmjServiceLines || []).forEach((l) => { const k = canon(l.name); act[k] = (act[k] || 0) + (+l.billable || 0); });
+    const adj = monthAdjust(e);   // manual hours deltas ride into the month record (see exec-summary adjOf)
     return (e.serviceDisciplines || []).map((d) => ({
       name: d.name,
       contracted: +d.contracted || 0,
-      billable: Math.round((act[canon(d.name)] || 0) * 100) / 100,
+      billable: Math.round(Math.max(0, (act[canon(d.name)] || 0) + (+adj[canon(d.name)] || 0)) * 100) / 100,
     }));
+  }
+  function monthAdjust(e) { return (e && e.hoursAdjust && e.overrideMonth && e.burn && e.overrideMonth === e.burn.periodLabel) ? e.hoursAdjust : {}; }
+  // this month's extension hours (CRF-detected + hand-added) — part of the month's denominator
+  function monthExt(e) {
+    const b = e.burn || {};
+    const crf = (e.crf && e.crf.period === b.periodLabel) ? (+e.crf.extHours || 0) : 0;
+    const man = (b.scopeExtMonth && b.scopeExtMonth === b.periodLabel && Array.isArray(b.scopeExts)) ? b.scopeExts.reduce((s, x) => s + (+x.hours || 0), 0) : 0;
+    return crf + man;
   }
   function snapshotMonth(e) {
     if (!e || !e.burn) return;
@@ -405,8 +422,9 @@ window.WMJ_SYNC = (function () {
     const short = SNAP_MONTHS[mi];
     e.burn.periodLabel = `${SNAP_FULL[mi]} ${yr}`;   // keep the tile's month label current
     // round to 2dp so this writer and the server snapshot store identical values
-    const used = Math.round((+e.burn.usedHours || 0) * 100) / 100;
-    const total = Math.round((+e.burn.contractedHours || 0) * 100) / 100;
+    const adjT = Object.values(monthAdjust(e)).reduce((s, v) => s + (+v || 0), 0);
+    const used = Math.round(Math.max(0, (+e.burn.usedHours || 0) + adjT) * 100) / 100;
+    const total = Math.round(((+e.burn.contractedHours || 0) + monthExt(e)) * 100) / 100;
     const lines = snapshotLines(e);
     // Match the current month's entry by (month, year) ANYWHERE in the array — not just
     // the last entry — so a boundary race with the server snapshot (which may append the
@@ -441,10 +459,7 @@ window.WMJ_SYNC = (function () {
         const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));
         if (ent && url && isAuto && ent.logo !== url) window.TJA_STORE.update(r.id, { logo: url });
       }
-      const ls = await loadStateSafe(r.id); if (!ls.ok) continue;
-      const state = ls.state;
-      applyRetainer(state, rc);
-      saveState(r.id, state);
+      if (!(await casMutate(r.id, (state) => { applyRetainer(state, rc); }))) continue;
       if (!r.created) updated++;
     }
     return { clients: data.length, created, updated, createdClients };
@@ -460,15 +475,16 @@ window.WMJ_SYNC = (function () {
       let text;
       try { const res = await reg.fetchPRText(cfg); if (!res.text) throw new Error(res.error || "PR fetch failed"); text = res.text; }
       catch (e) { console.warn("PR sync", id, e); continue; }
-      const ls = await loadStateSafe(id); if (!ls.ok) continue;
-      const state = ls.state;
-      const e = state.engagements && state.engagements.retainer;
-      if (!e) continue;                                  // PR lives on the Monthly Services engagement
-      e.prCoverage = reg.parseHits(text);
-      e.prSource = "sheet";
-      e.prHits = reg.hitCount(text, e.prCoverage.length);
-      saveState(id, state);
-      done++;
+      let had = false;
+      await casMutate(id, (state) => {
+        const e = state.engagements && state.engagements.retainer;
+        if (!e) return false;                            // PR lives on the Monthly Services engagement
+        had = true;
+        e.prCoverage = reg.parseHits(text);
+        e.prSource = "sheet";
+        e.prHits = reg.hitCount(text, e.prCoverage.length);
+      });
+      if (had) done++;
     }
     return { clients: done };
   }
@@ -485,15 +501,16 @@ window.WMJ_SYNC = (function () {
     try { byClient = await window.WMJ_RETAINER_VALUE.forRoster(window.TJA_STORE.list()); }
     catch (e) { console.warn("retainer-value sync", e); return { clients: 0 }; }
     for (const [id, entry] of byClient.entries()) {
-      const ls = await loadStateSafe(id); if (!ls.ok) continue;
-      const state = ls.state;
-      const e = state.engagements && state.engagements.retainer;
-      if (!e) continue;
-      e.retainerValueTarget = entry.hrs;         // hrs/mo, or null if no signed $ figure yet
-      e.retainerValueMonthly = !!entry.monthly;  // true = exact current-month $ ÷ rate; false = annual avg (÷12)
-      e.retainerValueHasPending = entry.hasPending;
-      saveState(id, state);
-      done++;
+      let had = false;
+      await casMutate(id, (state) => {
+        const e = state.engagements && state.engagements.retainer;
+        if (!e) return false;
+        had = true;
+        e.retainerValueTarget = entry.hrs;         // hrs/mo, or null if no signed $ figure yet
+        e.retainerValueMonthly = !!entry.monthly;  // true = exact current-month $ ÷ rate; false = annual avg (÷12)
+        e.retainerValueHasPending = entry.hasPending;
+      });
+      if (had) done++;
     }
     return { clients: done };
   }

@@ -428,6 +428,8 @@ function parseStatusSheet(text) {
   return { groups };
 }
 function renderStatus() {
+  // Monthly Services → the Service Allocation Plan (sap.js); projects keep the Status table
+  if (isRetainer() && window.SAP_PAGE) return window.SAP_PAGE.render();
   const e = getEng(); const st = e.status || { groups: [] };
   const admin = ppAdmin();
   const sEd = (val, path) => admin ? `<span class="ed" contenteditable="true" data-st="${esc(path)}">${esc(val)}</span>` : esc(val);
@@ -466,8 +468,9 @@ function renderStatus() {
 }
 let statusWired = false;
 function initStatus() {
-  if (statusWired) return; statusWired = true;
   const page = document.querySelector('.page[data-page="status"]');
+  if (window.SAP_PAGE) window.SAP_PAGE.init(page);   // its handlers ignore the project Status table
+  if (statusWired) return; statusWired = true;
   page.addEventListener("focusout", e => {
     const f = e.target.closest("[data-st]"); if (!f) return;
     setPath(getEng(), f.dataset.st, f.textContent.trim()); saveState();
@@ -810,13 +813,65 @@ async function planServerFetch(fileUrl, cid) {
     return { ok: r.ok, status: r.status, plan: j.plan, error: j.error };
   } catch (e) { return { ok: false, status: 0, error: String(e) }; }
 }
+/* ---------- Reporting (retainer) ----------
+   One link per client to its live reporting (Cameron 2026-10-19). Most reporting tools refuse
+   to be framed by another site, so the portal only EMBEDS links it knows can be embedded
+   (Looker Studio — converted to its /embed/ form — and published Google docs). Everything
+   else gets a clear "Open report" button rather than a blank grey box. */
+function reportingEmbedUrl(raw) {
+  let u; try { u = new URL(raw); } catch (e) { return null; }
+  if (/(^|\.)(lookerstudio|datastudio)\.google\.com$/.test(u.hostname)) {
+    const p = u.pathname.replace(/^\/u\/\d+/, "");
+    if (/^\/embed\/reporting\//.test(p)) return u.origin + p + u.search;
+    if (/^\/reporting\//.test(p)) return u.origin + "/embed" + p;
+    return null;
+  }
+  if (u.hostname === "docs.google.com" && /\/pubhtml|\/pub(\?|$)|\/embed/.test(u.pathname + u.search)) return raw;
+  if (u.hostname === "app.powerbi.com" && /^\/view/.test(u.pathname)) return raw;   // "Publish to web" links
+  return null;
+}
 function renderReporting() {
-  return `
+  const e = getEng();
+  const head = `
   <div class="page-head">
     <div class="page-title">Reporting</div>
     <div class="page-desc">Performance reporting &amp; analytics for this client.</div>
+  </div>`;
+  if (!isRetainer() || !e) return head + `<div class="placeholder-note" style="margin-top:10px">📊 Reporting lives on the Monthly Services view.</div>`;
+  const admin = ppAdmin();
+  const url = (e.reportingUrl || "").trim();
+  const embed = url ? reportingEmbedUrl(url) : null;
+  const connectBtn = admin ? `<button class="btn btn-ghost" data-reportconnect>${url ? "✎ Change report link" : "🔗 Add reporting link"}</button>` : "";
+  if (!url) return head + `<div class="card report-empty">${admin ? `<p>Add the link to this client's live reporting dashboard (Looker Studio, Google Sheets, Power BI, AgencyAnalytics…).</p>${connectBtn}` : `<p>Your reporting dashboard will appear here once it's connected.</p>`}</div>`;
+  return head + `
+  <div class="report-bar">
+    <a class="btn btn-primary" href="${esc(url)}" target="_blank" rel="noopener noreferrer">📊 Open report ↗</a>
+    ${connectBtn}
   </div>
-  <div class="placeholder-note" style="margin-top:10px">📊 Reporting is coming soon — we'll build out the contents here.</div>`;
+  ${embed ? `<div class="report-frame"><iframe src="${esc(embed)}" title="Client reporting" loading="lazy" allowfullscreen sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"></iframe></div>
+    <div class="report-note">Not loading? Use <b>Open report</b> above — some reports need you to be signed in to view them${admin ? ", or the report's sharing/embedding setting is off" : ""}.</div>`
+    : `<div class="card report-empty"><p>This report opens in a new tab — it can't be shown inside the portal.</p></div>`}`;
+}
+let reportingWired = false;
+function initReporting() {
+  if (reportingWired) return; reportingWired = true;
+  const page = document.querySelector('.page[data-page="reporting"]');
+  if (!page) return;
+  page.addEventListener("click", async (ev) => {
+    if (!ev.target.closest("[data-reportconnect]") || !ppAdmin()) return;
+    const eng = getEng(); if (!eng) return;
+    const raw = await window.TJA_UI.prompt("Paste the link to this client's reporting dashboard. Leave blank to remove it.",
+      { title: "Reporting link", value: eng.reportingUrl || "", okText: "Save", placeholder: "https://lookerstudio.google.com/reporting/…" });
+    if (raw == null) return;
+    const v = raw.trim();
+    if (!v) delete eng.reportingUrl;
+    else {
+      let ok = false; try { ok = /^https?:$/.test(new URL(v).protocol); } catch (e) {}
+      if (!ok) { window.TJA_UI.alert("That doesn't look like a web link — paste the full https:// address."); return; }
+      eng.reportingUrl = v;
+    }
+    saveState(); repaint("reporting");
+  });
 }
 function paint(page) {
   const sec = document.querySelector(`.page[data-page="${page}"]`);
@@ -830,6 +885,7 @@ function paint(page) {
     if (page === "media" && window.MediaIntake) window.MediaIntake.init();
     if (page === "files") initFiles();
     if (page === "status") initStatus();
+    if (page === "reporting") initReporting();
     if (page === "backlog") initBacklog();
   }
 }
@@ -1015,6 +1071,8 @@ function applyEngagement() {
   const ns = el("#clientNorthstar");
   if (ns) ns.innerHTML = "";
   el("#navBacklog").style.display = isRetainer() ? "" : "none";   // Backlog = Monthly-Services-only
+  // the "status" page is the Service Allocation Plan on Monthly Services (v390)
+  const stLbl = el("#navStatusLabel"); if (stLbl) stLbl.textContent = isRetainer() ? "Service Allocation Plan" : "Status";
   // Project Plan lives on any project-type client with at least one project — including
   // the folder/tile-picker view, not just once a specific project is open.
   const planOk = !isRetainer() && getProjects().length > 0;

@@ -142,8 +142,7 @@ window.ExecSummary = (function () {
     // for disciplines-driven retainers, the live burn = Σ used across disciplines
     const usedNow = (eng.serviceDisciplines && eng.serviceDisciplines.length) ? round2(retainerUsed(eng)) : eng.burn.usedHours;
     // this month's scope extensions (if tagged for the live month) ride into the banked total
-    const scopeExtNow = (eng.burn.scopeExtMonth && eng.burn.scopeExtMonth === eng.burn.periodLabel && Array.isArray(eng.burn.scopeExts))
-      ? eng.burn.scopeExts.reduce((s, x) => s + (+x.hours || 0), 0) : 0;
+    const scopeExtNow = scopeExtTotal(eng);   // CRF-detected + hand-added (KEEP IN SYNC with snapshot-months)
     const baseTotal = retainerTotalContracted(eng);
     const totalNow = baseTotal + scopeExtNow;
     eng.burn.usedHours = usedNow; eng.burn.contractedHours = baseTotal;   // store the BASE; scope ext stays separate
@@ -153,7 +152,7 @@ window.ExecSummary = (function () {
     const now = new Date(), yr = now.getFullYear(), short = MONTHS[now.getMonth()].slice(0, 3);
     const actMap = actualByDiscipline(eng);
     const lines = (eng.serviceDisciplines || []).map((d) => ({
-      name: d.name, contracted: +d.contracted || 0, billable: round2(actMap[canon(d.name)] || 0),
+      name: d.name, contracted: +d.contracted || 0, billable: round2(discUsed(eng, d, actMap)),   // shown hours (actual + manual delta)
     }));
     // Match by (month, year) ANYWHERE (not just last) so a boundary race with another
     // writer updates in place instead of duplicating; no-year legacy adoption only for
@@ -165,9 +164,9 @@ window.ExecSummary = (function () {
     }
     if (idx >= 0) {
       const m = eng.mom[idx];
-      m.year = yr; m.usedHours = usedNow; m.contractedHours = totalNow; m.lines = lines;
+      m.year = yr; m.usedHours = usedNow; m.contractedHours = totalNow; m.lines = lines; m.scopeExtHours = crfExtHours(eng);
     } else {
-      eng.mom.push({ month: short, year: yr, usedHours: usedNow, contractedHours: totalNow, lines });
+      eng.mom.push({ month: short, year: yr, usedHours: usedNow, contractedHours: totalNow, lines, scopeExtHours: crfExtHours(eng) });
     }
   }
   function nextMonthLabel(periodLabel) {
@@ -360,12 +359,13 @@ window.ExecSummary = (function () {
     // month retainer scope bumps) so the burn % reflects reality and doesn't false-alarm over
     // 100%. Tagged with the month (scopeExtMonth) so they auto-expire when the calendar rolls.
     // Shown as removable chips. Live month only.
-    const scopeList = (e.burn && e.burn.scopeExtMonth && e.burn.scopeExtMonth === e.burn.periodLabel && Array.isArray(e.burn.scopeExts)) ? e.burn.scopeExts : [];
-    const scopeExt = (viewMonthIdx == null) ? scopeList.reduce((s, x) => s + (+x.hours || 0), 0) : 0;
+    const scopeList = manualScopeList(e);
+    const crfExt = (viewMonthIdx == null) ? crfExtHours(e) : 0;
+    const scopeExt = (viewMonthIdx == null) ? scopeExtTotal(e) : 0;
     const total = (viewMonthIdx == null) ? (retainerTotalContracted(e) + scopeExt) : b.contractedHours;
     const used = (viewMonthIdx == null) ? round2(retainerUsed(e)) : b.usedHours;   // burn = SUM of the disciplines' used hrs
     const realPct = total > 0 ? Math.round(used / total * 100) : 0;
-    const hasOv = viewMonthIdx == null && !!Object.keys(svcOv(e)).length;
+    const hasOv = viewMonthIdx == null && hasActualsOverride(e);
     const pct = (burnPreviewPct != null) ? burnPreviewPct : realPct;   // needle follows the drag (live or frozen month)
     const actualUsed = round2(retainerActualUsed(e));
     const mom = (e.mom || []).map((m, i) => {
@@ -384,7 +384,7 @@ window.ExecSummary = (function () {
       : `${pct}%`;
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.burn}Monthly Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span>${(canAdmin() && viewMonthIdx == null) ? `<button class="burn-scope-btn" data-scopeext title="Add a scope-extension (hours + description) to this month">＋ Scope extension</button>` : ""}</div>
-      ${(canAdmin() && viewMonthIdx == null && scopeList.length) ? `<div class="scope-chips">${scopeList.map((x, i) => `<span class="scope-chip"><b>+${round1(x.hours)}h</b>${x.note ? " " + esc(x.note) : ""}<button class="scope-chip-x" data-scopedel="${i}" title="Remove this scope extension">✕</button></span>`).join("")}</div>` : ""}
+      ${(canAdmin() && viewMonthIdx == null && (scopeList.length || crfExt > 0)) ? `<div class="scope-chips">${crfExt > 0 ? `<span class="scope-chip scope-chip--crf" title="Detected from the Client Revenue Forecast: this month bills $${Math.round(e.crf.monthDollars).toLocaleString()} vs a normal $${Math.round(e.crf.baselineDollars).toLocaleString()} at $${e.crf.rate}/hr. Drops off when the month ends."><b>+${round1(crfExt)}h</b> From CRF</span>` : ""}${scopeList.map((x, i) => `<span class="scope-chip"><b>+${round1(x.hours)}h</b>${x.note ? " " + esc(x.note) : ""}<button class="scope-chip-x" data-scopedel="${i}" title="Remove this scope extension">✕</button></span>`).join("")}</div>` : ""}
       <div class="burn-wrap">
         ${gauge(unset ? 0 : pct, interactive)}
         <div class="burn-readout">
@@ -474,7 +474,19 @@ window.ExecSummary = (function () {
   // ALWAYS wins — discipline hours are only the internal split *within* that total and must
   // never change it. A partial split is normal and expected: the shares simply won't add up
   // to 100% until every discipline is filled in.
+  /* THE CLIENT REVENUE FORECAST (CRF) is the governing truth (Cameron 2026-10-19): the
+     hourly server job reads it and stamps e.crf = {period, rate, baseHours, extHours, …}.
+     baseHours = the client's NORMAL month ÷ the CRF rate; extHours = whatever the CRF bills
+     ABOVE the normal month this month (a scope extension). Only trusted for the month it was
+     read for, so it drops off by itself when the calendar turns. */
+  const crfActive = (e) => !!(e && e.crf && e.burn && e.crf.period === e.burn.periodLabel && +e.crf.baseHours > 0);
+  // manual scope extensions an admin added for the live month
+  const manualScopeList = (e) => (e && e.burn && e.burn.scopeExtMonth && e.burn.scopeExtMonth === e.burn.periodLabel && Array.isArray(e.burn.scopeExts)) ? e.burn.scopeExts : [];
+  const crfExtHours = (e) => (crfActive(e) ? Math.max(0, +e.crf.extHours || 0) : 0);
+  // every extension hour on top of the base retainer this month (CRF-detected + hand-added)
+  const scopeExtTotal = (e) => crfExtHours(e) + manualScopeList(e).reduce((s, x) => s + (+x.hours || 0), 0);
   function retainerTotalContracted(e) {
+    if (crfActive(e)) return round2(+e.crf.baseHours);
     if (sowTargetUsable(e)) return +e.retainerValueTarget;
     // No SOW figure for this client/month (not in the revenue workbook, or not signed yet)
     // → fall back to the hand-entered disciplines, then to the last stored total.
@@ -542,6 +554,22 @@ window.ExecSummary = (function () {
   const ovActive = (e) => !!(e && e.overrideMonth && e.burn && e.overrideMonth === e.burn.periodLabel);
   const svcOv = (e) => (ovActive(e) ? (e.svcUtilOverride || {}) : {});
   const reallocOf = (e) => (ovActive(e) ? (e.hoursRealloc || {}) : {});
+  /* MANUAL HOURS ARE A DELTA ON TOP OF ACTUALS (Cameron 2026-10-19). The old override stored
+     a % of contracted, so the next WMJ pull either froze the line at that % or — when the
+     hourly server job rewrote the record — wiped it ("the manual burn resets randomly").
+     Now an admin edit stores the DIFFERENCE from actuals: raise 20 → 30 (+10), WMJ later
+     shows 25 → the portal shows 35. Keyed by canon discipline, month-stamped like the rest,
+     and applied server-side too (snapshot-months) so the month record keeps it. */
+  const adjOf = (e) => (ovActive(e) ? (e.hoursAdjust || {}) : {});
+  // set a discipline's SHOWN hours: store the delta from the current actual
+  function setDiscHours(e, d, hrs, actMap) {
+    const k = canon(d.name);
+    const act = (actMap || actualByDiscipline(e))[k] || 0;
+    e.hoursAdjust = e.hoursAdjust || {}; stampOv(e);
+    const delta = round2(Math.max(0, hrs) - act);
+    if (Math.abs(delta) < 0.01) delete e.hoursAdjust[k]; else e.hoursAdjust[k] = delta;
+    if (e.svcUtilOverride) delete e.svcUtilOverride[d.name];   // the legacy % override is superseded
+  }
   // stamp the current month onto an override the admin is setting right now
   const stampOv = (e) => { if (e) e.overrideMonth = (e.burn && e.burn.periodLabel) || ""; };
 
@@ -562,7 +590,9 @@ window.ExecSummary = (function () {
   // and the burn dial distributes back into the disciplines via the popup.
   function discUsed(e, d, actMap) {
     const act = (actMap || actualByDiscipline(e))[canon(d.name)] || 0;
-    const ov = svcOv(e)[d.name];
+    const adj = adjOf(e)[canon(d.name)];
+    if (typeof adj === "number") return Math.max(0, act + adj);
+    const ov = svcOv(e)[d.name];   // legacy % override (pre-v390), still honoured until it expires
     return (typeof ov === "number") ? (ov / 100 * (+d.contracted || 0)) : act;
   }
   // billable hours in WMJ departments that DON'T match any defined discipline ("misc"/unallocated).
@@ -598,7 +628,7 @@ window.ExecSummary = (function () {
     if (!lines.length) {
       return `<div class="module">
         <div class="module-head"><span class="module-title">${IC.svc}Service Lines · ${esc(m.month)} ${m.year || ""}</span><span class="rsvc-legend">% of retainer</span></div>
-        <div class="rsvc-list"><div class="pr-date">No service-line detail captured for this month.</div></div>
+        <div class="rsvc-list"><div class="pr-date">No service-line detail captured for this month.${canAdmin() ? ` <button class="row-add" data-histseed title="Add this retainer's service lines to this month so you can enter hours per line">＋ Add service lines</button>` : ""}</div></div>
       </div>`;
     }
     const admin = canAdmin();
@@ -624,7 +654,9 @@ window.ExecSummary = (function () {
         <div class="rsvc-top"><span class="rsvc-name">${esc(l.name)}</span>
           <span class="rsvc-right"><span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span></span></div>
         <div class="rsvc-bar${st === "over" ? " over" : ""}${handle ? " rsvc-bar--drag" : ""}"><span style="width:${fill}%"></span>${handle}</div>
-        <div class="rsvc-cap">${round1(bill)} of ${round1(c)} hrs${c > 0 ? ` · ${Math.round(util)}%` : ""}</div>
+        <div class="rsvc-cap">${admin
+          ? `<input type="number" class="rsvc-hrs" data-histhrs="${i}" value="${round2(bill)}" min="0" step="any" title="Hours used this month on this line"> of <input type="number" class="rsvc-hrs" data-histc="${i}" value="${round2(c)}" min="0" step="any" title="Contracted hours this month on this line"> hrs${c > 0 ? ` · ${Math.round(util)}%` : ""}`
+          : `${round1(bill)} of ${round1(c)} hrs${c > 0 ? ` · ${Math.round(util)}%` : ""}`}</div>
       </div>`;
     }).join("");
     return `<div class="module">
@@ -654,8 +686,10 @@ window.ExecSummary = (function () {
       const act = actual[canon(d.name)] || 0;
       const share = total > 0 ? Math.round(contracted / total * 100) : 0;
       const realUtil = contracted > 0 ? (act / contracted * 100) : 0;   // 0 contracted → no util yet (not "over")
-      const hasOv = typeof ov[d.name] === "number";
-      const dispUtil = hasOv ? ov[d.name] : realUtil;   // the bar/status follow the shown (maybe overridden) %
+      const shownUsed = discUsed(e, d, actual);
+      const hasOv = typeof ov[d.name] === "number" || Math.abs(shownUsed - act) > 0.005;
+      const dispUtil = contracted > 0 ? (shownUsed / contracted * 100) : 0;   // bar/status follow the SHOWN hours (actual + manual delta)
+      const adjH = round2(shownUsed - act);
       const fill = Math.max(0, Math.min(100, dispUtil));
       // status: 0% → not started; >0 & <100% → in progress; ≥100% → completed;
       // >120% (20% past budget) → the completed chip turns vibrant red "Over"
@@ -667,14 +701,14 @@ window.ExecSummary = (function () {
       const nameCell = admin ? ed(d.name, "serviceDisciplines." + i + ".name") : esc(d.name);
       // admin caption = the REAL actual/contracted + real % (ground truth); client sees only the shown %
       const hrsCell = admin
-        ? `${round1(act)} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs${contracted > 0 ? ` · ${Math.round(realUtil)}%` : ""}`
+        ? `<input type="number" class="rsvc-hrs" data-discused="${i}" value="${round2(shownUsed)}" min="0" step="any" title="Hours shown this month. A change is saved as a +/- adjustment on top of WMJ actuals, so new actuals keep adding to it.">${hasOv ? ` <span class="rsvc-act">(${round1(act)} actual)</span>` : ""} of <input type="number" class="rsvc-hrs" data-dischrs="${i}" value="${contracted}" min="0" step="any" title="Contracted hours / month (arrows step by 1)"> hrs${contracted > 0 ? ` · ${Math.round(realUtil)}%` : ""}`
         : `${contracted > 0 ? Math.round(dispUtil) + "% of hours used" : ""}`;
       const handle = admin ? `<button class="rsvc-handle" data-svcutil="${i}" style="left:${fill}%" title="Drag to adjust the shown %"></button>` : "";
       const moved = +((reallocOf(e)[canon(d.name)]) || 0);   // net hours moved in/out of this line
       const movedTag = (admin && Math.abs(moved) > 0.001) ? ` <span class="rsvc-moved" title="Hours reallocated to/from other service lines">⇄ ${moved > 0 ? "+" : ""}${round1(moved)}h</span>` : "";
       return `<div class="rsvc-row">
         <div class="rsvc-top">
-          <span class="rsvc-name">${nameCell}${admin && hasOv ? ` <span class="rsvc-adj">adj</span>` : ""}${movedTag}</span>
+          <span class="rsvc-name">${nameCell}${admin && d.manual ? ` <span class="plan-int-tag" title="Manual line — does not update from Workamajig">Manual</span>` : ""}${admin && hasOv ? ` <span class="rsvc-adj" title="Manual adjustment on top of WMJ actuals — new actuals keep adding to it">adj ${adjH > 0 ? "+" : ""}${round1(adjH)}h</span>` : ""}${movedTag}</span>
           <span class="rsvc-right">${admin ? `<button class="rsvc-realloc" data-realloc="${i}" title="Reallocate hours from this line to another">⇄</button>` : ""}<span class="rsvc-status is-${st}">${lbl}</span><span class="rsvc-share">${share}%</span>${admin ? listDel("serviceDisciplines", i) : ""}</span>
         </div>
         <div class="rsvc-bar${st === "over" ? " over" : ""}${admin ? " rsvc-bar--drag" : ""}"><span style="width:${fill}%"></span>${handle}</div>
@@ -688,13 +722,33 @@ window.ExecSummary = (function () {
            <div class="rsvc-top"><span class="rsvc-name">Unallocated <span class="rsvc-caret">view ›</span></span><span class="rsvc-right"><span class="rsvc-status is-unalloc">In burn</span></span></div>
            <div class="rsvc-cap">${round1(misc)} hrs billable · not in a discipline</div>
          </div>` : "";
+    /* SCOPE EXTENSION + OVERAGE (Cameron 2026-10-19). Once a service line passes 100% of its
+       contracted hours, its extra hours spill into the Scope Extension line (CRF-detected +
+       hand-added). Anything beyond the extension is OVERAGE — what the client will be billed
+       on top — shown in its own line so nobody is surprised at month end. Live month only. */
+    const extCap = round2(scopeExtTotal(e));
+    const spill = round2(disc.reduce((s2, d2) => s2 + Math.max(0, discUsed(e, d2, actual) - (+d2.contracted || 0)), 0));
+    const extUsed = Math.min(spill, extCap), overage = round2(Math.max(0, spill - extCap));
+    const extFill = extCap > 0 ? Math.min(100, extUsed / extCap * 100) : 0;
+    const extSt = extCap <= 0 ? "" : extUsed >= extCap ? "complete" : extUsed > 0 ? "in-progress" : "not-started";
+    const extLbl = { complete: "Completed", "in-progress": "In progress", "not-started": "Not started" }[extSt] || "";
+    const extRow = extCap > 0 ? `<div class="rsvc-row rsvc-ext">
+        <div class="rsvc-top"><span class="rsvc-name">Scope Extension${crfExtHours(e) > 0 ? ` <span class="rsvc-moved" title="Detected from the Client Revenue Forecast">CRF</span>` : ""}</span>
+          <span class="rsvc-right"><span class="rsvc-status is-${extSt}">${extLbl}</span></span></div>
+        <div class="rsvc-bar"><span style="width:${extFill}%"></span></div>
+        <div class="rsvc-cap">${round1(extUsed)} of ${round1(extCap)} hrs · fills as service lines pass 100%</div>
+      </div>` : "";
+    const overRow = (overage > 0 && (extCap > 0 || admin)) ? `<div class="rsvc-row rsvc-overage">
+        <div class="rsvc-top"><span class="rsvc-name">Overage</span><span class="rsvc-right"><span class="rsvc-status is-over">Billable</span></span></div>
+        <div class="rsvc-cap">${round1(overage)} hrs beyond ${extCap > 0 ? "the scope extension" : "contracted hours"}${(crfActive(e) && +e.crf.rate > 0) ? ` · ≈ $${Math.round(overage * e.crf.rate).toLocaleString()} at $${e.crf.rate}/hr` : ""}</div>
+      </div>` : "";
     const setupNote = (admin && unset && !e.projectOnly)
       ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0
             ? `The burn total (~${round1(e.retainerValueTarget)} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
             : `No contracted hours yet — set them per discipline.`}</div>` : "";
     return `<div class="module">
-      <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span style="display:flex;align-items:center;gap:10px"><span class="module-link" data-go="status">View status →</span><span class="rsvc-legend">% of retainer</span></span></div>
-      <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}${miscRow}</div>
+      <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span style="display:flex;align-items:center;gap:10px"><span class="module-link" data-go="status">View plan →</span><span class="rsvc-legend">% of retainer</span></span></div>
+      <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}${extRow}${overRow}${miscRow}</div>
       ${setupNote}
       ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
     </div>`;
@@ -704,7 +758,8 @@ window.ExecSummary = (function () {
     if (!e || e.type !== "retainer") return false;
     const ovKeys = Object.keys(svcOv(e)).length;
     const rlKeys = Object.keys(reallocOf(e)).some(k => Math.abs(+reallocOf(e)[k] || 0) > 0.001);
-    return !!(ovKeys || rlKeys);
+    const adjKeys = Object.keys(adjOf(e)).some(k => Math.abs(+adjOf(e)[k] || 0) > 0.001);
+    return !!(ovKeys || rlKeys || adjKeys);
   }
 
   function serviceModule(e) {
@@ -835,17 +890,32 @@ window.ExecSummary = (function () {
       const style = o === "TJA" ? "" : ` style="background:${hexToRgba(cc, 0.16)};color:${cc}"`;
       return `<span class="owner-tag ${owners(o)} ${canAdmin() ? "admin-edit" : ""}" ${attr}="${i}"${style} ${canAdmin() ? `title="${esc(ownerTitle())}"` : ""}>${esc(ownerLabel(o))}</span>`;
     };
-    const todoRows = (e.todos || []).map((t, i) => `
-      <div class="tile-item${t.done ? " done" : ""}" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${todoCheck(t, i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}</span>${linkBtn("todos", i, t.link)}${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`).join("");
     // Dependencies get the SAME client-visibility toggle as Project Plan phases (Cameron):
     // an eye button flips d.internal; an internal dependency is hidden from the client view.
     const clientViewDep = (typeof effectiveRole === "function") && effectiveRole() === "client";
+    /* TO-DO ⇄ DEPENDENCY LINKS (Cameron 2026-10-19): a to-do can be WAITING ON one or more
+       dependencies (todo.waitingOn = [dependency ids]). Clients see the link too — except to
+       an internal dependency, which stays invisible to them. A dependency doesn't have to
+       block anything; unlinked ones behave exactly as before. */
+    const deps = e.dependencies || [];
+    const depById = new Map(deps.filter((d) => d && d.id).map((d) => [d.id, d]));
+    const waitChips = (t) => (Array.isArray(t.waitingOn) ? t.waitingOn : [])
+      .map((id) => depById.get(id)).filter((d) => d && !(clientViewDep && d.internal))
+      .map((d) => `<span class="dep-link-chip${d.internal ? " is-internal" : ""}" title="This to-do is waiting on a dependency">⛓ Waiting on: ${esc(d.text || "dependency")}</span>`).join("");
+    const linkPick = (i) => (canAdmin() && deps.length) ? `<button class="dep-link-btn" data-todolink="${i}" title="Link this to-do to the dependencies it's waiting on">⛓</button>` : "";
+    const todoRows = (e.todos || []).map((t, i) => {
+      const chips = waitChips(t);
+      return `
+      <div class="tile-item${t.done ? " done" : ""}${chips ? " has-deplink" : ""}" data-row="todos" data-idx="${i}">${dragHandle("todos", i)}${todoCheck(t, i)}${ownerTag(t, i, "data-owner")}<span class="ed-host" style="flex:1">${ed(t.text, "todos." + i + ".text", { add: "todos" })}${chips ? `<span class="dep-link-chips">${chips}</span>` : ""}</span>${linkPick(i)}${linkBtn("todos", i, t.link)}${dateBtn("todos", i, t.date)}${listDel("todos", i)}</div>`;
+    }).join("");
+    // how many (open) to-dos each dependency is blocking — shown on the dependency row
+    const blocks = (d) => d.id ? (e.todos || []).filter((t) => !t.done && Array.isArray(t.waitingOn) && t.waitingOn.includes(d.id)) : [];
     const depEye = (d, i) => canAdmin()
       ? `<button class="plan-eye${d.internal ? " is-internal" : ""}" data-depeye="${i}" title="${d.internal ? "Internal — hidden from the client. Click to make client-visible." : "Client-visible. Click to make internal (team only)."}">${d.internal ? "🙈" : "👁"}</button>`
       : "";
     const depRows = (e.dependencies || []).map((d, i) => {
       if (clientViewDep && d.internal) return "";                 // hidden from the client
-      return `<div class="tile-item${d.internal ? " is-internal" : ""}" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${depEye(d, i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}${d.internal && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}</span>${linkBtn("dependencies", i, d.link)}${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`;
+      return `<div class="tile-item${d.internal ? " is-internal" : ""}" data-row="dependencies" data-idx="${i}">${dragHandle("dependencies", i)}${depEye(d, i)}${ownerTag(d, i, "data-depowner")}<span class="ed-host" style="flex:1">${ed(d.text, "dependencies." + i + ".text", { add: "dependencies" })}${d.internal && canAdmin() ? ` <span class="plan-int-tag">Internal</span>` : ""}${(() => { const b = blocks(d); return b.length ? ` <span class="dep-link-chip dep-blocks" title="Blocking: ${esc(b.map((t) => t.text || "to-do").join(" · "))}">⛓ Blocks ${b.length} to-do${b.length === 1 ? "" : "s"}</span>` : ""; })()}</span>${linkBtn("dependencies", i, d.link)}${dateBtn("dependencies", i, d.date)}${listDel("dependencies", i)}</div>`;
     }).join("");
     const colorPick = canAdmin()
       ? `<label class="todo-colorpick" title="Set the colour used for ${esc(ownerLabel("Client"))} tasks"><input type="color" data-todocolor value="${cc}"><span>${esc(ownerLabel("Client"))}</span></label>` : "";
@@ -856,6 +926,91 @@ window.ExecSummary = (function () {
       ${depsOn(e) ? `<div class="td-sub td-sub-dep"><span>Dependencies</span>${listAdd("dependencies", "Add dependency")}</div>
       <div class="tile-list">${depRows || `<div class="pr-date">No open dependencies.</div>`}</div>` : ""}
     </div>`;
+  }
+
+  /* ADD DISCIPLINE (Cameron 2026-10-19): instead of a blank "New discipline", list the WMJ
+     departments this retainer ISN'T showing yet (e.g. re-add Public Relations for DNA) so the
+     line links to its WMJ hours, or create a MANUAL line — which never updates from WMJ, so
+     the admin is warned about that once. */
+  const WMJ_DEPT_LABEL = { oversight: "Strategic Oversight", pr: "Public Relations", media: "Paid Media", creative: "Creative", social: "Organic Social", web: "Web/SEO Management" };
+  function openAddDisciplinePopup() {
+    const eng = window.DASH.getEng();
+    const have = new Set((eng.serviceDisciplines || []).map((d) => canon(d.name)));
+    const hrs = {};
+    (eng.wmjServiceLines || []).forEach((l) => { const k = canon(l.name); hrs[k] = (hrs[k] || 0) + (+l.billable || 0); });
+    const opts = [];
+    Object.keys(WMJ_DEPT_LABEL).forEach((k) => { if (!have.has(k)) opts.push({ key: k, label: WMJ_DEPT_LABEL[k], h: hrs[k] || 0 }); });
+    // any other WMJ department with hours that matches nothing (and isn't a known label)
+    (eng.wmjServiceLines || []).forEach((l) => {
+      const k = canon(l.name);
+      if (!have.has(k) && !WMJ_DEPT_LABEL[k] && !opts.some((o) => o.key === k)) opts.push({ key: k, label: l.name, h: hrs[k] || 0 });
+    });
+    const old = document.getElementById("addDiscPop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "addDiscPop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop note-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Add a service line</div>
+      <p class="bp-lead">Link a Workamajig department (its hours update automatically), or create a manual line.</p>
+      <div class="dep-link-list">${opts.length ? opts.map((o, i) => `<button type="button" class="add-disc-opt" data-adi="${i}"><b>${esc(o.label)}</b><span>${o.h > 0 ? round1(o.h) + " hrs in WMJ this month" : "no WMJ hours yet this month"}</span></button>`).join("")
+        : `<div class="pr-date">Every Workamajig department is already linked.</div>`}</div>
+      <div class="bp-actions"><button type="button" class="btn btn-ghost" data-adcancel>Cancel</button><button type="button" class="btn btn-ghost" data-admanual>＋ Create new manual line</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    window.TJA_UI.backdropClose(ov, close);
+    const done = () => { syncContracted(eng); syncCurrentMonth(eng); window.DASH.saveState(); close(); rerender(); };
+    ov.querySelector("[data-adcancel]").addEventListener("click", close);
+    ov.querySelectorAll("[data-adi]").forEach((b) => b.addEventListener("click", () => {
+      const o = opts[+b.dataset.adi]; if (!o) return;
+      (eng.serviceDisciplines || (eng.serviceDisciplines = [])).push({ name: o.label, contracted: 0 });
+      done();
+    }));
+    ov.querySelector("[data-admanual]").addEventListener("click", async () => {
+      close();   // the confirm/prompt dialogs open on their own
+      let warned = false; try { warned = localStorage.getItem("tja_manual_disc_warned") === "1"; } catch (e) {}
+      if (!warned) {
+        const ok = await window.TJA_UI.confirm("A manual service line does NOT update from Workamajig — its hours are only what you enter by hand. Continue?", { okText: "Got it" });
+        if (!ok) return;
+        try { localStorage.setItem("tja_manual_disc_warned", "1"); } catch (e) {}
+      }
+      const name = await window.TJA_UI.prompt("Name of the new service line", { value: "" });
+      if (!name || !String(name).trim()) return;
+      (eng.serviceDisciplines || (eng.serviceDisciplines = [])).push({ name: String(name).trim(), contracted: 0, manual: true });
+      done();
+    });
+  }
+
+  // pick the dependencies a to-do is waiting on (admin). Gives each dependency a stable id the
+  // first time it's linked, so re-ordering / editing the dependency never breaks the link.
+  function openTodoLinkPopup(idx) {
+    const eng = window.DASH.getEng();
+    const t = (eng.todos || [])[idx]; if (!t) return;
+    const deps = eng.dependencies || [];
+    const cur = new Set(Array.isArray(t.waitingOn) ? t.waitingOn : []);
+    const old = document.getElementById("todoLinkPop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "todoLinkPop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop note-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">Waiting on…</div>
+      <p class="bp-lead">${esc(t.text || "To-do")}</p>
+      <div class="dep-link-list">${deps.map((d, i) => `<label class="dep-link-opt"><input type="checkbox" data-dli="${i}"${d.id && cur.has(d.id) ? " checked" : ""}> <span>${esc(d.text || "Dependency")}</span>${d.internal ? ` <span class="plan-int-tag">Internal</span>` : ""}</label>`).join("")}</div>
+      <div class="bp-actions"><button type="button" class="btn btn-ghost" data-dlcancel>Cancel</button><button type="button" class="btn btn-primary" data-dlsave>Save</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    window.TJA_UI.backdropClose(ov, close);
+    ov.querySelector("[data-dlcancel]").addEventListener("click", close);
+    ov.querySelector("[data-dlsave]").addEventListener("click", () => {
+      const ids = [];
+      ov.querySelectorAll("[data-dli]").forEach((cb) => {
+        if (!cb.checked) return;
+        const d = deps[+cb.dataset.dli]; if (!d) return;
+        if (!d.id) d.id = "dep_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        ids.push(d.id);
+      });
+      if (ids.length) t.waitingOn = ids; else delete t.waitingOn;
+      window.DASH.saveState(); close(); rerender();
+    });
   }
 
   function kpiModule(e) {
@@ -1179,7 +1334,7 @@ window.ExecSummary = (function () {
        what's on the page, and it only appears when there is something to reset. */
     const ctl = [];
     if (canAdmin() && hasActualsOverride(e))
-      ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Clear manual % adjustments and show the real WMJ actuals">↺ Reset to actuals</button>`);
+      ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Clear every manual hours adjustment this month and show the real WMJ actuals">↺ Reset to actuals</button>`);
     if (canAdmin())
       ctl.push(`<button class="exec-actuals-btn" data-customize title="Add or remove tiles, sections and tabs on this page">⚙ Customize</button>`);
     // Reading size — EVERYONE gets it (clients too). Per-person: stored in this browser only.
@@ -1462,12 +1617,8 @@ window.ExecSummary = (function () {
         total: retainerTotalContracted(eng),
         currentUsed: round1(retainerUsed(eng)),
         label: "",
-        commit(newUsed) {
-          eng.svcUtilOverride = eng.svcUtilOverride || {}; stampOv(eng);
-          disc.forEach((d, i) => {
-            const c = +d.contracted || 0;
-            eng.svcUtilOverride[d.name] = c > 0 ? Math.round(newUsed[i] / c * 100) : 0;
-          });
+        commit(newUsed) {   // stored as DELTAS over actuals (see adjOf)
+          disc.forEach((d, i) => setDiscHours(eng, d, +newUsed[i] || 0, actMap));
         },
       };
     }
@@ -1816,7 +1967,8 @@ window.ExecSummary = (function () {
         if (m) setHistLine(m, +svcIdx, svcPendingPct);
       } else {
         if (svcName == null) return;
-        (eng.svcUtilOverride || (eng.svcUtilOverride = {}))[svcName] = svcPendingPct; stampOv(eng);
+        const d = (eng.serviceDisciplines || []).find((x) => x.name === svcName);
+        if (d) setDiscHours(eng, d, svcPendingPct / 100 * (+d.contracted || 0));
       }
       rerender();
     }
@@ -1853,7 +2005,30 @@ window.ExecSummary = (function () {
     // edit a discipline's monthly CONTRACTED hours (admin). Recomputes the total contracted
     // (= sum of disciplines) so the burn denominator + every share % update live.
     s.addEventListener("change", ev => {
-      const hi = ev.target.closest("[data-dischrs]"); if (!hi || !canAdmin()) return;
+      if (!canAdmin()) return;
+      // live month: typed SHOWN hours → stored as a delta over actuals (setDiscHours)
+      const du = ev.target.closest("[data-discused]");
+      if (du) {
+        const eng = window.DASH.getEng(), d = (eng.serviceDisciplines || [])[+du.dataset.discused]; if (!d) return;
+        setDiscHours(eng, d, Math.max(0, parseFloat(du.value) || 0));
+        syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return;
+      }
+      // PAST month: hours per service line are written straight onto that month's record
+      const hh = ev.target.closest("[data-histhrs],[data-histc]");
+      if (hh) {
+        const eng = window.DASH.getEng(), m = (eng.mom || [])[viewMonthIdx]; if (!m) return;
+        const l = histLines(m)[+(hh.dataset.histhrs ?? hh.dataset.histc)]; if (!l) return;
+        const v = round2(Math.max(0, parseFloat(hh.value) || 0));
+        if (hh.dataset.histhrs != null) l.billable = v; else l.contracted = v;
+        m.usedHours = round2(histLines(m).reduce((t, x) => t + (+x.billable || 0), 0));
+        // the month's total stays as recorded (the SOW/CRF owns it — lines are only the split);
+        // only a month that never had a total takes one from its lines
+        const lc = round2(histLines(m).reduce((t, x) => t + (+x.contracted || 0), 0));
+        if (hh.dataset.histc != null && lc > 0 && !(+m.contractedHours > 0)) m.contractedHours = round2(lc + (+m.scopeExtHours || 0));
+        m.adjusted = true;
+        window.DASH.saveState(); rerender(); return;
+      }
+      const hi = ev.target.closest("[data-dischrs]"); if (!hi) return;
       const eng = window.DASH.getEng(), d = (eng.serviceDisciplines || [])[+hi.dataset.dischrs]; if (!d) return;
       d.contracted = Math.max(0, parseFloat(hi.value) || 0);
       syncContracted(eng);
@@ -1865,6 +2040,14 @@ window.ExecSummary = (function () {
       const eng = window.DASH.getEng();
 
       const go = e.target.closest("[data-go]"); if (go) { window.DASH.activate(go.dataset.go); return; }
+
+      // a past month with no line detail → seed it from the retainer's service lines (hours 0)
+      if (e.target.closest("[data-histseed]") && canAdmin()) {
+        const m = (eng.mom || [])[viewMonthIdx]; if (!m) return;
+        m.lines = (eng.serviceDisciplines || []).map((d) => ({ name: d.name, contracted: +d.contracted || 0, billable: 0 }));
+        if (!m.lines.length) { window.TJA_UI.alert("Add service lines to the retainer first."); return; }
+        m.adjusted = true; window.DASH.saveState(); rerender(); return;
+      }
 
       // eye toggle on a Project Plan PHASE row → flip internal (team-only) ↔ client-visible.
       // Same eng.planInternal map as the full plan page, so the two stay in sync.
@@ -1895,7 +2078,7 @@ window.ExecSummary = (function () {
 
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
-      if (ra && canAdmin()) { delete eng.svcUtilOverride; delete eng.hoursRealloc; delete eng.overrideMonth; if (eng.burn) delete eng.burn.pctOverride; viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return; }
+      if (ra && canAdmin()) { delete eng.svcUtilOverride; delete eng.hoursRealloc; delete eng.hoursAdjust; delete eng.overrideMonth; if (eng.burn) delete eng.burn.pctOverride; viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return; }
 
       const rlBtn = e.target.closest("[data-realloc]");
       if (rlBtn && canAdmin()) { openReallocPopup(+rlBtn.dataset.realloc); return; }
@@ -1938,6 +2121,7 @@ window.ExecSummary = (function () {
       }
 
       const add = e.target.closest("[data-listadd]");
+      if (add && add.dataset.listadd === "serviceDisciplines" && eng.type === "retainer") { openAddDisciplinePopup(); return; }
       if (add) { const k = add.dataset.listadd; (eng[k] || (eng[k] = [])).push(defaults[k](eng)); if (k === "serviceDisciplines") syncContracted(eng); window.DASH.saveState(); rerender(); return; }
 
       const del = e.target.closest("[data-listdel]");
@@ -2002,6 +2186,8 @@ window.ExecSummary = (function () {
       if (own && canAdmin()) { const t = eng.todos[+own.dataset.owner]; t.owner = t.owner === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
       const depOwn = e.target.closest("[data-depowner]");
       if (depOwn && canAdmin()) { const d = eng.dependencies[+depOwn.dataset.depowner]; d.owner = (d.owner || "TJA") === "TJA" ? "Client" : "TJA"; window.DASH.saveState(); rerender(); return; }
+      const tl = e.target.closest("[data-todolink]");
+      if (tl && canAdmin()) { openTodoLinkPopup(+tl.dataset.todolink); return; }
       const depEyeBtn = e.target.closest("[data-depeye]");
       if (depEyeBtn && canAdmin()) { const d = eng.dependencies[+depEyeBtn.dataset.depeye]; if (d) { d.internal = !d.internal; window.DASH.saveState(); rerender(); } return; }
       const spr = e.target.closest("[data-sprint]");

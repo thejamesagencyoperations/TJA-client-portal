@@ -22,6 +22,7 @@ export const ASSET_FOLDERS = [
   "Media Requests",
   "History",
   "Misc.",
+  "Service Allocation Plans",   // v390 — signed SAPs: <YYYY>/<MM-YYYY Month SAP>/ (sap function)
 ] as const;
 
 /* Upload categories (what callers pass) → the Drive folder they belong in. Anything unmapped
@@ -40,6 +41,7 @@ const CATEGORY_FOLDER: Record<string, string> = {
   "snapshot": "Monthly Snapshots",
   "monthly-snapshots": "Monthly Snapshots",
   "history": "History",
+  "sap": "Service Allocation Plans",
 };
 export function folderForCategory(category?: string): string {
   const key = String(category || "").trim().toLowerCase();
