@@ -2442,3 +2442,12 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
   font-family: 'Great Vibes', 'Brush Script MT', cursive; font-size: 40px; color: #111; outline: none; }
 .sap-sign-input::placeholder { color: #c2c2c8; }
 .sap-sign-input:focus { border-color: var(--orange); border-style: solid; }
+/* v393 — service-line split must total 100% (staff warning) */
+.module.rsvc-split-off { box-shadow: 0 0 0 2px #E5484D; border-radius: inherit; }
+.exec-tile:has(.rsvc-split-off) { box-shadow: 0 0 0 2px #E5484D; border-radius: 14px; }
+.exec-tile:has(.rsvc-split-off) .module.rsvc-split-off { box-shadow: none; }
+.rsvc-split-warn, .sap-split-warn { margin-top: 10px; padding: 8px 10px; border-radius: 9px; background: rgba(229,72,77,.10); color: #c0282d; font-size: .74rem; line-height: 1.4; }
+.sap-split-warn { margin: 0; border-radius: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: .8rem; }
+.sap-sheet.sap-off { box-shadow: 0 0 0 2px #E5484D; }
+.sap-total-row td { font-weight: 800; border-top: 2px solid var(--line); }
+.sap-total-row.is-off td { color: #E5484D; background: rgba(229,72,77,.06); }

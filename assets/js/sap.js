@@ -185,6 +185,21 @@ window.SAP_PAGE = (function () {
           <td class="sap-note">${ce(it.notes, "inotes", si, ii, admin ? "Notes" : "", true)}</td><td></td></tr>`).join("") +
         (admin ? `<tr class="sap-add-row"><td colspan="3"><button class="row-add" data-sapadditem="${si}">＋ Add line item</button></td></tr>` : "");
     }).join("");
+    /* % MUST TOTAL 100 (Cameron 2026-10-20). A total row under % Planned; when the %s don't
+       add up — or the Executive Summary's service-line hours don't add up to the contracted
+       total that drives them — the plan is outlined in red with the gap spelled out (staff only). */
+    const shown = src.sections.map((s2, i2) => pctFor(m, key, s2, i2));
+    const pctSum = shown.reduce((t, v) => t + (+v || 0), 0);
+    const anyLinked = src.sections.some((s2) => secKey(s2) !== "none" && liveShares()[secKey(s2)] != null);
+    const eng = STATE && STATE.engagements && STATE.engagements.retainer;
+    const split = (key >= curKey() && !m.signed && anyLinked && window.ExecSummary && window.ExecSummary.splitStatus) ? window.ExecSummary.splitStatus(eng) : { off: false };
+    const pctOff = shown.some((v) => v != null) && Math.abs(pctSum - 100) > (anyLinked ? 1 : 0);   // ±1 = rounding of linked shares
+    const totalOff = admin && (pctOff || split.off);
+    const totalRow = shown.some((v) => v != null)
+      ? `<tr class="sap-total-row${totalOff ? " is-off" : ""}"><td>Total</td><td></td><td class="sap-pct">${pctSum}%</td></tr>` : "";
+    const offNote = totalOff ? `<div class="sap-split-warn" role="alert">⚠ ${split.off
+        ? `The Executive Summary service lines add up to <b>${Math.round(split.sum * 10) / 10}</b> of <b>${Math.round(split.total * 10) / 10}</b> contracted hours (${split.pct}%), so this plan's % Planned doesn't total 100%. Adjust the service-line hours on the Executive Summary.`
+        : `% Planned adds up to <b>${pctSum}%</b>, not 100% — adjust the %s${anyLinked ? " (or the Executive Summary service-line hours they come from)" : ""}.`}</div>` : "";
     const canSign = !m.signed && key >= curKey();
     let sigCell = "", dateCell = "", below = "";
     if (m.signed) {
@@ -202,13 +217,14 @@ window.SAP_PAGE = (function () {
     } else {
       sigCell = `<span class="sap-dim">Not signed</span>`;
     }
-    return `<div class="card sap-sheet${admin ? " sap-admin-edit" : ""}">
+    return `<div class="card sap-sheet${admin ? " sap-admin-edit" : ""}${totalOff ? " sap-off" : ""}">
       <div class="sap-sheet-head"><div class="sap-client">${esc(clientName())}</div><div class="sap-month">${esc(m.label || keyLabel(key))}</div>
         ${admin ? `<div class="sap-src">${m.source === "portal" ? "Built in the portal — click any text to edit" : m.tab ? `From the sheet (tab “${esc(m.tab)}”) — click any text to edit; once edited, the portal version is kept` : ""}</div>` : ""}</div>
       <div class="sap-table-wrap"><table class="sap-table">
         <thead><tr><th>Retainer Items</th><th>Notes</th><th class="sap-pct">% Planned</th></tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rows}${totalRow}</tbody>
       </table></div>
+      ${offNote}
       ${admin ? `<div class="sap-add-sec"><button class="row-add" data-sapaddsec>＋ Add service</button></div>` : ""}
       ${(admin || src.terms) ? `<div class="sap-terms">${ce(src.terms, "terms", null, null, "Terms (optional)", true)}</div>` : ""}
       <table class="sap-table sap-sig-table"><tbody>

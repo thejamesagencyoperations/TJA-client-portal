@@ -746,12 +746,29 @@ window.ExecSummary = (function () {
       ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0
             ? `The burn total (~${round1(e.retainerValueTarget)} hrs/mo) comes from the signed SOW — enter each discipline's hours here to split it (they should add up to that total).`
             : `No contracted hours yet — set them per discipline.`}</div>` : "";
-    return `<div class="module">
+    /* THE SPLIT MUST ADD UP (Cameron 2026-10-20). The service lines' contracted hours are the
+       split of the month's contracted total, so they should sum to it exactly (= 100%). The
+       portal still lets them differ while hours are being moved around — but then the tile is
+       outlined in red with the gap spelled out, so nobody presents a split that doesn't add up.
+       Staff only; clients never see the warning. */
+    const split = splitStatus(e);
+    const splitNote = (admin && split.off)
+      ? `<div class="rsvc-split-warn" role="alert">⚠ Service line hours add up to <b>${round1(split.sum)}</b> of <b>${round1(split.total)}</b> contracted hours (${split.pct}%) — ${split.diff > 0 ? `${round1(split.diff)} hrs over` : `${round1(-split.diff)} hrs short`}. Adjust them so they total 100%.</div>` : "";
+    return `<div class="module${split.off && admin ? " rsvc-split-off" : ""}">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines</span><span style="display:flex;align-items:center;gap:10px"><span class="module-link" data-go="status">View plan →</span><span class="rsvc-legend">% of retainer</span></span></div>
       <div class="rsvc-list">${rows || `<div class="pr-date">No service disciplines yet.${admin ? " Add one below." : ""}</div>`}${extRow}${overRow}${miscRow}</div>
       ${setupNote}
       ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
+      ${splitNote}
     </div>`;
+  }
+  // do the service lines' contracted hours add up to the month's contracted total?
+  // (only once a split has been entered — an all-zero split is the setup state, not an error)
+  function splitStatus(e) {
+    const total = round2(retainerTotalContracted(e));
+    const sum = round2((e.serviceDisciplines || []).reduce((t, d) => t + (+d.contracted || 0), 0));
+    const diff = round2(sum - total);
+    return { total, sum, diff, pct: total > 0 ? Math.round(sum / total * 100) : 0, off: total > 0 && sum > 0 && Math.abs(diff) >= 0.05 };
   }
   // any manual % override active (service-line sliders)? → show the Reset-to-actuals control
   function hasActualsOverride(e) {
@@ -2247,5 +2264,5 @@ window.ExecSummary = (function () {
     Object.keys(out).forEach((k) => { out[k] = Math.round(out[k] / total * 100); });
     return out;
   }
-  return { render, init, serviceShares };
+  return { render, init, serviceShares, splitStatus: (e) => (e ? splitStatus(e) : { off: false }) };
 })();
