@@ -236,9 +236,29 @@ window.WMJ_SYNC = (function () {
   }
 
   // map WMJ clients onto portal clients; create the missing ones
+  /* WMJ NAME ALIASES — one client, several WMJ names (Ignite ⇄ "Blaze Adventure Park",
+     2026-10-19). Rows under an alias are relabelled to the client's primary WMJ name BEFORE
+     transform, so their hours add up on the one workspace instead of auto-creating a duplicate.
+     KEEP IN SYNC with supabase/functions/_shared/registry.ts wmjAliasMap/applyWmjAliases. */
+  function aliasRows(rows) {
+    const map = new Map();
+    (window.TJA_STORE.list() || []).forEach(c => {
+      if (!c || c.mergedInto || !Array.isArray(c.wmjAliases)) return;
+      const primary = String(c.wmjName || c.name || "").trim(); if (!primary) return;
+      c.wmjAliases.forEach(a => { if (normName(a) && normName(a) !== normName(primary)) map.set(normName(a), primary); });
+    });
+    if (!map.size) return rows;
+    rows.forEach(r => ["Client_Name", "Client Name"].forEach(k => { if (r[k] != null && map.has(normName(r[k]))) r[k] = map.get(normName(r[k])); }));
+    return rows;
+  }
   function resolveClientId(wmjName) {
     const target = normName(wmjName);
-    const found = (window.TJA_STORE.list() || []).find(c => normName(c.name) === target || normName(c.wmjName) === target);
+    // a workspace folded into another (mergedInto) is never matched — or recreated — again
+    const list = (window.TJA_STORE.list() || []);
+    const found = list.find(c => !c.mergedInto && (normName(c.name) === target || normName(c.wmjName) === target
+      || (Array.isArray(c.wmjAliases) && c.wmjAliases.some(a => normName(a) === target))));
+    const mergedHit = !found && list.find(c => c.mergedInto && (normName(c.name) === target || normName(c.wmjName) === target));
+    if (mergedHit) { const into = list.find(c => c.id === mergedHit.mergedInto); if (into) return { id: into.id, created: false }; }
     if (found) return { id: found.id, created: false };
     const c = creds(wmjName);
     const entry = window.TJA_STORE.add({ name: wmjName, kind: "project", login: c, tagline: "" });
@@ -256,14 +276,14 @@ window.WMJ_SYNC = (function () {
   async function sync() {
     if (!T()) throw new Error("wmj-transform not loaded");
     const csv = await fetchCSV();
-    const data = T().transform(T().parseCSV(csv));
+    const data = T().transform(aliasRows(T().parseCSV(csv)));
     let created = 0, updated = 0, projectCount = 0;
     const createdClients = [];
     for (const wc of data) {
       const r = resolveClientId(wc.wmjName);
       if (r.created) { created++; createdClients.push({ name: wc.wmjName, id: r.id, login: r.login }); }
       // WMJ client code (leading token of Campaign_Name) → the client's code label
-      if (wc.code) { const ent = window.TJA_STORE.get(r.id); if (ent && ent.code !== wc.code) window.TJA_STORE.update(r.id, { code: wc.code }); }
+      if (wc.code) { const ent = window.TJA_STORE.get(r.id); if (ent && ent.code !== wc.code && !(Array.isArray(ent.wmjAliases) && ent.wmjAliases.length && ent.code)) window.TJA_STORE.update(r.id, { code: wc.code }); }
       // set/refresh the website logo, but never overwrite an uploaded one
       if (window.CLIENT_LOGOS) {
         const ent = window.TJA_STORE.get(r.id);
@@ -410,12 +430,12 @@ window.WMJ_SYNC = (function () {
   }
   async function syncRetainers() {
     if (!RT()) throw new Error("retainer-transform not loaded");
-    const data = RT().transform(RT().parseCSV(await fetchRetCSV()));
+    const data = RT().transform(aliasRows(RT().parseCSV(await fetchRetCSV())));
     let created = 0, updated = 0; const createdClients = [];
     for (const rc of data) {
       const r = resolveClientId(rc.wmjName);
       if (r.created) { created++; createdClients.push({ name: rc.wmjName, id: r.id, login: r.login }); }
-      if (rc.code) { const ent = window.TJA_STORE.get(r.id); if (ent && ent.code !== rc.code) window.TJA_STORE.update(r.id, { code: rc.code }); }
+      if (rc.code) { const ent = window.TJA_STORE.get(r.id); if (ent && ent.code !== rc.code && !(Array.isArray(ent.wmjAliases) && ent.wmjAliases.length && ent.code)) window.TJA_STORE.update(r.id, { code: rc.code }); }
       if (window.CLIENT_LOGOS) {
         const ent = window.TJA_STORE.get(r.id), url = window.CLIENT_LOGOS.logoUrlFor(rc.wmjName);
         const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));

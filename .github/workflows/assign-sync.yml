@@ -17,13 +17,16 @@ on:
       op:
         description: "Optional: pin or unpin a manager instead of syncing"
         type: choice
-        options: ["sync", "pin", "unpin"]
+        options: ["sync", "pin", "unpin", "merge"]
         default: "sync"
       client:
         description: "pin/unpin: client id (e.g. salt-river-project)"
         required: false
       name:
         description: "pin/unpin: full name (e.g. Alex Duggan)"
+        required: false
+      from:
+        description: "merge: the DUPLICATE client id to fold into 'client' (e.g. blaze-adventure-park)"
         required: false
 
 jobs:
@@ -36,10 +39,13 @@ jobs:
           OP: ${{ inputs.op }}
           CLIENT: ${{ inputs.client }}
           NAME: ${{ inputs.name }}
+          FROM: ${{ inputs.from }}
           DRYQ: ${{ inputs.dry && '?dry=1' || '' }}
           ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaXV0a2JkcHVpbXh4bXZzYmVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTg3OTEsImV4cCI6MjA5NzQ3NDc5MX0.Pa4UtmxtfB4siweG4RYaY7r4Z7rAmP4yjAm52RvrzEE"
         run: |
-          if [ "$OP" = "pin" ] || [ "$OP" = "unpin" ]; then
+          if [ "$OP" = "merge" ]; then
+            Q="?op=merge&client=$(jq -rn --arg v "$CLIENT" '$v|@uri')&from=$(jq -rn --arg v "$FROM" '$v|@uri')"
+          elif [ "$OP" = "pin" ] || [ "$OP" = "unpin" ]; then
             Q="?op=${OP}&client=$(jq -rn --arg v "$CLIENT" '$v|@uri')&name=$(jq -rn --arg v "$NAME" '$v|@uri')"
           else
             Q="${DRYQ}"

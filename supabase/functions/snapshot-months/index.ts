@@ -21,6 +21,7 @@
 import { json } from "../_shared/cors.ts";
 import { fetchRetainerActuals, canon, normName } from "../_shared/wmj.ts";
 import { reportHealth } from "../_shared/health.ts";
+import { wmjAliasMap } from "../_shared/registry.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -43,20 +44,22 @@ Deno.serve(async (req) => {
   const yr = now.getUTCFullYear(), mi = now.getUTCMonth();
   const short = MON[mi], periodLabel = `${FULL[mi]} ${yr}`;
 
-  let actuals;
-  try { actuals = await fetchRetainerActuals(); }
-  catch (e) {
-    const msg = String((e as Error).message || e);
-    await reportHealth("snapshot-months", { ok: false, error: msg });   // a dead sheet must be visible
-    return json(req, 502, { error: msg });
-  }
-
-  // roster: clientId → name/wmjName, to match a stored dashboard to WMJ actuals
+  // roster FIRST: clientId → name/wmjName (to match a dashboard to WMJ actuals), plus each
+  // client's extra WMJ names (wmjAliases) so hours logged under any of them land on it
   const { data: regRow } = await svc.from("app_state").select("data")
     .eq("client_id", "_registry").eq("scope", "clients").maybeSingle();
   const roster: any[] = Array.isArray(regRow?.data) ? regRow!.data : [];
   const nameById: Record<string, { name: string; wmj: string }> = {};
   roster.forEach((c) => { nameById[c.id] = { name: c.name || "", wmj: c.wmjName || "" }; });
+  const merged = new Set(roster.filter((c) => c && c.mergedInto).map((c) => c.id));   // folded into another client
+
+  let actuals;
+  try { actuals = await fetchRetainerActuals(wmjAliasMap(roster)); }
+  catch (e) {
+    const msg = String((e as Error).message || e);
+    await reportHealth("snapshot-months", { ok: false, error: msg });   // a dead sheet must be visible
+    return json(req, 502, { error: msg });
+  }
 
   // every retainer dashboard row
   const { data: rows, error } = await svc.from("app_state")
@@ -65,6 +68,7 @@ Deno.serve(async (req) => {
 
   let snapped = 0, skipped = 0, rolled = 0, suspect = 0, expired = 0;
   const suspectClients: string[] = [], noDenominator: string[] = [];
+  const matchedKeys = new Set<string>();      // WMJ clients that found a portal client
   for (const r of rows ?? []) {
     const clientId = r.client_id as string;
     if (!clientId || clientId.startsWith("_")) { skipped++; continue; }
@@ -78,10 +82,12 @@ Deno.serve(async (req) => {
        Set `demo: true` at the top of the workspace state; nothing else in the portal reads it,
        so a demo workspace otherwise behaves exactly like a real one. */
     if (data?.demo === true) { skipped++; continue; }
+    if (merged.has(clientId)) { skipped++; continue; }   // its hours now belong to the client it merged into
 
     // match this client to WMJ actuals by normalized name (name or wmjName)
     const nm = nameById[clientId] || { name: clientId, wmj: "" };
     const a = actuals.get(normName(nm.name)) || (nm.wmj && actuals.get(normName(nm.wmj))) || null;
+    if (a) matchedKeys.add(a.norm);
 
     /* NO MATCH means this client has logged no retainer hours YET this month — which, on the
        1st, is EVERY client. This used to `continue`, so burn.periodLabel and burn.usedHours
@@ -181,8 +187,16 @@ Deno.serve(async (req) => {
 
   // snapped = had hours this month · rolled = retainer client at 0 so far (label still moves
   // forward) · suspect = left alone because the sheet came back empty over existing data
+  /* WMJ clients whose hours matched NO portal client. Their hours are silently dropped from
+     every dashboard (Ignite, 2026-10-19), so they're reported here — and on the health page —
+     with the hours at stake, so a name mismatch is visible the same day. */
+  const unmatchedWmj = [...actuals.values()].filter((x) => !matchedKeys.has(x.norm) && x.total > 0)
+    .map((x) => `${x.wmjName} (${round2(x.total)}h)`);
   const result = { ok: true, month: periodLabel, snapped, rolled, suspect, skipped, expired,
-    clientsInSheet: actuals.size, suspectClients, noDenominator };
+    clientsInSheet: actuals.size, unmatchedWmj,
+    // every WMJ client in this month's retainer report, with hours (internal names only)
+    wmjClients: [...actuals.values()].map((x) => `${x.wmjName} ${round2(x.total)}h`),
+    suspectClients, noDenominator };
   await reportHealth("snapshot-months", result);
   return json(req, 200, result);
 });

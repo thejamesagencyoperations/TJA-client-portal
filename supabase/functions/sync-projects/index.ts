@@ -23,6 +23,7 @@ import { json, handleOptions } from "../_shared/cors.ts";
 import { fetchT } from "../_shared/http.ts";
 import { assertLooksLikeWmjCsv, wmjReportRequest, normName, fetchWmjReportCached } from "../_shared/wmj.ts";
 import { reportHealth } from "../_shared/health.ts";
+import { wmjAliasMap, applyWmjAliases } from "../_shared/registry.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 /* The BROWSER's transform, byte-for-byte — imported for its side effect (it assigns to
    globalThis when there's no window). Using the same code rather than a re-implementation is
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
 
   // ---- fetch + validate the report
   let rows: Record<string, string>[];
-  let reportFrom = "wmj";
+  let reportFrom = "wmj", aliasedRows = 0;
   try {
     const key = Deno.env.get("WMJ_PROJECTS_REPORTKEY") || "";
     if (!wmjReportRequest(key)) throw new Error("WMJ direct API not configured (WMJ_SUBDOMAIN / tokens / WMJ_PROJECTS_REPORTKEY)");
@@ -117,6 +118,12 @@ Deno.serve(async (req) => {
     if (got.stale) console.warn("projects report served from cache — WMJ unavailable:", got.failure);
     reportFrom = got.stale ? `cache (${Math.round((Date.now() - got.cachedAt) / 60000)} min old — WMJ: ${got.failure})` : got.source;
     rows = T.parseCSV(got.csv);
+    // relabel rows logged under a client's OTHER WMJ name (wmjAliases) to its primary name,
+    // so one client's projects aren't split across two names / two workspaces
+    {
+      const { data: rr } = await svc.from("app_state").select("data").eq("client_id", "_registry").eq("scope", "clients").maybeSingle();
+      aliasedRows = applyWmjAliases(rows, wmjAliasMap(Array.isArray(rr?.data) ? rr!.data : []));
+    }
   } catch (e) {
     const msg = String((e as Error).message || e);
     await reportHealth("sync-projects", { ok: false, error: msg });
@@ -132,6 +139,7 @@ Deno.serve(async (req) => {
   const roster: any[] = Array.isArray(regRow?.data) ? regRow!.data : [];
   const idByName = new Map<string, string>();
   roster.forEach((c) => {
+    if (c.mergedInto) return;                    // folded into another client — never written again
     if (c.name) idByName.set(normName(c.name), c.id);
     if (c.wmjName) idByName.set(normName(c.wmjName), c.id);
   });
@@ -180,7 +188,7 @@ Deno.serve(async (req) => {
     updated++; projects += nWmj;
   }
 
-  const result = { ok: true, reportFrom, clientsInReport: wmjClients.length, updated, unchanged, projects, failed,
+  const result = { ok: true, reportFrom, aliasedRows, clientsInReport: wmjClients.length, updated, unchanged, projects, failed,
     unmatched: unmatched.length, unmatchedNames: unmatched.slice(0, 30) };
   await reportHealth("sync-projects", result);
   return json(req, 200, result);

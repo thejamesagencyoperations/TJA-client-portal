@@ -95,6 +95,71 @@ Deno.serve(async (req) => {
       summary: `${op === "pin" ? "pinned" : "unpinned"} ${who} as a manager of ${cid}`, changes: [], n: 1 });
     return json(req, 200, { ok: true, op, ...w.result });
   }
+  /* MERGE one workspace into another (?op=merge&client=<target id>&from=<duplicate id>) — for a
+     client WMJ knows by two names (Ignite ⇄ Blaze, 2026-10-19). Registry: the duplicate's names
+     become the target's wmjAliases, and the duplicate is flagged mergedInto + archived (kept, not
+     deleted — reversible). Dashboard: the duplicate's PAST months' hours are added onto the
+     target's month-by-month burn (the current month is rebuilt hourly from WMJ with the alias).
+     Idempotent: months already merged are recorded and never added twice. */
+  if (op === "merge") {
+    const target = String(url.searchParams.get("client") || "").trim();
+    const from = String(url.searchParams.get("from") || "").trim();
+    if (!target || !from || target === from) return json(req, 400, { error: "client and from required" });
+    const reg = await updateRegistry((fresh) => {
+      const t = fresh.find((x: any) => x.id === target), f = fresh.find((x: any) => x.id === from);
+      if (!t || !f) return null;
+      const names = [f.name, f.wmjName, ...(Array.isArray(f.wmjAliases) ? f.wmjAliases : [])].filter(Boolean).map((x: string) => String(x).trim());
+      const own = new Set([t.name, t.wmjName].filter(Boolean).map((x: string) => norm(x)));
+      const al: string[] = Array.isArray(t.wmjAliases) ? t.wmjAliases.slice() : [];
+      for (const n of names) if (!own.has(norm(n)) && !al.some((a) => norm(a) === norm(n))) al.push(n);
+      t.wmjAliases = al;
+      f.mergedInto = target; f.archived = true;
+      return { target: t.id, aliases: al, archived: f.id };
+    });
+    if (!reg.ok || !reg.result) return json(req, reg.ok ? 404 : 503, { error: reg.ok ? "client not found" : reg.error });
+
+    // past months' hours: duplicate → target (compare-and-set on the target's dashboard row)
+    const now = new Date(Date.now() - 7 * 3600e3);
+    const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const curKey = `${MON[now.getUTCMonth()]} ${now.getUTCFullYear()}`;
+    const { data: fRow } = await svc.from("app_state").select("data").eq("client_id", from).eq("scope", "dashboard").maybeSingle();
+    const fMom: any[] = (fRow?.data as any)?.engagements?.retainer?.mom || [];
+    const movable = fMom.filter((m) => m && m.month && m.year && +m.usedHours > 0 && `${m.month} ${m.year}` !== curKey);
+    const moved: string[] = [];
+    for (let attempt = 0; attempt < 5 && movable.length; attempt++) {
+      const { data: tRow } = await svc.from("app_state").select("data,updated_at").eq("client_id", target).eq("scope", "dashboard").maybeSingle();
+      if (!tRow) break;
+      const data: any = tRow.data || {}; const e = data.engagements?.retainer; if (!e) break;
+      e.mom = Array.isArray(e.mom) ? e.mom : [];
+      e.mergedFrom = e.mergedFrom || {};
+      const done: string[] = e.mergedFrom[from] || [];
+      moved.length = 0;
+      for (const fm of movable) {
+        const key = `${fm.month} ${fm.year}`; if (done.includes(key)) continue;
+        let tm = e.mom.find((m: any) => m && m.month === fm.month && m.year === fm.year);
+        if (!tm) { tm = { month: fm.month, year: fm.year, usedHours: 0, contractedHours: fm.contractedHours || 0, lines: [] }; e.mom.push(tm); }
+        tm.usedHours = Math.round(((+tm.usedHours || 0) + (+fm.usedHours || 0)) * 100) / 100;
+        tm.lines = Array.isArray(tm.lines) ? tm.lines : [];
+        for (const fl of (fm.lines || [])) {
+          const tl = tm.lines.find((l: any) => norm(l.name) === norm(fl.name));
+          if (tl) tl.billable = Math.round(((+tl.billable || 0) + (+fl.billable || 0)) * 100) / 100;
+          else if (+fl.billable > 0) tm.lines.push({ name: fl.name, contracted: 0, billable: fl.billable });
+        }
+        done.push(key); moved.push(`${key}: +${fm.usedHours}h`);
+      }
+      e.mergedFrom[from] = done;
+      if (!moved.length) break;
+      e.mom.sort((a: any, b: any) => (a.year - b.year) || (MON.indexOf(a.month) - MON.indexOf(b.month)));
+      const w = await svc.from("app_state").update({ data, updated_at: new Date().toISOString() })
+        .eq("client_id", target).eq("scope", "dashboard").eq("updated_at", tRow.updated_at).select("updated_at");
+      if (!w.error && w.data && w.data.length) break;
+      moved.length = 0;
+    }
+    audit({ clientId: "_registry", scope: "clients", action: "client.merged",
+      summary: `merged ${from} into ${target} (WMJ aliases: ${(reg.result as any).aliases.join(", ")})${moved.length ? " — moved " + moved.join("; ") : ""}`, changes: [], n: 1 });
+    return json(req, 200, { ok: true, ...(reg.result as any), movedMonths: moved });
+  }
+
   try {
     // 1) most-recent "<Month> <Year>" tab, from the public htmlview tab list
     const html = await fetchText(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/htmlview`);

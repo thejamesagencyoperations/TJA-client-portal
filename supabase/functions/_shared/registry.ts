@@ -70,3 +70,31 @@ export function managersFor(am: string | null | undefined, pm: string | null | u
   const pinned: string[] = Array.isArray(c?.integrations?.managersPinned) ? c.integrations.managersPinned : [];
   return [...new Set([am, ...extraAms, pm, ...pinned].filter(Boolean).map((x) => String(x).trim()).filter(Boolean))] as string[];
 }
+
+/* WMJ NAME ALIASES (2026-10-19). One portal client can be known to Workamajig by more than one
+   name — Ignite Adventure Park was renamed "Blaze Adventure Park" in WMJ for Sept/Oct and then
+   back, and WMJ's hours under the other name silently went nowhere (worse: the browser import
+   auto-created a duplicate "Blaze" workspace). A client lists its extra WMJ names in
+   `wmjAliases`; every WMJ row is relabelled to the client's primary WMJ name BEFORE parsing, so
+   hours from all of its names add up on the one workspace. A workspace folded into another is
+   flagged `mergedInto` and skipped by every writer. KEEP IN SYNC with wmj-sync.js aliasRows. */
+const nn = (s: unknown) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+export function wmjAliasMap(roster: any[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const c of roster || []) {
+    if (!c || c.mergedInto || !Array.isArray(c.wmjAliases)) continue;
+    const primary = String(c.wmjName || c.name || "").trim();
+    if (!primary) continue;
+    for (const a of c.wmjAliases) if (nn(a) && nn(a) !== nn(primary)) m.set(nn(a), primary);
+  }
+  return m;
+}
+// relabel rows' client column in place (Client_Name / "Client Name")
+export function applyWmjAliases(rows: Record<string, string>[], aliases: Map<string, string>): number {
+  if (!aliases.size) return 0;
+  let n = 0;
+  for (const r of rows) for (const k of ["Client_Name", "Client Name"]) {
+    if (r[k] != null && aliases.has(nn(r[k]))) { r[k] = aliases.get(nn(r[k]))!; n++; }
+  }
+  return n;
+}

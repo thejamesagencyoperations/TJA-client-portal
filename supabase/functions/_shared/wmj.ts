@@ -177,8 +177,12 @@ async function fetchRetainerCsv(): Promise<string> {
   return text;
 }
 
-export async function fetchRetainerActuals(): Promise<Map<string, ClientActuals>> {
+// aliases: normName(other WMJ name) → the client's primary WMJ name (see registry.ts wmjAliasMap)
+export async function fetchRetainerActuals(aliases?: Map<string, string>): Promise<Map<string, ClientActuals>> {
   const rows = parseCSV(await fetchRetainerCsv());
+  if (aliases && aliases.size) for (const r of rows) {
+    for (const k of ["Client_Name", "Client Name"]) if (r[k] != null && aliases.has(normName(r[k]))) r[k] = aliases.get(normName(r[k]))!;
+  }
   const map = new Map<string, ClientActuals>();
   for (const r of rows) {
     if (isNonBillable(r)) continue;
