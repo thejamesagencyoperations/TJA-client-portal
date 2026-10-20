@@ -90,6 +90,32 @@ Now that we capture upload date+time, review-submitted date+time, and an editabl
 Needs the backend (Supabase/Option B) + a notification channel (email/Slack) — can't
 run from a static client-only site.
 
+## TapClicks dashboards inside the portal (later) 🔖 bookmarked 2026-10-20
+Goal: show each client's TapClicks dashboard in the portal (the Reporting page).
+
+**What we found (research, Oct 2026):**
+- **Permalink** (announced 2026-09-17): a no-login share link to a live dashboard. The
+  creator picks View-Only or Interactive, can lock the date range, limit sections, set an
+  expiry, and choose **whether the link may be embedded elsewhere**. Included at no extra
+  cost on "eligible packages" (which ones isn't stated).
+  → Best route: paste a Permalink into the client's Reporting link. The portal only embeds
+  hosts it knows can be framed (`reportingEmbedUrl` in `app.js`), so add the TapClicks
+  Permalink host once we have a real link to test.
+- **Data Exporter**: scheduled/on-demand export of TapClicks data to PostgreSQL, BigQuery,
+  Snowflake, S3, SFTP… Supabase is Postgres, so it could feed portal-native KPI tiles.
+  Heavier build; whether it's a paid add-on isn't stated.
+- **General API**: no public developer docs found; reviews mention "an API for custom
+  integrations". Ask the rep.
+
+**Next steps:**
+1. Ask the TapClicks rep: is Permalink on our package (with embedding allowed)? Can a
+   Permalink be set not to expire? Is the Data Exporter / a read API included?
+2. Send Claude one Permalink → allow-list its host in `reportingEmbedUrl`, test the embed.
+3. Later, if wanted: Data Exporter → Supabase → our own KPI tiles.
+
+Sources: tapclicks.com/blog/tapclicks-permalink-share-live-dashboards-without-logins ·
+tapclicks.com/tapclicks-data-exporter
+
 ## Smaller / later
 - ✅ **Done (v1.90):** client-tile footer now shows a live "Monthly Services · N
   projects" count computed from real dashboard state, not the static string stamped
