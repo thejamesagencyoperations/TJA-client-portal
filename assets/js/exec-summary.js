@@ -1512,8 +1512,7 @@ window.ExecSummary = (function () {
         "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(e));
       // The media tab is a retainer feature and lives on the tab bar, not the canvas.
       const media = (view === "retainer" && window.DASH.mediaTabShown)
-        ? row(view, "data-czmedia", "1", "Media Creative Asset Request",
-            "The client's paid-media asset request tab.", window.DASH.mediaTabShown())
+        ? row(view, "data-czmedia", "1", "Media Creative Asset Request", "", window.DASH.mediaTabShown())
         : "";
       // Name the project when there is more than one, so it's never ambiguous which one these
       // switches belong to — the others are configured from their own page.
@@ -1523,8 +1522,8 @@ window.ExecSummary = (function () {
         ? `<div class="cz-note">Applies to this project only — open another project to set up its own.</div>` : "";
       return `<div class="cz-scope">${esc(sc.title)}${sub}</div>${note}<div class="cz-grid">
         <div><div class="cz-sub">Tiles</div><div class="cz-rows">${tiles}</div></div>
-        <div><div class="cz-sub">Sections</div><div class="cz-rows">${team}${deps}${media}</div>
-          <div class="cz-sub">Tabs <span class="cz-sub-note">off removes it from the menu for everyone · data kept</span></div><div class="cz-rows cz-tabgrid">${tabs}</div></div>
+        <div><div class="cz-sub">Sections</div><div class="cz-rows">${team}${deps}</div>
+          <div class="cz-sub">Tabs <span class="cz-sub-note">off removes it from the menu for everyone · data kept</span></div><div class="cz-rows cz-tabgrid">${tabs}${media}</div></div>
       </div>`;
     };
 

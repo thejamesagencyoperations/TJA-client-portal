@@ -2466,3 +2466,4 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
 .cz-tabgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 6px; }
 .cz-tabgrid .cz-row { padding: 5px 8px; align-items: center; }
 .cz-sub-note { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-faint); margin-left: 4px; }
+.cz-tabgrid .cz-row:has([data-czmedia]) { grid-column: 1 / -1; }   /* long name: own line, no wrap */
