@@ -32,6 +32,7 @@ import * as XLSX from "npm:xlsx@0.18.5";
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { handleOptions, json } from "../_shared/cors.ts";
+import { cronAuthorized } from "../_shared/cron-auth.ts";
 import { getCaller } from "../_shared/auth.ts";
 import { driveAccessToken, driveExportBytes, driveDownloadBytes, driveGetMeta, parseDriveFileId, sheetsHiddenRowSet, driveUploadBytes } from "../_shared/google.ts";
 import { ensureClientFolders, ensureFolder } from "../_shared/drive-tree.ts";
@@ -117,33 +118,59 @@ function monthFromKey(key: string) {
    % Planned | [Hours Actual | Completion] | Notes". A row with a % Planned value is a SERVICE
    HEADING; rows without one are its line items. Notes is found by header text because it
    moves (column E on older tabs, G on newer). Hours/% are read only to classify rows. */
-function parseSap(rows: string[][]): { sections: SapSection[]; terms: string } | null {
+function parseSap(rows: string[][], fills: boolean[] = []): { sections: SapSection[]; terms: string } | null {
   const cell = (r: string[], i: number) => String((r && r[i]) ?? "").replace(/\s+/g, " ").trim();
-  const hi = rows.findIndex((r) => r.some((c) => /retainer items/i.test(String(c))) && r.some((c) => /planned/i.test(String(c))));
+  // the % column goes by several names across clients' sheets: "% Planned" (DNA),
+  // "Percentage Allocation" (ANL) … anything with % / percent that isn't the hours column
+  const isPctHead = (c: string) => /%|percent/i.test(c) && !/hours/i.test(c);
+  const isHeadRow = (r: string[]) => r.some((c) => /hours planned|retainer items/i.test(String(c))) && r.some((c) => isPctHead(String(c)) || /planned/i.test(String(c)));
+  const hi = rows.findIndex(isHeadRow);
   if (hi < 0) return null;
   const head = rows[hi].map((c) => String(c).toLowerCase());
   const nameCol = Math.max(0, head.findIndex((c) => /retainer items/.test(c)));
-  const pctCol = head.findIndex((c) => /%\s*planned/.test(c));
-  const hrsCol = head.findIndex((c) => /hours planned/.test(c));
+  const pctCol = head.findIndex((c) => isPctHead(c));
   const notesCol = head.findIndex((c) => /^\s*notes?\b/.test(c));
+  const body = rows.slice(hi + 1), bodyFills = fills.slice(hi + 1);
+  /* HEADINGS vs LINE ITEMS, from every signal the sheets use (so a new client's layout works):
+       1. a value in the % column              — headings carry the %, items don't;
+       2. a repeated header row mid-sheet      — e.g. ANL's "Approved Scope Extension | Hours
+                                                 Planned | Percentage Allocation | Notes" block;
+       3. the heading fill colour              — only when this sheet demonstrably uses fill for
+                                                 headings (rows with a % are filled, rows without aren't);
+       4. ALL-CAPS text                        — the last resort for a sheet with no % column. */
+  const hasPct = (r: string[]) => pctCol >= 0 && /\d/.test(cell(r, pctCol));
+  let fp = 0, fpn = 0, fi = 0, fin = 0;
+  body.forEach((r, i) => { if (!cell(r, nameCol)) return; if (hasPct(r)) { fpn++; if (bodyFills[i]) fp++; } else { fin++; if (bodyFills[i]) fi++; } });
+  const trustFill = fpn > 0 && fp / fpn >= 0.75 && (fin === 0 || fi / fin <= 0.25);
   const out: SapSection[] = [];
   let terms = "", inSig = false;
-  for (const r of rows.slice(hi + 1)) {
+  for (let i = 0; i < body.length; i++) {
+    const r = body[i];
     let name = cell(r, nameCol) || cell(r, nameCol + 1);
     if (!name) continue;
     // the sheet's own signature block ends the plan; its long terms paragraph is kept as `terms`
     if (/^authori[sz]ed signature/i.test(name)) { inSig = true; continue; }
     if (inSig) { if (name.length > 80) terms = terms ? terms + " " + name : name; continue; }
-    if (/^(grand\s+)?totals?\b/i.test(name) || /^total (hours|retainer)/i.test(name)) continue;
-    const notes = notesCol >= 0 ? String((r && r[notesCol]) ?? "").trim() : "";
-    const isHeading = pctCol >= 0 ? !!cell(r, pctCol) : (name === name.toUpperCase() && /[A-Z]/.test(name));
+    if (/^(grand\s+)?totals?\b/i.test(name)) continue;          // Total Hours / Total Paid / Total Dollars / Total Approved …
+    const headRepeat = isHeadRow(r);
+    const notes = (notesCol >= 0 && !headRepeat) ? String((r && r[notesCol]) ?? "").trim() : "";
+    const isHeading = hasPct(r) || headRepeat || (trustFill && !!bodyFills[i])
+      || (pctCol < 0 && name === name.toUpperCase() && /[A-Z]/.test(name));
     name = name.replace(/\s+/g, " ");
-    const pctRaw = pctCol >= 0 ? cell(r, pctCol).replace(/[^0-9.]/g, "") : "";
+    const pctRaw = hasPct(r) ? cell(r, pctCol).replace(/[^0-9.]/g, "") : "";
     if (isHeading || !out.length) out.push({ name, notes, items: [], pct: pctRaw ? Math.round(+pctRaw) : null });
     else out[out.length - 1].items.push({ name, notes });
-    void hrsCol;
   }
   return out.length ? { sections: out, terms } : null;
+}
+
+// does column A of this sheet row carry a solid, non-white background? (the headings' grey bar)
+// deno-lint-ignore no-explicit-any
+function cellFilled(ws: any, r: number): boolean {
+  const c = ws[XLSX.utils.encode_cell({ r, c: 0 })];
+  const st = c && c.s; if (!st || st.patternType !== "solid") return false;
+  const rgb = String((st.fgColor && st.fgColor.rgb) || "").toUpperCase().slice(-6);
+  return !!rgb && rgb !== "FFFFFF";
 }
 
 async function readMonth(sheetUrl: string, label: string) {
@@ -155,17 +182,18 @@ async function readMonth(sheetUrl: string, label: string) {
   const bytes = native
     ? await driveExportBytes(token, fileId, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     : await driveDownloadBytes(token, fileId);
-  const wb = XLSX.read(bytes, { type: "array" });
+  const wb = XLSX.read(bytes, { type: "array", cellStyles: true });   // styles = the heading fill signal
   const tab = pickTab(wb.SheetNames || [], label);
   if (!tab) return { fileName: meta.name, tab: null, sections: null, tabs: wb.SheetNames || [] };
   const ws = wb.Sheets[tab];
   const startRow = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]).s.r : 0;
   let rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "", blankrows: true }) as string[][];
+  let fills = rows.map((_, i) => cellFilled(ws, startRow + i));
   if (native) {
     const hidden = await sheetsHiddenRowSet(fileId, tab);
-    if (hidden.size) rows = rows.filter((_, i) => !hidden.has(startRow + i));
+    if (hidden.size) { rows = rows.filter((_, i) => !hidden.has(startRow + i)); fills = fills.filter((_, i) => !hidden.has(startRow + i)); }
   }
-  const parsed = parseSap(rows);
+  const parsed = parseSap(rows, fills);
   return { fileName: meta.name, tab, sections: parsed ? parsed.sections : null, terms: parsed ? parsed.terms : "", tabs: wb.SheetNames || [] };
 }
 
@@ -326,7 +354,7 @@ Deno.serve(async (req) => {
   const action = String(body.action || "fetch");
 
   if (action === "sweep") {
-    if (req.headers.get("x-snapshot-secret") !== Deno.env.get("SNAPSHOT_SECRET")) return json(req, 401, { error: "bad secret" });
+    if (!cronAuthorized(req)) return json(req, 401, { error: "bad secret" });
     const { data: rows } = await svc().from("app_state").select("client_id, url:data->engagements->retainer->>sapUrl, portal:data->engagements->retainer->sap->>portal").eq("scope", "dashboard");
     // deno-lint-ignore no-explicit-any
     const ids = (rows || []).filter((r: any) => (r.url || r.portal) && !String(r.client_id).startsWith("_")).map((r: any) => r.client_id);

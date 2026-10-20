@@ -514,9 +514,28 @@ window.ExecSummary = (function () {
      July keeps whatever an admin put there.
      Every edit stamps `adjusted` so a presented figure is never mistaken for raw WMJ actuals. */
   function histLines(m) { return Array.isArray(m && m.lines) ? m.lines : []; }
+  /* KEEP THE ACTUALS (Cameron 2026-10-20 — "reset to actuals" didn't reset the service lines).
+     A past month's record IS its numbers, so adjusting it used to overwrite the WMJ actuals
+     with nothing to go back to — Reset couldn't restore them and wasn't even offered. Now the
+     first adjustment of a month stashes its untouched actuals in m.actual, and "↺ Reset to
+     actuals" on that month puts them back. (A month adjusted before this existed has no copy —
+     the warning says so instead of pretending.) */
+  function keepActual(m) {
+    if (!m || m.actual || m.adjusted) return;
+    m.actual = { usedHours: +m.usedHours || 0, lines: histLines(m).map((l) => ({ name: l.name, billable: +l.billable || 0 })) };
+  }
+  function resetHistMonth(m) {
+    if (!m || !m.actual) return false;
+    const byName = new Map(m.actual.lines.map((l) => [l.name, l.billable]));
+    histLines(m).forEach((l) => { l.billable = byName.has(l.name) ? byName.get(l.name) : 0; });
+    m.usedHours = m.actual.usedHours;
+    delete m.actual; delete m.adjusted;
+    return true;
+  }
   // set a frozen month's TOTAL from a %, scaling its service lines to match so the line
   // detail never contradicts the headline number
   function setHistPct(m, pct) {
+    keepActual(m);
     const total = +m.contractedHours || 0;
     const target = round2(Math.max(0, Math.min(100, pct)) / 100 * total);
     const lines = histLines(m);
@@ -537,6 +556,7 @@ window.ExecSummary = (function () {
   // set ONE line's hours from a util %; the month total follows the lines
   function setHistLine(m, idx, pct) {
     const l = histLines(m)[idx]; if (!l) return;
+    keepActual(m);
     const c = +l.contracted || 0;
     l.billable = round2(Math.max(0, Math.min(100, pct)) / 100 * c);
     m.usedHours = round2(histLines(m).reduce((s, x) => s + (+x.billable || 0), 0));
@@ -662,6 +682,7 @@ window.ExecSummary = (function () {
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.svc}Service Lines · ${esc(m.month)} ${m.year || ""}</span>${m.adjusted ? `<span class="rsvc-adj" title="This month was adjusted by hand">adj</span>` : ""}<span class="rsvc-legend">% of retainer</span></div>
       <div class="rsvc-list">${rows}</div>
+      ${(admin && m.adjusted && !m.actual) ? `<div class="rsvc-setup-note">This month was adjusted by hand before the portal kept a copy of the WMJ actuals, so it can't be reset automatically — re-enter the actual hours per line if it needs correcting.</div>` : ""}
     </div>`;
   }
   function retainerServiceModule(e) {
@@ -1320,8 +1341,13 @@ window.ExecSummary = (function () {
     return out;
   }
 
+  /* TEAM-ONLY tiles (Cameron 2026-10-20): a tile can be shown to the AM/PM team but hidden
+     from the client — Sprint Goals first. Stored per engagement in e.tileTeamOnly; the client
+     view (and an admin's Client View preview) lays out as if the tile were off. */
+  const teamOnly = (e, k) => !!(e && e.tileTeamOnly && e.tileTeamOnly[k]);
+  const clientViewing = () => (typeof effectiveRole === "function") && effectiveRole() === "client";
   function getLayout(e) {
-    const free = computeLayout(engType(e), (k) => tileOn(e, k));
+    const free = computeLayout(engType(e), (k) => tileOn(e, k) && !(teamOnly(e, k) && clientViewing()));
     return { free, hidden: Object.keys(MODULES).filter(k => !free[k]) };
   }
 
@@ -1354,7 +1380,10 @@ window.ExecSummary = (function () {
        "Reset to actuals" stays out here: it changes DATA (clears manual % adjustments), not
        what's on the page, and it only appears when there is something to reset. */
     const ctl = [];
-    if (canAdmin() && hasActualsOverride(e))
+    const viewedM = (viewMonthIdx != null && e.mom) ? e.mom[viewMonthIdx] : null;
+    if (canAdmin() && viewedM && viewedM.actual)
+      ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Put this month's WMJ actuals back">↺ Reset to actuals</button>`);
+    else if (canAdmin() && viewMonthIdx == null && hasActualsOverride(e))
       ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Clear every manual hours adjustment this month and show the real WMJ actuals">↺ Reset to actuals</button>`);
     if (canAdmin())
       ctl.push(`<button class="exec-actuals-btn" data-customize title="Add or remove tiles, sections and tabs on this page">⚙ Customize</button>`);
@@ -1453,6 +1482,16 @@ window.ExecSummary = (function () {
         const [label, desc] = ui(k, view);
         return row(view, "data-cztile", k, label, desc, tileOn(e, k));
       }).join("");
+      const team = (VIEW_TILES[view] || []).includes("milestones")
+        ? row(view, "data-czteam", "milestones", `${ui("milestones", view)[0]}: team only`,
+            "Only the AM/PM team sees it — hidden from the client's view.", teamOnly(e, "milestones")) : "";
+      // LEFT-HAND TABS — any can be removed except the Executive Summary and the Service
+      // Allocation Plan (the retainer's "status" page). Media has its own switch above.
+      const TABS = view === "retainer"
+        ? [["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"], ["backlog", "Backlog"]]
+        : [["status", "Status"], ["plan", "Project Plan"], ["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"]];
+      const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label + " tab",
+        "Shown in the left-hand menu. Off removes the tab for everyone (its data is kept).", !(e.navHidden && e.navHidden[pg]))).join("");
       const deps = row(view, "data-czdeps", "1", "Dependencies",
         "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(e));
       // The media tab is a retainer feature and lives on the tab bar, not the canvas.
@@ -1466,7 +1505,7 @@ window.ExecSummary = (function () {
         ? `<span class="cz-scope-name">${esc(sc.name)}</span>` : "";
       const note = (view === "project" && sc.siblings > 1)
         ? `<div class="cz-note">Applies to this project only — open another project to set up its own.</div>` : "";
-      return `<div class="cz-scope">${esc(sc.title)}${sub}</div>${note}<div class="cz-rows">${tiles}${deps}${media}</div>`;
+      return `<div class="cz-scope">${esc(sc.title)}${sub}</div>${note}<div class="cz-rows">${tiles}${team}${deps}${media}</div><div class="cz-sub">Tabs</div><div class="cz-rows">${tabs}</div>`;
     };
 
     const ov = document.createElement("div");
@@ -1509,14 +1548,17 @@ window.ExecSummary = (function () {
       if (kind === "tile")  { const was = tileOn(e, key); setTile(e, key, on); return was; }
       if (kind === "deps")  { const was = depsOn(e); e.depsSection = on; return was; }
       if (kind === "media") { const was = window.DASH.mediaTabShown(); window.DASH.setMediaTab(on); return was; }
+      if (kind === "team")  { const was = teamOnly(e, key); e.tileTeamOnly = e.tileTeamOnly || {}; if (on) e.tileTeamOnly[key] = true; else delete e.tileTeamOnly[key]; return was; }
+      if (kind === "tab")   { const was = !(e.navHidden && e.navHidden[key]); e.navHidden = e.navHidden || {}; if (on) delete e.navHidden[key]; else e.navHidden[key] = true;
+        if (window.DASH.refreshNav) window.DASH.refreshNav(); return was; }
       return null;
     };
 
     ov.addEventListener("change", (ev) => {
       const cb = ev.target.closest(".cz-check"); if (!cb || !canAdmin()) return;
       const view = cb.dataset.czscope;
-      const kind = cb.dataset.cztile ? "tile" : cb.dataset.czdeps ? "deps" : "media";
-      const key = cb.dataset.cztile || "";
+      const kind = cb.dataset.cztile ? "tile" : cb.dataset.czdeps ? "deps" : cb.dataset.czteam ? "team" : cb.dataset.cztab ? "tab" : "media";
+      const key = cb.dataset.cztile || cb.dataset.czteam || cb.dataset.cztab || "";
       const was = apply(view, kind, key, cb.checked);
       if (was !== null) { undo.push({ view, kind, key, was }); syncUndo(); }
       if (kind !== "media") window.DASH.saveState();
@@ -1527,7 +1569,8 @@ window.ExecSummary = (function () {
       const step = undo.pop(); if (!step) return;
       apply(step.view, step.kind, step.key, step.was);
       // put the checkbox back in step with the value it just returned to
-      const sel = step.kind === "tile" ? `[data-cztile="${step.key}"]` : step.kind === "deps" ? "[data-czdeps]" : "[data-czmedia]";
+      const sel = step.kind === "tile" ? `[data-cztile="${step.key}"]` : step.kind === "deps" ? "[data-czdeps]"
+        : step.kind === "team" ? `[data-czteam="${step.key}"]` : step.kind === "tab" ? `[data-cztab="${step.key}"]` : "[data-czmedia]";
       const cb = ov.querySelector(`[data-czscope="${step.view}"]${sel}`);
       if (cb) cb.checked = step.was;
       if (step.kind !== "media") window.DASH.saveState();
@@ -1651,6 +1694,7 @@ window.ExecSummary = (function () {
       currentUsed: round1(+m.usedHours || 0),
       label: m.month ? `${m.month} ${m.year || ""}`.trim() : "",
       commit(newUsed) {
+        keepActual(m);
         lines.forEach((l, i) => { l.billable = round2(Math.max(0, newUsed[i])); });
         m.usedHours = round2(lines.reduce((s, l) => s + (+l.billable || 0), 0));
         m.adjusted = true;   // a presented figure is never mistaken for raw WMJ actuals
@@ -1714,6 +1758,7 @@ window.ExecSummary = (function () {
           newUsed[i] = Math.max(0, round2(disc[i].used + (parseFloat(inp.value) || 0)));
         });
         tgt.commit(newUsed);
+        if (monthIdx == null) syncCurrentMonth(eng);   // keep this month's record in step with what's shown
         window.DASH.saveState();
       } else if (commit) { return; }   // invalid — Apply is disabled anyway, but guard direct calls
       burnPreviewPct = null; ov.remove(); rerender();
@@ -2040,7 +2085,7 @@ window.ExecSummary = (function () {
         const eng = window.DASH.getEng(), m = (eng.mom || [])[viewMonthIdx]; if (!m) return;
         const l = histLines(m)[+(hh.dataset.histhrs ?? hh.dataset.histc)]; if (!l) return;
         const v = round2(Math.max(0, parseFloat(hh.value) || 0));
-        if (hh.dataset.histhrs != null) l.billable = v; else l.contracted = v;
+        if (hh.dataset.histhrs != null) { keepActual(m); l.billable = v; } else l.contracted = v;
         m.usedHours = round2(histLines(m).reduce((t, x) => t + (+x.billable || 0), 0));
         // the month's total stays as recorded (the SOW/CRF owns it — lines are only the split);
         // only a month that never had a total takes one from its lines
@@ -2099,6 +2144,10 @@ window.ExecSummary = (function () {
 
       // "Reset to actuals" — clear the manual % adjustments; the burn returns to Σ WMJ actuals
       const ra = e.target.closest("[data-resetactuals]");
+      if (ra && canAdmin() && viewMonthIdx != null) {   // a past month → restore its stashed actuals
+        if (resetHistMonth((eng.mom || [])[viewMonthIdx])) { window.DASH.saveState(); rerender(); }
+        return;
+      }
       if (ra && canAdmin()) { delete eng.svcUtilOverride; delete eng.hoursRealloc; delete eng.hoursAdjust; delete eng.overrideMonth; if (eng.burn) delete eng.burn.pctOverride; viewMonthIdx = null; syncCurrentMonth(eng); window.DASH.saveState(); rerender(); return; }
 
       const rlBtn = e.target.closest("[data-realloc]");

@@ -277,6 +277,7 @@ window.DASH = { getEng, saveState, setPath, badge, refreshPRSheet,
   projectBack: () => (!isRetainer() && getProjects().length > 1 && selectedProject()) ? `<button class="pp-back" data-allprojects>← All projects</button>` : "",
   // media tab admin override — force the Media Requests tab on/off for this client
   mediaTabShown: () => mediaTabShown(),
+  refreshNav: () => applyEngagement(),
   setMediaTab: (on) => { const r = STATE.engagements && STATE.engagements.retainer; if (!r) return; r.mediaForce = on; saveState(); applyEngagement(); },
   /* The Customize dialog configures BOTH views from one place, so it needs the actual
      engagement OBJECTS rather than just the active one — writing through getEng() would make
@@ -1091,6 +1092,18 @@ function applyEngagement() {
   if (!planOk && currentPage() === "plan") activate("exec");
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");
+  /* Tabs removed in Customize (e.navHidden, per engagement — NOT e.tabHidden, which is the
+     retainer's existing "Monthly Services tab hidden" boolean). The Executive Summary and the
+     retainer's Service Allocation Plan can never be removed. */
+  const hid = (eng && eng.navHidden) || {};
+  document.querySelectorAll("#nav .nav-item[data-page]").forEach((n) => {
+    const pg = n.dataset.page;
+    if (pg === "exec" || (pg === "status" && isRetainer())) return;
+    if (hid[pg]) n.style.display = "none";
+    // tabs with no other show/hide rule must come BACK when switched on again
+    else if (["docs", "reporting", "files", "status"].includes(pg)) n.style.display = "";
+  });
+  if (hid[currentPage()] && currentPage() !== "exec" && !(currentPage() === "status" && isRetainer())) activate("exec");
 }
 
 /* ---------- boot ---------- */

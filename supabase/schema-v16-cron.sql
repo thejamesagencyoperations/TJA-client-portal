@@ -25,3 +25,5 @@ revoke all on function public.portal_cron_call(text, jsonb) from public, anon, a
 -- (re)schedule — cron.schedule with an existing name replaces it
 select cron.schedule('portal-plan-refresh',  '*/5 * * * *',  $$ select public.portal_cron_call('plan-refresh') $$);
 select cron.schedule('portal-review-sweep',  '*/10 * * * *', $$ select public.portal_cron_call('send-review-notification', '{"mode":"sweep"}'::jsonb) $$);
+-- v395: Service Allocation Plans — refresh connected sheets + month rollover, hourly at :20
+select cron.schedule('portal-sap-sweep', '20 * * * *', $$ select public.portal_cron_call('sap', '{"action":"sweep"}'::jsonb) $$);
