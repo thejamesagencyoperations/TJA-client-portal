@@ -39,7 +39,7 @@
       anchor.parentNode.insertBefore(bannerEl, anchor);
     }
     const names = others.map(o => o.name || o.email).join(", ");
-    bannerEl.innerHTML = `⚠ <b>${names}</b> ${others.length === 1 ? "is" : "are"} also editing this client — the last save wins, so coordinate before big changes.`;
+    bannerEl.innerHTML = `⚠ <b>${names}</b> ${others.length === 1 ? "is" : "are"} also editing this client — your changes merge, but if you both change the same item, the other save is kept and you're offered yours back.`;
     bannerEl.style.display = "";
   }
 
