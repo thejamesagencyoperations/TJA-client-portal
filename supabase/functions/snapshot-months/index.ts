@@ -61,6 +61,8 @@ async function loadCrf(roster: any[], monthKey: string): Promise<Map<string, Crf
     .filter((t) => !/^(job aids|clients index|template)$/i.test(t.name));
   const live = roster.filter((c) => c && c.id && !c.mergedInto);
   const byCode = new Map(live.filter((c) => c.code).map((c) => [String(c.code).trim().toUpperCase(), c]));
+  // a locked client-facing code (A New Leaf shows "NL") still matches the CRF by WMJ's code ("ANL")
+  live.filter((c) => c.wmjCode).forEach((c) => byCode.set(String(c.wmjCode).trim().toUpperCase(), c));
   const nn = (x: string) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   let i = 0;
   const worker = async () => {

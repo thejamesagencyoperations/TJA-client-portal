@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TJA — Clients</title>
-<link rel="icon" href="assets/img/favicon.ico?v=399" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=399">
+<link rel="icon" href="assets/img/favicon.ico?v=400" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=400">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=399">
-<script src="assets/js/text-size.js?v=399"></script>
+<link rel="stylesheet" href="assets/css/styles.css?v=400">
+<script src="assets/js/text-size.js?v=400"></script>
 <!-- BugHerd — in-page bug reporting for testers (added 2026-07-24) -->
 <script type="text/javascript" src="https://www.bugherd.com/sidebarv2.js?apikey=zdauiuhvwwlqfns37stqlg" async="true"></script>
 </head>
@@ -161,12 +161,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=399"></script>
-<script src="assets/js/version-check.js?v=399"></script>
-<script src="assets/js/supabase-sync.js?v=399"></script>
-<script src="assets/js/ui.js?v=399"></script>
-<script src="assets/js/auth.js?v=399"></script>
-<script src="assets/js/chrome-menu.js?v=399"></script>
+<script src="assets/js/supabase-config.js?v=400"></script>
+<script src="assets/js/version-check.js?v=400"></script>
+<script src="assets/js/supabase-sync.js?v=400"></script>
+<script src="assets/js/ui.js?v=400"></script>
+<script src="assets/js/auth.js?v=400"></script>
+<script src="assets/js/chrome-menu.js?v=400"></script>
 <script>
   // gate: must be signed in, and this picker is staff-only — admins AND creatives
   // (creatives open any client read-only to upload deliverables); clients go
@@ -193,17 +193,17 @@
     });
   }
 </script>
-<script src="assets/js/clients.js?v=399"></script>
-<script src="assets/js/client-template.js?v=399"></script>
-<script src="assets/js/client-store.js?v=399"></script>
-<script src="assets/js/wmj-transform.js?v=399"></script>
-<script src="assets/js/retainer-transform.js?v=399"></script>
-<script src="assets/js/client-logos.js?v=399"></script>
-<script src="assets/js/client-pr-sheets.js?v=399"></script>
-<script src="assets/js/mgr-sheet.js?v=399"></script>
-<script src="assets/js/retainer-value.js?v=399"></script>
-<script src="assets/js/wmj-sync.js?v=399"></script>
-<script src="assets/js/notifications.js?v=399"></script>
+<script src="assets/js/clients.js?v=400"></script>
+<script src="assets/js/client-template.js?v=400"></script>
+<script src="assets/js/client-store.js?v=400"></script>
+<script src="assets/js/wmj-transform.js?v=400"></script>
+<script src="assets/js/retainer-transform.js?v=400"></script>
+<script src="assets/js/client-logos.js?v=400"></script>
+<script src="assets/js/client-pr-sheets.js?v=400"></script>
+<script src="assets/js/mgr-sheet.js?v=400"></script>
+<script src="assets/js/retainer-value.js?v=400"></script>
+<script src="assets/js/wmj-sync.js?v=400"></script>
+<script src="assets/js/notifications.js?v=400"></script>
 <script>
   if (typeof isAdminOrManager === "function" && isAdminOrManager() && window.TJA_NOTIFY) {
     const h = document.getElementById("notifHost"); if (h) window.TJA_NOTIFY.initBell(h);
@@ -686,7 +686,16 @@
     };
     if (editingId) {
       // manual: managers typed here become PINS, so the daily sheet sync never drops them
-      window.TJA_STORE.update(editingId, { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, managers: mgrTags.slice(), integrations }, { manual: true });
+      const patch = { name, initials, code, tagline: f.tagline.value.trim(), logo: logoData, managers: mgrTags.slice(), integrations };
+      /* A code typed here is the CLIENT-FACING code (e.g. A New Leaf shows "NL", not WMJ's "ANL").
+         Lock it so the Workamajig sync never puts WMJ's code back, and keep WMJ's code as
+         `wmjCode` — the server jobs still match the client by it. */
+      const prevEnt = window.TJA_STORE.get(editingId);
+      if (prevEnt && code && code !== (prevEnt.code || "")) {
+        patch.codeLocked = true;
+        if (!prevEnt.wmjCode && prevEnt.code) patch.wmjCode = prevEnt.code;
+      }
+      window.TJA_STORE.update(editingId, patch, { manual: true });
       closeModal(); renderGrid();
       return;
     }

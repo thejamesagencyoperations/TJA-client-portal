@@ -286,7 +286,10 @@ window.WMJ_SYNC = (function () {
       const r = resolveClientId(wc.wmjName);
       if (r.created) { created++; createdClients.push({ name: wc.wmjName, id: r.id, login: r.login }); }
       // WMJ client code (leading token of Campaign_Name) → the client's code label
-      if (wc.code) { const ent = window.TJA_STORE.get(r.id); if (ent && ent.code !== wc.code && !(Array.isArray(ent.wmjAliases) && ent.wmjAliases.length && ent.code)) window.TJA_STORE.update(r.id, { code: wc.code }); }
+      // a locked (client-facing) code is never overwritten — WMJ's code is kept as wmjCode instead
+      if (wc.code) { const ent = window.TJA_STORE.get(r.id);
+        if (ent && ent.codeLocked) { if (ent.wmjCode !== wc.code) window.TJA_STORE.update(r.id, { wmjCode: wc.code }); }
+        else if (ent && ent.code !== wc.code && !(Array.isArray(ent.wmjAliases) && ent.wmjAliases.length && ent.code)) window.TJA_STORE.update(r.id, { code: wc.code }); }
       // set/refresh the website logo, but never overwrite an uploaded one
       if (window.CLIENT_LOGOS) {
         const ent = window.TJA_STORE.get(r.id);
@@ -454,7 +457,10 @@ window.WMJ_SYNC = (function () {
     for (const rc of data) {
       const r = resolveClientId(rc.wmjName);
       if (r.created) { created++; createdClients.push({ name: rc.wmjName, id: r.id, login: r.login }); }
-      if (rc.code) { const ent = window.TJA_STORE.get(r.id); if (ent && ent.code !== rc.code && !(Array.isArray(ent.wmjAliases) && ent.wmjAliases.length && ent.code)) window.TJA_STORE.update(r.id, { code: rc.code }); }
+      // a locked (client-facing) code is never overwritten — WMJ's code is kept as wmjCode instead
+      if (rc.code) { const ent = window.TJA_STORE.get(r.id);
+        if (ent && ent.codeLocked) { if (ent.wmjCode !== rc.code) window.TJA_STORE.update(r.id, { wmjCode: rc.code }); }
+        else if (ent && ent.code !== rc.code && !(Array.isArray(ent.wmjAliases) && ent.wmjAliases.length && ent.code)) window.TJA_STORE.update(r.id, { code: rc.code }); }
       if (window.CLIENT_LOGOS) {
         const ent = window.TJA_STORE.get(r.id), url = window.CLIENT_LOGOS.logoUrlFor(rc.wmjName);
         const isAuto = ent && (!ent.logo || /icon\.horse|duckduckgo\.com|s2\/favicons/.test(ent.logo));

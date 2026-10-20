@@ -171,8 +171,12 @@ window.SAP_PAGE = (function () {
         ${ls.map((l) => `<option value="${esc(l.key)}"${s.discipline === l.key ? " selected" : ""}>Link to ${esc(l.name)}</option>`).join("")}
         <option value="none"${s.discipline === "none" ? " selected" : ""}>Don't link — type a %</option>
       </select>`;
-    const rows = src.sections.map((s, si) => {
-      const p = pctFor(m, key, s, si);
+    /* SCOPE EXTENSIONS sit BELOW the 100% total (Cameron 2026-10-20): they're hours on top of
+       the retainer, so they're never part of the % Planned split. A heading counts as one when
+       its name says so ("Approved Scope Extension", "Scope Extension – Nov appeal" …). */
+    const isExt = (s) => /scope\s*ext/i.test(s.name || "");
+    const secRow = (s, si) => {
+      const p = isExt(s) ? null : pctFor(m, key, s, si);
       const linked = key >= curKey() && !(m.signed && m.signed.pcts) && secKey(s) !== "none" && liveShares()[secKey(s)] != null;
       const pctCell = (admin && !linked)
         ? `<span class="sap-ce sap-ce-pct" contenteditable="true" data-sapce="pct" data-si="${si}" data-ph="—">${p == null ? "" : p}</span>%`
@@ -184,11 +188,15 @@ window.SAP_PAGE = (function () {
         (s.items || []).map((it, ii) => `<tr class="sap-item-row"><td>${ce(it.name, "iname", si, ii, "Line item")}${admin ? `<button class="sap-x" data-sapdelitem="${si}.${ii}" title="Remove this line">✕</button>` : ""}</td>
           <td class="sap-note">${ce(it.notes, "inotes", si, ii, admin ? "Notes" : "", true)}</td><td></td></tr>`).join("") +
         (admin ? `<tr class="sap-add-row"><td colspan="3"><button class="row-add" data-sapadditem="${si}">＋ Add line item</button></td></tr>` : "");
-    }).join("");
+    };
+    // keep each section's real index (it's what the editable cells write back to)
+    const indexed = src.sections.map((s, si) => ({ s, si }));
+    const rows = indexed.filter(({ s }) => !isExt(s)).map(({ s, si }) => secRow(s, si)).join("");
+    const extRows = indexed.filter(({ s }) => isExt(s)).map(({ s, si }) => secRow(s, si).replace('class="sap-sec-row"', 'class="sap-sec-row sap-ext-row"')).join("");
     /* % MUST TOTAL 100 (Cameron 2026-10-20). A total row under % Planned; when the %s don't
        add up — or the Executive Summary's service-line hours don't add up to the contracted
        total that drives them — the plan is outlined in red with the gap spelled out (staff only). */
-    const shown = src.sections.map((s2, i2) => pctFor(m, key, s2, i2));
+    const shown = src.sections.map((s2, i2) => (isExt(s2) ? null : pctFor(m, key, s2, i2)));   // extensions aren't in the 100%
     const pctSum = shown.reduce((t, v) => t + (+v || 0), 0);
     const anyLinked = src.sections.some((s2) => secKey(s2) !== "none" && liveShares()[secKey(s2)] != null);
     const eng = STATE && STATE.engagements && STATE.engagements.retainer;
@@ -223,7 +231,7 @@ window.SAP_PAGE = (function () {
         ${admin ? `<div class="sap-src">${m.source === "portal" ? "Built in the portal — click any text to edit" : m.tab ? `From the sheet (tab “${esc(m.tab)}”) — click any text to edit; once edited, the portal version is kept` : ""}</div>` : ""}</div>
       <div class="sap-table-wrap"><table class="sap-table">
         <thead><tr><th>Retainer Items</th><th>Notes</th><th class="sap-pct">% Planned</th></tr></thead>
-        <tbody>${rows}${totalRow}</tbody>
+        <tbody>${rows}${totalRow}${extRows}</tbody>
       </table></div>
       ${offNote}
       ${admin ? `<div class="sap-add-sec"><button class="row-add" data-sapaddsec>＋ Add service</button></div>` : ""}

@@ -318,9 +318,11 @@ async function buildPdf(clientName: string, month: any, signer: { name: string; 
   if (pcts.some((p) => p != null)) {   // column header, like the sheet's "% Planned"
     page.drawText("% PLANNED", { x: W - M - bold.widthOfTextAtSize("% PLANNED", 8), y: y - 8, size: 8, font: bold, color: DIM }); y -= 12;
   }
-  for (const [si, s] of (month.sections || []).entries()) {
+  // services first, then the 100% total, then any scope extension BELOW it (never part of the split)
+  const isExt = (x: SapSection) => /scope\s*ext/i.test(x.name || "");
+  const drawSec = (s: SapSection, si: number, showPct: boolean) => {
     ensure(40); y -= 4;
-    const pc = pcts[si];
+    const pc = showPct ? pcts[si] : null;
     if (pc != null) { const t = `${pc}%`; page.drawText(t, { x: W - M - bold.widthOfTextAtSize(t, 12), y: y - 12, size: 12, font: bold, color: ORANGE }); }
     write(s.name, bold, 12, INK, M, W - 2 * M - 50);
     if (s.notes) write(s.notes, font, 9, DIM, M + 10, W - 2 * M - 10);
@@ -329,7 +331,18 @@ async function buildPdf(clientName: string, month: any, signer: { name: string; 
       if (it.notes) write(it.notes, font, 8.5, DIM, M + 24, W - 2 * M - 24, 2);
     }
     y -= 6;
+  };
+  const secs: SapSection[] = month.sections || [];
+  secs.forEach((s, si) => { if (!isExt(s)) drawSec(s, si, true); });
+  const totalPct = secs.reduce((t, s, si) => t + (isExt(s) ? 0 : (+(pcts[si] ?? 0) || 0)), 0);
+  if (secs.some((s, si) => !isExt(s) && pcts[si] != null)) {
+    ensure(24);
+    page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.8, color: DIM }); y -= 4;
+    const t = `${totalPct}%`;
+    page.drawText(t, { x: W - M - bold.widthOfTextAtSize(t, 12), y: y - 12, size: 12, font: bold, color: INK });
+    write("Total", bold, 12, INK); y -= 8;
   }
+  secs.forEach((s, si) => { if (isExt(s)) drawSec(s, si, false); });
   if (month.terms) { ensure(60); y -= 6; write(month.terms, font, 8, DIM); }
   ensure(150); y -= 16;
   write("Approved and signed", bold, 12, INK); y -= 4;

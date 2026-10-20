@@ -255,7 +255,10 @@ Deno.serve(async (req) => {
     const byNorm: Record<string, any> = {};
     roster.forEach((c) => { byNorm[norm(c.name)] = c; if (c.id) byNorm[norm(c.id)] = byNorm[norm(c.id)] || c; });
     const byCode: Record<string, any> = {};
-    roster.forEach((c) => { if (c && c.code) byCode[String(c.code).trim().toUpperCase()] = c; });
+    roster.forEach((c) => {
+      if (c && c.code) byCode[String(c.code).trim().toUpperCase()] = c;
+      if (c && c.wmjCode) byCode[String(c.wmjCode).trim().toUpperCase()] = c;   // locked client-facing code (e.g. NL) → still matched by WMJ's (ANL)
+    });
     const matchClient = (sheetName: string): any => {
       const n = norm(sheetName);
       if (!n) return null;
