@@ -2467,3 +2467,9 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
 .cz-tabgrid .cz-row { padding: 5px 8px; align-items: center; }
 .cz-sub-note { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-faint); margin-left: 4px; }
 .cz-tabgrid .cz-row:has([data-czmedia]) { grid-column: 1 / -1; }   /* long name: own line, no wrap */
+/* v399 — allocate unallocated hours */
+.up-dept { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.up-dept:last-child { border-bottom: none; }
+.up-dept-head .up-sub { font-size: .68rem; color: var(--text-faint); font-weight: 500; }
+.up-map { width: 100%; margin: 6px 0 4px; font: inherit; font-size: .8rem; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); }
+.up-proj { padding-left: 12px; font-size: .78rem; color: var(--text-dim); }

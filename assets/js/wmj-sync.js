@@ -398,7 +398,8 @@ window.WMJ_SYNC = (function () {
   function snapshotLines(e) {
     const canon = window.tjaCanonDiscipline || ((s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""));
     const act = {};
-    (e.wmjServiceLines || []).forEach((l) => { const k = canon(l.name); act[k] = (act[k] || 0) + (+l.billable || 0); });
+    // e.deptMap: departments allocated to a service line in the Unallocated view (KEEP IN SYNC with exec-summary deptKey)
+    (e.wmjServiceLines || []).forEach((l) => { const k0 = canon(l.name), k = (e.deptMap && e.deptMap[k0]) || k0; act[k] = (act[k] || 0) + (+l.billable || 0); });
     const adj = monthAdjust(e);   // manual hours deltas ride into the month record (see exec-summary adjOf)
     return (e.serviceDisciplines || []).map((d) => ({
       name: d.name,

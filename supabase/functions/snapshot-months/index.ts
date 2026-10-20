@@ -234,7 +234,10 @@ Deno.serve(async (req) => {
 
     // per-discipline billable from fresh actuals, matched by canon key
     const actByCanon: Record<string, number> = {};
-    if (a) for (const [dept, b] of Object.entries(a.byDept)) actByCanon[canon(dept)] = (actByCanon[canon(dept)] || 0) + (b as number);
+    // e.deptMap: WMJ departments an admin allocated to a service line (Unallocated view) —
+    // KEEP IN SYNC with exec-summary.js deptKey
+    const dk = (dept: string) => { const k = canon(dept); return (e.deptMap && e.deptMap[k]) || k; };
+    if (a) for (const [dept, b] of Object.entries(a.byDept)) actByCanon[dk(dept)] = (actByCanon[dk(dept)] || 0) + (b as number);
     /* MANUAL HOURS ADJUSTMENTS are a DELTA on top of actuals (Cameron 2026-10-19: "if i up it
        from 20 to 30, then the actuals show 25, we should show 35"). They ride into THIS month's
        record so the frozen month keeps what was presented. Keyed by canon discipline. */

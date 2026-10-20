@@ -593,10 +593,16 @@ window.ExecSummary = (function () {
   // stamp the current month onto an override the admin is setting right now
   const stampOv = (e) => { if (e) e.overrideMonth = (e.burn && e.burn.periodLabel) || ""; };
 
+  /* ALLOCATING UNALLOCATED HOURS (Cameron 2026-10-20). A WMJ department that matches no
+     service line can be assigned to one in the Unallocated view: e.deptMap { canon(dept): canon
+     discipline }. It's a standing rule (WMJ's department names don't change month to month), so
+     those hours land on that line every month — in the browser AND in the server's month
+     records (snapshot-months, wmj-sync snapshotLines read the same map). KEEP IN SYNC. */
+  const deptKey = (e, name) => { const k = canon(name); return (e && e.deptMap && e.deptMap[k]) || k; };
   // actual billable hours worked per discipline, from the WMJ timesheet (matched by canon key)
   function actualByDiscipline(e) {
     const map = {};
-    (e.wmjServiceLines || []).forEach(l => { const k = canon(l.name); map[k] = (map[k] || 0) + (+l.billable || 0); });
+    (e.wmjServiceLines || []).forEach(l => { const k = deptKey(e, l.name); map[k] = (map[k] || 0) + (+l.billable || 0); });
     // Manual reallocation (Cameron 2026-07-20): move billable hours between disciplines when
     // WMJ filed them under the wrong one (e.g. Web/SEO hours that are really Creative). Keyed
     // by canon discipline; deltas SUM TO ZERO, so the burn total is unchanged — only WHERE the
@@ -620,14 +626,14 @@ window.ExecSummary = (function () {
   // admins as an "Unallocated" line so the PM team can categorize them.
   function unmatchedBillable(e) {
     const keys = new Set((e.serviceDisciplines || []).map(d => canon(d.name)));
-    return (e.wmjServiceLines || []).reduce((s, l) => s + (keys.has(canon(l.name)) ? 0 : (+l.billable || 0)), 0);
+    return (e.wmjServiceLines || []).reduce((s, l) => s + (keys.has(deptKey(e, l.name)) ? 0 : (+l.billable || 0)), 0);
   }
   // the projects (name + billable hrs) behind the unallocated hours — for the admin drill-down
   function unmatchedProjects(e) {
     const keys = new Set((e.serviceDisciplines || []).map(d => canon(d.name)));
     const acc = {};
     (e.wmjServiceLines || []).forEach(l => {
-      if (keys.has(canon(l.name))) return;
+      if (keys.has(deptKey(e, l.name))) return;
       (l.projects || []).forEach(p => { acc[p.name] = (acc[p.name] || 0) + (+p.billable || 0); });
     });
     return Object.keys(acc).map(name => ({ name, billable: round2(acc[name]) }))
@@ -740,10 +746,11 @@ window.ExecSummary = (function () {
     }).join("");
     // Unallocated: WMJ billable in departments with no matching discipline (admin-only flag)
     const misc = round2(unmatchedBillable(e));
-    const miscRow = (admin && misc > 0)
-      ? `<div class="rsvc-row rsvc-unalloc" data-unalloctoggle title="Click to see the projects behind these hours">
-           <div class="rsvc-top"><span class="rsvc-name">Unallocated <span class="rsvc-caret">view ›</span></span><span class="rsvc-right"><span class="rsvc-status is-unalloc">In burn</span></span></div>
-           <div class="rsvc-cap">${round1(misc)} hrs billable · not in a discipline</div>
+    const nMapped = Object.keys(e.deptMap || {}).length;
+    const miscRow = (admin && (misc > 0 || nMapped))   // kept while allocation rules exist, so they can be changed
+      ? `<div class="rsvc-row rsvc-unalloc" data-unalloctoggle title="Click to see these hours and allocate them to a service line">
+           <div class="rsvc-top"><span class="rsvc-name">Unallocated <span class="rsvc-caret">${misc > 0 ? "allocate ›" : "view ›"}</span></span><span class="rsvc-right">${misc > 0 ? `<span class="rsvc-status is-unalloc">In burn</span>` : ""}</span></div>
+           <div class="rsvc-cap">${round1(misc)} hrs billable · not in a service line${nMapped ? ` · ${nMapped} department${nMapped === 1 ? "" : "s"} allocated` : ""}</div>
          </div>` : "";
     /* SCOPE EXTENSION + OVERAGE (Cameron 2026-10-19). Once a service line passes 100% of its
        contracted hours, its extra hours spill into the Scope Extension line (CRF-detected +
@@ -1002,6 +1009,7 @@ window.ExecSummary = (function () {
     // any other WMJ department with hours that matches nothing (and isn't a known label)
     (eng.wmjServiceLines || []).forEach((l) => {
       const k = canon(l.name);
+      if (eng.deptMap && eng.deptMap[k]) return;   // already allocated to a line in the Unallocated view
       if (!have.has(k) && !WMJ_DEPT_LABEL[k] && !opts.some((o) => o.key === k)) opts.push({ key: k, label: l.name, h: hrs[k] || 0 });
     });
     const old = document.getElementById("addDiscPop"); if (old) old.remove();
@@ -1789,23 +1797,48 @@ window.ExecSummary = (function () {
 
   /* ---- Unallocated drill-down popup: projects behind the misc (out-of-discipline) hours ---- */
   function openUnallocPopup(e) {
-    const projects = unmatchedProjects(e);
     const misc = round2(unmatchedBillable(e));
+    const admin = canAdmin();
+    const disc = e.serviceDisciplines || [];
+    const keys = new Set(disc.map(d => canon(d.name)));
+    // the departments behind the unallocated hours (+ any already mapped, so a mapping can be undone)
+    const depts = {};
+    (e.wmjServiceLines || []).forEach(l => {
+      const k = canon(l.name), mapped = e.deptMap && e.deptMap[k];
+      if (keys.has(k)) return;                                   // matches a line on its own
+      const d = depts[k] || (depts[k] = { key: k, name: l.name, hrs: 0, projects: [], mapped: mapped || "" });
+      d.hrs += +l.billable || 0;
+      (l.projects || []).forEach(p => { if ((+p.billable || 0) > 0) d.projects.push(p); });
+    });
+    const list = Object.values(depts).filter(d => d.hrs > 0 || d.mapped);
+    const opts = (d) => `<option value="">Leave unallocated</option>${disc.map(x => `<option value="${esc(canon(x.name))}"${d.mapped === canon(x.name) ? " selected" : ""}>Count as ${esc(x.name)}</option>`).join("")}`;
+    const rows = list.map(d => `<div class="up-dept">
+        <div class="up-row up-dept-head"><span class="up-name"><b>${esc(d.name)}</b> <span class="up-sub">WMJ department</span></span><span class="up-hrs">${round1(d.hrs)} hrs</span></div>
+        ${admin ? `<select class="up-map" data-upmap="${esc(d.key)}">${opts(d)}</select>` : ""}
+        ${d.projects.sort((x, y) => y.billable - x.billable).map(p => `<div class="up-row up-proj"><span class="up-name">${esc(p.name)}</span><span class="up-hrs">${round1(p.billable)} hrs</span></div>`).join("")}
+      </div>`).join("") || `<div class="up-row">No unallocated hours.</div>`;
     const old = document.getElementById("burnPop"); if (old) old.remove();
     const ov = document.createElement("div");
     ov.id = "burnPop"; ov.className = "burn-pop-overlay";
-    const rows = projects.map(p => `<div class="up-row"><span class="up-name">${esc(p.name)}</span><span class="up-hrs">${round1(p.billable)} hrs</span></div>`).join("")
-      || `<div class="up-row">No project detail available.</div>`;
     ov.innerHTML = `<div class="burn-pop" role="dialog" aria-modal="true">
       <div class="bp-head">Unallocated hours <span class="up-total">${round1(misc)} hrs</span></div>
-      <p class="bp-lead">Billable work in WMJ departments with no matching discipline. It still counts toward the burn — add a discipline to categorize it.</p>
+      <p class="bp-lead">Billable work in WMJ departments with no matching service line. It still counts toward the burn.${admin ? " Choose which service line each department's hours count as — it applies every month, and you can change it back here any time." : ""}</p>
       <div class="up-rows">${rows}</div>
-      <div class="bp-actions"><button type="button" class="btn btn-primary" data-bpclose>Close</button></div>
+      <div class="bp-actions"><button type="button" class="btn btn-primary" data-bpclose>Done</button></div>
     </div>`;
     document.body.appendChild(ov);
     const close = () => ov.remove();
     ov.querySelector("[data-bpclose]").addEventListener("click", close);
     ov.addEventListener("click", e2 => { if (e2.target === ov) close(); });
+    ov.addEventListener("change", (ev) => {
+      const sel = ev.target.closest("[data-upmap]"); if (!sel || !canAdmin()) return;
+      const eng = window.DASH.getEng();
+      eng.deptMap = eng.deptMap || {};
+      if (sel.value) eng.deptMap[sel.dataset.upmap] = sel.value; else delete eng.deptMap[sel.dataset.upmap];
+      if (!Object.keys(eng.deptMap).length) delete eng.deptMap;
+      syncCurrentMonth(eng); window.DASH.saveState(); rerender();
+      const t = ov.querySelector(".up-total"); if (t) t.textContent = round1(round2(unmatchedBillable(eng))) + " hrs";
+    });
   }
 
   function canvasExtent(canvas) {
