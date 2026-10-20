@@ -367,6 +367,42 @@ window.SUPA = (function () {
   // BOTH changed takes theirs (last-write-wins) but is pushed onto `conflicts` so the UI can hand
   // the user their own value back. Recurses into objects, and into arrays when every length
   // matches (a structural array change — a row added/removed — is treated as one leaf conflict).
+  // multiset diff on whole items (compared by value, key-order-insensitive)
+  function mergeList(base, mine, theirs) {
+    const k = (x) => stableKey(x);
+    const count = (arr) => { const m = new Map(); arr.forEach((x) => m.set(k(x), (m.get(k(x)) || 0) + 1)); return m; };
+    const cb = count(base), cm = count(mine), ct = count(theirs);
+    const removed = new Map(), added = [];
+    cb.forEach((n, key) => { const d = n - (cm.get(key) || 0); if (d > 0) removed.set(key, d); });
+    const seen = new Map();
+    mine.forEach((x) => { const key = k(x); seen.set(key, (seen.get(key) || 0) + 1); if (seen.get(key) > (cb.get(key) || 0)) added.push(x); });
+    // every item I removed/edited must still be on their side, unchanged — else we both touched it
+    for (const [key, n] of removed) if ((ct.get(key) || 0) < n) return null;
+    // an EDIT is "removed base[i], added mine[i]" at the same index — keep it in that item's place
+    const swap = new Map(), placed = new Set();
+    mine.forEach((x, i) => { if (added.includes(x) && i < base.length && removed.has(k(base[i])) && !swap.has(k(base[i]))) swap.set(k(base[i]), x); });
+    const out = [];
+    const left = new Map(removed);
+    theirs.forEach((x) => {
+      const key = k(x); const r = left.get(key) || 0;
+      if (r > 0) { left.set(key, r - 1); const rep = swap.get(key); if (rep && !placed.has(rep)) { out.push(rep); placed.add(rep); } }
+      else out.push(x);
+    });
+    // genuinely new items: after the item that preceded them in my list (or first, if they led it)
+    added.forEach((x) => {
+      if (placed.has(x)) return;
+      const i = mine.indexOf(x);
+      let at = i === 0 ? 0 : out.length;
+      for (let j = i - 1; j >= 0; j--) { const p = out.findIndex((y) => k(y) === k(mine[j])); if (p >= 0) { at = p + 1; break; } }
+      out.splice(at, 0, x);
+    });
+    return out;
+  }
+  function stableKey(v) {
+    const walk = (x) => (x === null || typeof x !== "object") ? x
+      : Array.isArray(x) ? x.map(walk) : Object.keys(x).sort().reduce((o, key) => { o[key] = walk(x[key]); return o; }, {});
+    return JSON.stringify(walk(v));
+  }
   function merge3(base, mine, theirs, path, conflicts) {
     if (sameVal(mine, theirs)) return mine;   // we agree (also covers both-undefined)
     if (sameVal(mine, base)) return theirs;   // only they touched it
@@ -384,6 +420,15 @@ window.SUPA = (function () {
       const out = [];
       for (let i = 0; i < mine.length; i++) out[i] = merge3(base[i], mine[i], theirs[i], path + "." + i, conflicts);
       return out;
+    }
+    /* LISTS THAT GREW OR SHRANK (v401, Cameron 2026-10-20: "two people can add to-do's at the
+       same time as long as they are separate items, right?"). This used to be one leaf conflict —
+       their list won and my new row was lost. Now: take THEIR list, remove the items I deleted,
+       add the items I added. Safe only when the items I touched are untouched on their side; if
+       we both changed the SAME item, it stays a conflict (theirs wins + "Keep mine"), as before. */
+    if (Array.isArray(mine) && Array.isArray(theirs) && Array.isArray(base)) {
+      const merged = mergeList(base, mine, theirs);
+      if (merged) return merged;
     }
     conflicts.push({ path, mine, theirs });   // both changed the same leaf → theirs wins, recorded
     return theirs;
