@@ -97,6 +97,19 @@ window.TJA_NOTIFY = (function () {
       const ids = new Set(existing.map(e => e.id));
       loadFeed(cid).forEach(e => { if (!ids.has(e.id)) existing.push(e); });
     });
+    /* AM/PM accounts see ONLY their own clients' notifications (Cameron 2026-10-20). "Theirs" =
+       the client's manager tags (Clients → ✎ → Managers, kept in step by the assignment sync),
+       falling back to the WMJ account-manager suggestion — the same rule the Clients filter and
+       the Notification Center's AM filter use. Admins (and other staff roles) still see all. */
+    const sess = (typeof getSession === "function" && getSession()) || {};
+    if (sess.role === "manager") {
+      const me = String(sess.name || "").trim().toLowerCase();
+      const mine = new Set(roster.filter(c => {
+        const m = (Array.isArray(c.managers) && c.managers.length) ? c.managers : (c.accountManager ? [c.accountManager] : []);
+        return !!me && m.some(x => String(x).trim().toLowerCase() === me);
+      }).map(c => c.id));
+      Object.keys(byClient).forEach(cid => { if (!mine.has(cid)) delete byClient[cid]; });
+    }
     const out = [];
     Object.keys(byClient).forEach(cid => byClient[cid].forEach(ev =>
       out.push(Object.assign({ clientId: cid, clientName: nameById[cid] || cid }, ev))));

@@ -655,9 +655,10 @@ window.ExecSummary = (function () {
     const ordered = lines.map((l, i) => ({ l, i }))
       .sort((a, b) => (canon(a.l.name) === "oversight" ? 0 : 1) - (canon(b.l.name) === "oversight" ? 0 : 1));
     // `i` is the index into m.lines — carried through the sort so a handle writes the row it's on
+    const histShares = sharesOf(lines.map((x) => +x.contracted || 0), totalC);
     const rows = ordered.map(({ l, i }) => {
       const c = +l.contracted || 0, bill = +l.billable || 0;
-      const share = totalC > 0 ? Math.round(c / totalC * 100) : 0;
+      const share = histShares[i];
       const util = c > 0 ? (bill / c * 100) : 0;
       const fill = Math.max(0, Math.min(100, util));
       let st = "not-started", lbl = "Not started";
@@ -702,10 +703,11 @@ window.ExecSummary = (function () {
     // display position. Array.sort is stable, so every other discipline keeps its order.
     const discView = disc.map((d, i) => ({ d, i }))
       .sort((a, b) => (canon(a.d.name) === "oversight" ? 0 : 1) - (canon(b.d.name) === "oversight" ? 0 : 1));
+    const shareArr = sharesOf(disc.map((d2) => +d2.contracted || 0), total);   // adds up — see sharesOf
     const rows = discView.map(({ d, i }) => {
       const contracted = +d.contracted || 0;
       const act = actual[canon(d.name)] || 0;
-      const share = total > 0 ? Math.round(contracted / total * 100) : 0;
+      const share = shareArr[i];
       const realUtil = contracted > 0 ? (act / contracted * 100) : 0;   // 0 contracted → no util yet (not "over")
       const shownUsed = discUsed(e, d, actual);
       const hasOv = typeof ov[d.name] === "number" || Math.abs(shownUsed - act) > 0.005;
@@ -784,6 +786,21 @@ window.ExecSummary = (function () {
       ${admin ? listAdd("serviceDisciplines", "Add discipline") : ""}
       ${splitNote}
     </div>`;
+  }
+  /* WHOLE-NUMBER SHARES THAT ADD UP (Cameron 2026-10-20 — ANL's SAP read 101%). Rounding each
+     line on its own can total 99 or 101 (ANL: 29.5→30, 30.5→31, 34.1→34, 5.9→6 = 101). This is
+     the largest-remainder method: floor every share, then hand the leftover points to the lines
+     with the biggest remainders, so the shares total exactly round(Σ ÷ total) — 100% whenever
+     the split matches the contracted hours. KEEP IN SYNC with supabase/functions/sap liveShares. */
+  function sharesOf(values, total) {
+    if (!(total > 0)) return values.map(() => 0);
+    const raw = values.map((v) => Math.max(0, +v || 0) / total * 100);
+    const target = Math.round(raw.reduce((a, b) => a + b, 0));
+    const out = raw.map(Math.floor);
+    let left = target - out.reduce((a, b) => a + b, 0);
+    raw.map((r, i) => ({ i, rem: r - Math.floor(r) })).sort((a, b) => b.rem - a.rem || raw[b.i] - raw[a.i])
+      .forEach(({ i }) => { if (left > 0) { out[i]++; left--; } });
+    return out;
   }
   // do the service lines' contracted hours add up to the month's contracted total?
   // (only once a split has been entered — an all-zero split is the setup state, not an error)
@@ -1473,7 +1490,7 @@ window.ExecSummary = (function () {
     const row = (scope, attr, val, label, desc, on) => `
       <label class="cz-row">
         <input type="checkbox" class="cz-check" data-czscope="${scope}" ${attr}="${val}" ${on ? "checked" : ""}>
-        <span class="cz-text"><span class="cz-name">${esc(label)}</span><span class="cz-desc">${esc(desc)}</span></span>
+        <span class="cz-text"><span class="cz-name">${esc(label)}</span>${desc ? `<span class="cz-desc">${esc(desc)}</span>` : ""}</span>
       </label>`;
 
     const block = (sc) => {
@@ -1490,8 +1507,7 @@ window.ExecSummary = (function () {
       const TABS = view === "retainer"
         ? [["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"], ["backlog", "Backlog"]]
         : [["status", "Status"], ["plan", "Project Plan"], ["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"]];
-      const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label + " tab",
-        "Shown in the left-hand menu. Off removes the tab for everyone (its data is kept).", !(e.navHidden && e.navHidden[pg]))).join("");
+      const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label, "", !(e.navHidden && e.navHidden[pg]))).join("");
       const deps = row(view, "data-czdeps", "1", "Dependencies",
         "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(e));
       // The media tab is a retainer feature and lives on the tab bar, not the canvas.
@@ -1505,7 +1521,11 @@ window.ExecSummary = (function () {
         ? `<span class="cz-scope-name">${esc(sc.name)}</span>` : "";
       const note = (view === "project" && sc.siblings > 1)
         ? `<div class="cz-note">Applies to this project only — open another project to set up its own.</div>` : "";
-      return `<div class="cz-scope">${esc(sc.title)}${sub}</div>${note}<div class="cz-rows">${tiles}${team}${deps}${media}</div><div class="cz-sub">Tabs</div><div class="cz-rows">${tabs}</div>`;
+      return `<div class="cz-scope">${esc(sc.title)}${sub}</div>${note}<div class="cz-grid">
+        <div><div class="cz-sub">Tiles</div><div class="cz-rows">${tiles}</div></div>
+        <div><div class="cz-sub">Sections</div><div class="cz-rows">${team}${deps}${media}</div>
+          <div class="cz-sub">Tabs <span class="cz-sub-note">off removes it from the menu for everyone · data kept</span></div><div class="cz-rows cz-tabgrid">${tabs}</div></div>
+      </div>`;
     };
 
     const ov = document.createElement("div");
@@ -2314,7 +2334,8 @@ window.ExecSummary = (function () {
     const out = {}; if (!e) return out;
     const total = retainerTotalContracted(e); if (!(total > 0)) return out;
     (e.serviceDisciplines || []).forEach((d) => { const k = canon(d.name); out[k] = (out[k] || 0) + (+d.contracted || 0); });
-    Object.keys(out).forEach((k) => { out[k] = Math.round(out[k] / total * 100); });
+    const keys = Object.keys(out), pct = sharesOf(keys.map((k) => out[k]), total);
+    keys.forEach((k, i) => { out[k] = pct[i]; });
     return out;
   }
   return { render, init, serviceShares, splitStatus: (e) => (e ? splitStatus(e) : { off: false }) };

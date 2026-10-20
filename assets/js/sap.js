@@ -193,7 +193,8 @@ window.SAP_PAGE = (function () {
     const anyLinked = src.sections.some((s2) => secKey(s2) !== "none" && liveShares()[secKey(s2)] != null);
     const eng = STATE && STATE.engagements && STATE.engagements.retainer;
     const split = (key >= curKey() && !m.signed && anyLinked && window.ExecSummary && window.ExecSummary.splitStatus) ? window.ExecSummary.splitStatus(eng) : { off: false };
-    const pctOff = shown.some((v) => v != null) && Math.abs(pctSum - 100) > (anyLinked ? 1 : 0);   // ±1 = rounding of linked shares
+    // exact: linked shares are rounded so they add up (ExecSummary sharesOf) — anything but 100 is real
+    const pctOff = shown.some((v) => v != null) && pctSum !== 100;
     const totalOff = admin && (pctOff || split.off);
     const totalRow = shown.some((v) => v != null)
       ? `<tr class="sap-total-row${totalOff ? " is-off" : ""}"><td>Total</td><td></td><td class="sap-pct">${pctSum}%</td></tr>` : "";

@@ -98,7 +98,14 @@ function liveShares(e: any): Record<string, number> {
   if (!(total > 0)) return out;
   // deno-lint-ignore no-explicit-any
   disc.forEach((d: any) => { const k = canonDiscipline(d.name); out[k] = (out[k] || 0) + (+d.contracted || 0); });
-  Object.keys(out).forEach((k) => { out[k] = Math.round(out[k] / total * 100); });
+  // largest-remainder rounding so the shares add up (101% from per-line rounding) — KEEP IN SYNC
+  // with exec-summary.js sharesOf
+  const keys = Object.keys(out), raw = keys.map((k) => out[k] / total * 100);
+  const target = Math.round(raw.reduce((a, b) => a + b, 0)), fl = raw.map(Math.floor);
+  let left = target - fl.reduce((a, b) => a + b, 0);
+  raw.map((r, i) => ({ i, rem: r - Math.floor(r) })).sort((a, b) => b.rem - a.rem || raw[b.i] - raw[a.i])
+    .forEach(({ i }) => { if (left > 0) { fl[i]++; left--; } });
+  keys.forEach((k, i) => { out[k] = fl[i]; });
   return out;
 }
 const sectionKey = (sec: SapSection) => sec.discipline || canonDiscipline(sec.name);

@@ -2453,3 +2453,16 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
 .sap-total-row.is-off td { color: #E5484D; background: rgba(229,72,77,.06); }
 /* v395 — Customize: Tabs group */
 .cz-sub { font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); margin: 10px 0 4px; }
+/* v396 — Customize in two columns (Tiles | Sections + Tabs) so every option is on screen;
+   with the v395 additions a single column ran past the dialog and, with macOS's hidden
+   scrollbars, the lower options looked like they had disappeared */
+#custPop .burn-pop--wide { width: min(860px, 95vw); }
+.cz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; }
+.cz-grid .cz-sub:first-child { margin-top: 2px; }
+.cz-body { scrollbar-gutter: stable; }
+.cz-body::-webkit-scrollbar { width: 10px; -webkit-appearance: none; }
+.cz-body::-webkit-scrollbar-thumb { background: var(--text-faint); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+@media (max-width: 720px) { .cz-grid { grid-template-columns: 1fr; } }
+.cz-tabgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 6px; }
+.cz-tabgrid .cz-row { padding: 5px 8px; align-items: center; }
+.cz-sub-note { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-faint); margin-left: 4px; }
