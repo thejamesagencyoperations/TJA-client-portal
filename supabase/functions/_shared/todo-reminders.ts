@@ -96,7 +96,9 @@ export function collectDue(engagements: any, client: { name?: string; code?: str
       });
     });
   });
-  return out.sort((a, b) => a.due.localeCompare(b.due) || a.where.localeCompare(b.where));
+  // Monthly Services (ongoing) first under its own header, then each project
+  const rank = (w: string) => (w === "Monthly Services" ? 0 : 1);
+  return out.sort((a, b) => a.due.localeCompare(b.due) || rank(a.where) - rank(b.where) || a.where.localeCompare(b.where));
 }
 
 const esc = (s: string) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
@@ -114,7 +116,7 @@ export function reminderEmail(o: { firstName?: string; clientName: string; items
       [...byWhere.entries()].map(([where, xs]) => `
         <p style="margin:12px 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#f78f22;font-weight:bold">${esc(where)}</p>
         <ul style="margin:0 0 4px;padding-left:20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5em;color:#000">
-          ${xs.map((x) => `<li style="margin:0 0 4px">${esc(x.text)}${x.kind === "Project plan" ? ` <span style="color:#777;font-size:13px">(project plan)</span>` : ""}</li>`).join("")}
+          ${xs.map((x) => `<li style="margin:0 0 4px">${esc(x.text)}</li>`).join("")}
         </ul>`).join("");
   }).join("");
   const n = o.items.length;

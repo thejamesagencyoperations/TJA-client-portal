@@ -27,5 +27,5 @@ select cron.schedule('portal-plan-refresh',  '*/5 * * * *',  $$ select public.po
 select cron.schedule('portal-review-sweep',  '*/10 * * * *', $$ select public.portal_cron_call('send-review-notification', '{"mode":"sweep"}'::jsonb) $$);
 -- v395: Service Allocation Plans — refresh connected sheets + month rollover, hourly at :20
 select cron.schedule('portal-sap-sweep', '20 * * * *', $$ select public.portal_cron_call('sap', '{"action":"sweep"}'::jsonb) $$);
--- v403: day-before deadline reminders — NOT scheduled yet (waiting on template sign-off). To go live:
---   select cron.schedule('portal-todo-reminders', '0 15 * * *', $$ select public.portal_cron_call('todo-reminders') $$);   -- 15:00 UTC = 8am Arizona
+-- v404: day-before deadline reminders — approved by Cameron 2026-10-21. 15:00 UTC = 8am Arizona (no DST).
+select cron.schedule('portal-todo-reminders', '0 15 * * *', $$ select public.portal_cron_call('todo-reminders') $$);
