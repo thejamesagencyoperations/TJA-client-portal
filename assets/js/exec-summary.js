@@ -1412,6 +1412,9 @@ window.ExecSummary = (function () {
       ctl.push(`<button class="exec-actuals-btn" data-resetactuals title="Clear every manual hours adjustment this month and show the real WMJ actuals">↺ Reset to actuals</button>`);
     if (canAdmin())
       ctl.push(`<button class="exec-actuals-btn" data-customize title="Add or remove tiles, sections and tabs on this page">⚙ Customize</button>`);
+    // CLIENT PREFERENCES (v403): who gets Present Docs emails/approvals, Slack, deadline reminders
+    if (canAdmin() && window.CLIENT_PREFS)
+      ctl.push(`<button class="exec-actuals-btn" data-clientprefs title="How this client is notified — Present Docs emails & approvers, Slack, deadline reminders">✉ Client Preferences</button>`);
     // Reading size — EVERYONE gets it (clients too). Per-person: stored in this browser only.
     if (window.TJA_TEXTSIZE) {
       const pct = Math.round(window.TJA_TEXTSIZE.get() * 100);
@@ -2315,6 +2318,7 @@ window.ExecSummary = (function () {
       const spr = e.target.closest("[data-sprint]");
       if (spr && canAdmin()) { const m = eng.milestones[+spr.dataset.sprint]; m.sprint = (+m.sprint === 2) ? 1 : 2; window.DASH.saveState(); rerender(); return; }
       // The four separate tile/section/tab toggles are all inside the Customize dialog now.
+      if (e.target.closest("[data-clientprefs]") && canAdmin() && window.CLIENT_PREFS) { window.CLIENT_PREFS.open(); return; }
       const cz = e.target.closest("[data-customize]");
       if (cz && canAdmin()) { openCustomizePopup(); return; }
 

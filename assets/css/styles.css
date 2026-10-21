@@ -2473,3 +2473,25 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
 .up-dept-head .up-sub { font-size: .68rem; color: var(--text-faint); font-weight: 500; }
 .up-map { width: 100%; margin: 6px 0 4px; font: inherit; font-size: .8rem; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); }
 .up-proj { padding-left: 12px; font-size: .78rem; color: var(--text-dim); }
+/* v403 — Client Preferences panel */
+.cp-pop { width: min(720px, 95vw) !important; }
+.cp-who { font-weight: 500; color: var(--text-dim); font-size: .85rem; margin-left: 6px; }
+.cp-body { overflow-y: auto; min-height: 0; scrollbar-gutter: stable; padding-right: 4px; }
+.cp-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.cp-row.cp-field { cursor: default; }
+.cp-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cp-txt b { font-size: .86rem; }
+.cp-txt span { font-size: .74rem; color: var(--text-dim); line-height: 1.4; }
+.cp-in { flex: 0 0 240px; font: inherit; font-size: .82rem; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--text); }
+.cp-in:focus { outline: none; border-color: var(--orange); }
+.cp-people { display: flex; flex-direction: column; }
+.cp-ph, .cp-person { display: grid; grid-template-columns: 1fr 110px 110px 110px; align-items: center; gap: 8px; padding: 7px 4px; }
+.cp-ph { font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); text-align: center; }
+.cp-person { border-bottom: 1px solid var(--line); }
+.cp-person > span:not(.cp-pname) { display: flex; justify-content: center; }
+.cp-pname { display: flex; flex-direction: column; min-width: 0; }
+.cp-pname b { font-size: .84rem; }
+.cp-pname span { font-size: .72rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; }
+.cp-status { font-size: .76rem; color: var(--text-dim); align-self: center; }
+.cp-status.bad, .cp-err { color: #E5484D; }
+@media (max-width: 640px) { .cp-ph, .cp-person { grid-template-columns: 1fr 64px 64px 64px; } .cp-in { flex-basis: 150px; } }
