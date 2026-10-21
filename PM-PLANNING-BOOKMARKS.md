@@ -128,8 +128,19 @@ account manager.
 - **Build sketch:** a scheduled edge function (pg_cron, e.g. Mon 8am Phoenix) renders the
   summary as an HTML email (same data the page uses, client-visible items only — internal
   dependencies / team-only tiles excluded), to the client's notification recipients.
-  Decide: day/time, who receives, per-client on/off (Admin Center prefs), and whether the
-  AM previews/approves before it goes out.
+  Decide: who receives it and the per-client on/off (Admin Center prefs).
+- **AM review before it sends (required — Cameron 2026-10-21):** the AM gets a draft of
+  each client's report ahead of the send time, can edit or correct it, then approves.
+  Nothing goes to the client without that approval. (Open: if the AM hasn't approved by the
+  send time, does it wait, or remind them and hold?)
+- **Schedule set per client at account setup:** each client's send day + time is agreed at
+  the start of the engagement, so it's a field in client setup (Clients → ✎ / Admin
+  Center), editable at any time. The scheduler reads each client's own day/time — no single
+  global send slot.
+- **Customisable content, like Customize on the Exec Summary:** per-client tick boxes for
+  what the report includes — e.g. burn numbers, service lines, sprint goals, to-dos,
+  dependencies, KPIs, PR summary, SAP status. Stored per client and reused every week; the
+  AM can still adjust a single week's draft during review.
 
 ## Smaller / later
 - ✅ **Done (v1.90):** client-tile footer now shows a live "Monthly Services · N
