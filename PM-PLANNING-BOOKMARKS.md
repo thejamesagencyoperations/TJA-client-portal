@@ -116,6 +116,21 @@ Goal: show each client's TapClicks dashboard in the portal (the Reporting page).
 Sources: tapclicks.com/blog/tapclicks-permalink-share-live-dashboards-without-logins ·
 tapclicks.com/tapclicks-data-exporter
 
+## Weekly status report email per client (to do) 🔖 added 2026-10-21
+A weekly email per client that's a snapshot of the Executive Summary: burn, service
+lines, sprint goals, to-dos (+ dependencies), KPIs, PR hits. Sent FROM the client's
+account manager.
+- **Sender:** the portal sends through Resend, and the whole `thejamesagency.com` domain
+  is verified there, so any `@thejamesagency.com` address can be the From with no
+  per-person setup — e.g. `Alex Duggan <alex@thejamesagency.com>`, Reply-To the same, so
+  client replies land in the AM's real inbox. Caveat: it won't appear in the AM's Sent
+  folder (could BCC them). AM = the client's registry `am` / manager tags.
+- **Build sketch:** a scheduled edge function (pg_cron, e.g. Mon 8am Phoenix) renders the
+  summary as an HTML email (same data the page uses, client-visible items only — internal
+  dependencies / team-only tiles excluded), to the client's notification recipients.
+  Decide: day/time, who receives, per-client on/off (Admin Center prefs), and whether the
+  AM previews/approves before it goes out.
+
 ## Smaller / later
 - ✅ **Done (v1.90):** client-tile footer now shows a live "Monthly Services · N
   projects" count computed from real dashboard state, not the static string stamped
