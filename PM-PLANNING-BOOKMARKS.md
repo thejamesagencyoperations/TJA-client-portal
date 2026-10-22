@@ -142,6 +142,21 @@ account manager.
   dependencies, KPIs, PR summary, SAP status. Stored per client and reused every week; the
   AM can still adjust a single week's draft during review.
 
+## Book a meeting with the team, from the dashboard (to do) 🔖 added 2026-10-22
+A dashboard feature that shows the account team's open meeting slots (from their real
+calendars) so a client can pick a time for upcoming meetings themselves.
+- **Quickest route:** Google Calendar *appointment schedules* — TJA is on Google Workspace,
+  so each AM/PM can publish a booking page from their own calendar (free/busy respected,
+  confirmations + invites handled by Google). The portal embeds it (booking pages can be
+  framed) or links to it: a "Book a meeting" button/tile per client, pointing at that
+  client's AM/PM booking page(s), set in Client Preferences.
+- **Bigger build (only if we outgrow that):** read team free/busy via the Google Calendar
+  API and book natively in the portal (needs Workspace admin to grant calendar access to
+  the portal's service account; we'd own invites, reschedules, time zones).
+- **Decide:** whose calendars (AM only, AM + PM, the whole account team?), meeting types +
+  lengths, how far ahead / minimum notice, and whether clients see one combined
+  availability or pick a person.
+
 ## Smaller / later
 - ✅ **Done (v1.90):** client-tile footer now shows a live "Monthly Services · N
   projects" count computed from real dashboard state, not the static string stamped
