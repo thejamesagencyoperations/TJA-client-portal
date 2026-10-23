@@ -157,6 +157,26 @@ calendars) so a client can pick a time for upcoming meetings themselves.
   lengths, how far ahead / minimum notice, and whether clients see one combined
   availability or pick a person.
 
+## Push-button client emails from the portal (to do) 🔖 added 2026-10-23
+From the CTC email analysis (Aug–Oct 2026): sign-off requests and meeting reminders are
+the most repeated hand-written emails. Turn them into buttons the team presses in the portal.
+- **Bundled sign-off email:** one button that sends a single email with EVERYTHING
+  currently awaiting the client's approval — e.g. this month's HeyOrca social calendar,
+  Figma design links, Present Docs deliverables — each with its link, what to decide, the
+  due date and who approves. Replaces separate "FOR REVIEW" emails + re-sent links per tool.
+  - Pull the items from the portal (Present Docs rounds out for review, plus links added
+    per item for HeyOrca / Figma / PandaDoc), so nothing has to be typed.
+  - AM previews before it sends (same review step as the weekly status report).
+  - Name the approver on each item; leadership sign-offs called out separately.
+- **Day-before meeting reminder button** (once calendars are synced into the portal —
+  see "Book a meeting with the team" below):
+  - Pings the client the day before a meeting, sent FROM the AM's email address (not the
+    portal noreply) so it reads like the AM's own reminder.
+  - Built from the meeting (date/time, Zoom link or address), the agenda, and the
+    client's open to-dos due soon ("what we need from you").
+  - Same push-to-send + preview pattern as the bundled sign-off email; could later run
+    automatically once the team trusts it.
+
 ## Smaller / later
 - ✅ **Done (v1.90):** client-tile footer now shows a live "Monthly Services · N
   projects" count computed from real dashboard state, not the static string stamped
