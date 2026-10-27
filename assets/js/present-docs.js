@@ -894,9 +894,13 @@ window.PresentDocs = (function () {
     const allIn = reviewComplete(v);
     return `<div class="pd-card-reviewers${allIn ? " allin" : ""}">${chips}${allIn ? `<span class="pd-rev-chip all">All reviews in</span>` : ""}</div>`;
   }
-  // Feedback-due strip on a gallery card. Settled versions have nothing outstanding, so it hides.
+  // Feedback-due strip on a gallery card. It's the CLIENT's deadline, so once their feedback
+  // is in (any verdict — Approved, Approved w/ Changes, Revisions Needed) it hides. Same
+  // "fully reviewed" rule as the feedback-reminders email: every expected reviewer in, or
+  // (legacy single-reviewer) reviewedAt / a status.
   function dueLine(v) {
-    if (!v || !v.revisionsDue || v.status === "approved") return "";
+    if (!v || !v.revisionsDue) return "";
+    if (expectedOf(v).length ? reviewComplete(v) : (v.reviewedAt || v.status)) return "";
     const over = isOverdue(v.revisionsDue);
     return `<div class="pd-card-due ${over ? "overdue" : ""}">${over ? "Feedback overdue" : "Feedback due"} ${esc(fmtDue(v.revisionsDue))}</div>`;
   }
