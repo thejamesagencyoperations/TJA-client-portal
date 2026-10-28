@@ -635,6 +635,7 @@ window.PresentDocs = (function () {
         : "PNG / JPG / PDF · logos, banners, ad sets, messaging — anything you design"}</span>
     </div>
 
+    <div class="cl-tabs pd-buckets" id="pdBuckets" role="tablist" aria-label="Deliverables"></div>
     <div class="pd-gallery" id="pdGallery"></div>
 
     <div class="pd-modal" id="pdModal">
@@ -916,9 +917,37 @@ window.PresentDocs = (function () {
     const who = v.uploadedBy ? ` · ${esc(v.uploadedBy)}` : "";
     return `<div class="pd-card-pending">⏳ Awaiting release — not visible to client${who}</div>`;
   }
+  /* Active / Approved buckets (Cameron 2026-10-27). Once the latest round is signed off —
+     Approved as Shown or Approved w/ Changes, with every expected reviewer in — the deliverable
+     moves to the Approved tab, so the gallery the client lands on holds only what's still out
+     for proofing. Revisions Needed stays Active (a new version is coming). Uploading a new
+     version starts a fresh round, which brings it back to Active on its own. */
+  let bucket = "active";
+  function isSettled(d) {
+    const v = d && d.versions && d.versions[d.versions.length - 1];
+    if (!v || (v.status !== "approved" && v.status !== "changes")) return false;
+    return expectedOf(v).length ? reviewComplete(v) : true;
+  }
+  function renderBuckets(nActive, nApproved) {
+    const b = $("pdBuckets"); if (!b) return;
+    if (!nApproved && bucket === "approved") bucket = "active";
+    const tab = (k, label, n) => `<button type="button" class="cl-tab${bucket === k ? " active" : ""}" role="tab" aria-selected="${bucket === k}" data-bucket="${k}">${label} <span class="cl-tab-n">${n}</span></button>`;
+    b.innerHTML = tab("active", "Active", nActive) + tab("approved", "Approved", nApproved);
+  }
   function renderGallery() {
     const g = $("pdGallery"); if (!g) return;
     const drafts = visibleDrafts();
+    const approvedItems = items.filter(isSettled), activeItems = items.filter(d => !isSettled(d));
+    renderBuckets(activeItems.length + drafts.length, approvedItems.length);
+    if (items.length || drafts.length) {
+      if (bucket === "approved" && !approvedItems.length) bucket = "active";
+      if (bucket === "active" && !activeItems.length && !drafts.length) {
+        g.innerHTML = `<div class="pd-empty" style="grid-column:1/-1">
+          <div class="big">✓</div>
+          Nothing waiting for review right now. Signed-off work is under <b>Approved</b>.</div>`;
+        return;
+      }
+    }
     if (!items.length && !drafts.length) {
       const canUp = (typeof canUploadDocs === "function") ? canUploadDocs() : true;
       g.innerHTML = `<div class="pd-empty" style="grid-column:1/-1">
@@ -944,7 +973,8 @@ window.PresentDocs = (function () {
         ${draftStrip(d)}
       </div>`;
     }).join("");
-    const sentCards = items.map(d => {
+    const shown = bucket === "approved" ? approvedItems : activeItems;
+    const sentCards = shown.map(d => {
       const v = active(d);
       // The due date always comes from the LATEST round, not the version being viewed — once V2
       // is up, the card shows V2's date even if someone left the viewer parked on V1.
@@ -965,7 +995,7 @@ window.PresentDocs = (function () {
         ${dueLine(last)}
       </div>`;
     }).join("");
-    g.innerHTML = draftCards + sentCards;   // waiting room first — it's the actionable pile
+    g.innerHTML = (bucket === "approved" ? "" : draftCards) + sentCards;   // waiting room first — it's the actionable pile
     // Proofs stored in Drive come back through the authenticated proxy, which <img src> can't
     // call — swap in blob: URLs now that the cards are in the DOM.
     if (window.TJA_FILES && window.TJA_FILES.hydrate) window.TJA_FILES.hydrate(g);
@@ -3590,6 +3620,10 @@ window.PresentDocs = (function () {
     });
     $("pdVerFile").addEventListener("change", e => { handleResubmit(e.target.files[0]); e.target.value = ""; });
 
+    $("pdBuckets").addEventListener("click", e => {
+      const t = e.target.closest("[data-bucket]"); if (!t || t.dataset.bucket === bucket) return;
+      bucket = t.dataset.bucket; renderGallery();
+    });
     $("pdGallery").addEventListener("click", async e => {
       const lnk = e.target.closest("[data-copylink]");
       if (lnk) { e.stopPropagation(); copyDeliverableLink(lnk.dataset.copylink); return; }
