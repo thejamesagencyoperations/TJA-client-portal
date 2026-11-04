@@ -754,7 +754,7 @@ window.ExecSummary = (function () {
          </div>` : "";
     /* SCOPE EXTENSION + OVERAGE (Cameron 2026-10-19). Once a service line passes 100% of its
        contracted hours, its extra hours spill into the Scope Extension line (CRF-detected +
-       hand-added). Anything beyond the extension is OVERAGE — what the client will be billed
+       hand-added; the CRF pill + CRF rate are staff-only, never on a client account). Anything beyond the extension is OVERAGE — what the client will be billed
        on top — shown in its own line so nobody is surprised at month end. Live month only. */
     const extCap = round2(scopeExtTotal(e));
     const spill = round2(disc.reduce((s2, d2) => s2 + Math.max(0, discUsed(e, d2, actual) - (+d2.contracted || 0)), 0));
@@ -763,14 +763,14 @@ window.ExecSummary = (function () {
     const extSt = extCap <= 0 ? "" : extUsed >= extCap ? "complete" : extUsed > 0 ? "in-progress" : "not-started";
     const extLbl = { complete: "Completed", "in-progress": "In progress", "not-started": "Not started" }[extSt] || "";
     const extRow = extCap > 0 ? `<div class="rsvc-row rsvc-ext">
-        <div class="rsvc-top"><span class="rsvc-name">Scope Extension${crfExtHours(e) > 0 ? ` <span class="rsvc-moved" title="Detected from the Client Revenue Forecast">CRF</span>` : ""}</span>
+        <div class="rsvc-top"><span class="rsvc-name">Scope Extension${(admin && crfExtHours(e) > 0) ? ` <span class="rsvc-moved" title="Detected from the Client Revenue Forecast">CRF</span>` : ""}</span>
           <span class="rsvc-right"><span class="rsvc-status is-${extSt}">${extLbl}</span></span></div>
         <div class="rsvc-bar"><span style="width:${extFill}%"></span></div>
         <div class="rsvc-cap">${round1(extUsed)} of ${round1(extCap)} hrs · fills as service lines pass 100%</div>
       </div>` : "";
     const overRow = (overage > 0 && (extCap > 0 || admin)) ? `<div class="rsvc-row rsvc-overage">
         <div class="rsvc-top"><span class="rsvc-name">Overage</span><span class="rsvc-right"><span class="rsvc-status is-over">Billable</span></span></div>
-        <div class="rsvc-cap">${round1(overage)} hrs beyond ${extCap > 0 ? "the scope extension" : "contracted hours"}${(crfActive(e) && +e.crf.rate > 0) ? ` · ≈ $${Math.round(overage * e.crf.rate).toLocaleString()} at $${e.crf.rate}/hr` : ""}</div>
+        <div class="rsvc-cap">${round1(overage)} hrs beyond ${extCap > 0 ? "the scope extension" : "contracted hours"}${(admin && crfActive(e) && +e.crf.rate > 0) ? ` · ≈ $${Math.round(overage * e.crf.rate).toLocaleString()} at $${e.crf.rate}/hr` : ""}</div>
       </div>` : "";
     const setupNote = (admin && unset && !e.projectOnly && !(retainerTotalContracted(e) > 0))
       ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0
