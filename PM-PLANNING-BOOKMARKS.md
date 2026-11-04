@@ -177,13 +177,10 @@ the most repeated hand-written emails. Turn them into buttons the team presses i
   - Same push-to-send + preview pattern as the bundled sign-off email; could later run
     automatically once the team trusts it.
 
-## Gradient page titles everywhere (to do — on hold) 🔖 added 2026-11-04
-The Budget Controls page title trials the Budget Control sheet's white-on-gold→orange
-gradient bar (`.page-title.grad-title` in styles.css). Cameron likes it and wants **every
-page title** in the portal switched to this style — holding until he gives the go-ahead.
-- Roll-out: add `grad-title` to each page's `.page-title` (or make it the `.page-title`
-  default), then check dark mode, mobile widths and long titles (e.g. "Service Allocation
-  Plan (SAP)") so the bar never clips or wraps badly.
+## Gradient page titles everywhere ✅ done (v4.09, 2026-11-04)
+Every page title now uses the Budget Control sheet's gold→orange gradient bar
+(`.page-title` in styles.css), stretched to at least 640px so the fade runs further across
+the page.
 
 ## Smaller / later
 - ✅ **Done (v1.90):** client-tile footer now shows a live "Monthly Services · N
