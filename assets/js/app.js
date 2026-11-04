@@ -1091,9 +1091,9 @@ function applyEngagement() {
   const usesPaidMedia = mediaTabShown(ret);
   el("#navMedia").style.display = usesPaidMedia ? "" : "none";
   if (!usesPaidMedia && currentPage() === "media") activate("exec");
-  // Budget Controls (v407): client-level, paid-media clients — same signal as the Media tab.
-  // Staff see it on every client so they can build one before media is detected.
-  const budgetOk = usesPaidMedia || ((typeof isStaff === "function") && isStaff() && !((typeof isPreviewing === "function") && isPreviewing()));
+  // Budget Controls (v407): OFF by default for everyone — switched on per client in Customize
+  // (e.navShown.budget, the opposite of navHidden).
+  const budgetOk = !!(eng && eng.navShown && eng.navShown.budget);
   el("#navBudget").style.display = budgetOk ? "" : "none";
   if (!budgetOk && currentPage() === "budget") activate("exec");
   if (!planOk && currentPage() === "plan") activate("exec");

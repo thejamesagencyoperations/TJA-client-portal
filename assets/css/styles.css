@@ -2593,3 +2593,10 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
   .bc-approve th { width: 120px; padding: 10px 12px; }
   .bc-title { font-size: 1.2rem; padding-right: 60px; }
 }
+/* v407 — the Budget Control sheet's gradient title bar, trialled on the Budget Controls page
+   (Cameron 2026-11-04: if it looks good, roll out to every page title; if not, remove).
+   White type on a gold → orange bar that fades out to the right. */
+.page-title.grad-title { display: inline-block; color: #fff; padding: 4px 140px 3px 10px; border-radius: 2px;
+  background: linear-gradient(90deg, #F2A541 0%, #E8743B 45%, rgba(232,116,59,0) 100%); }
+@media (max-width: 640px) { .page-title.grad-title { padding-right: 60px; } }
+.bc-banner .bc-client { margin-top: 0; }

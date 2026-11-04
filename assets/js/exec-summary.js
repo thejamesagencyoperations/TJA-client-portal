@@ -1518,7 +1518,10 @@ window.ExecSummary = (function () {
       const TABS = view === "retainer"
         ? [["budget", "Budget Controls"], ["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"], ["backlog", "Backlog"]]
         : [["status", "Status"], ["budget", "Budget Controls"], ["plan", "Project Plan"], ["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"]];
-      const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label, "", !(e.navHidden && e.navHidden[pg]))).join("");
+      // Budget Controls is OFF by default (Cameron 2026-11-04) — switched ON here (e.navShown),
+      // every other tab is on unless removed (e.navHidden)
+      const tabOn = (pg) => pg === "budget" ? !!(e.navShown && e.navShown.budget) : !(e.navHidden && e.navHidden[pg]);
+      const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label, pg === "budget" ? "Off by default — switch on for clients with a paid-media budget." : "", tabOn(pg))).join("");
       const deps = row(view, "data-czdeps", "1", "Dependencies",
         "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(e));
       // The media tab is a retainer feature and lives on the tab bar, not the canvas.
@@ -1579,6 +1582,8 @@ window.ExecSummary = (function () {
       if (kind === "deps")  { const was = depsOn(e); e.depsSection = on; return was; }
       if (kind === "media") { const was = window.DASH.mediaTabShown(); window.DASH.setMediaTab(on); return was; }
       if (kind === "team")  { const was = teamOnly(e, key); e.tileTeamOnly = e.tileTeamOnly || {}; if (on) e.tileTeamOnly[key] = true; else delete e.tileTeamOnly[key]; return was; }
+      if (kind === "tab" && key === "budget") { const was = !!(e.navShown && e.navShown.budget); e.navShown = e.navShown || {}; if (on) e.navShown.budget = true; else delete e.navShown.budget;
+        if (window.DASH.refreshNav) window.DASH.refreshNav(); return was; }
       if (kind === "tab")   { const was = !(e.navHidden && e.navHidden[key]); e.navHidden = e.navHidden || {}; if (on) delete e.navHidden[key]; else e.navHidden[key] = true;
         if (window.DASH.refreshNav) window.DASH.refreshNav(); return was; }
       return null;

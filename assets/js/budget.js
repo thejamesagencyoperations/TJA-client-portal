@@ -110,7 +110,7 @@ window.BUDGET_PAGE = (function () {
     else if (view && !loading && !editingNow() && Date.now() - lastLoad > 30000) setTimeout(() => load(false), 0);
     const head = `
     <div class="page-head">
-      <div class="page-title">Budget Controls</div>
+      <div class="page-title grad-title">Budget Controls</div>
       <div class="page-desc">Your paid-media budget for the year — planned by month, with what's been spent so far.</div>
     </div>`;
     if (!view) return head + `<div class="card sap-empty">${loadErr ? esc(loadErr) : "Loading the budget control…"}</div>`;
@@ -197,7 +197,7 @@ window.BUDGET_PAGE = (function () {
         ${s.driveUrl ? ` · <a href="${esc(s.driveUrl)}" target="_blank" rel="noopener">📄 Signed PDF ↗</a>` : s.driveError ? ` · <span class="bc-bad">PDF not saved to Drive</span>` : ""}</div>`).join("")}</div>` : "";
     const srcNote = ed ? `<div class="sap-src">${y.source === "sheet" ? `Imported from the sheet${y.tab ? ` (tab “${esc(y.tab)}”)` : ""} — edit anything here; the portal copy is the one that counts` : y.copiedFrom ? `Built in the portal from ${esc(y.copiedFrom)}'s channels` : "Built in the portal"} · click a cell to type, the ○ in its corner marks it actualized</div>` : "";
     return `<div class="card bc-sheet${ed ? " bc-edit" : ""}">
-      <div class="bc-banner"><div class="bc-title">BUDGET CONTROL</div><div class="bc-client">${esc(clientName())}</div><div class="bc-year">${esc(y.year)}</div>${srcNote}</div>
+      <div class="bc-banner"><div class="bc-client">${esc(clientName())}</div><div class="bc-year">${esc(y.year)}</div>${srcNote}</div>
       <div class="bc-legend"><span><i class="bc-sw bc-sw-act"></i>Actualized (spent)</span><span><i class="bc-sw"></i>Planned</span></div>
       <div class="bc-wrap"><table class="bc-table">
         <thead>
