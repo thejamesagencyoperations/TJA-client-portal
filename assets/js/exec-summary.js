@@ -1521,7 +1521,7 @@ window.ExecSummary = (function () {
       // Budget Controls is OFF by default (Cameron 2026-11-04) — switched ON here (e.navShown),
       // every other tab is on unless removed (e.navHidden)
       const tabOn = (pg) => pg === "budget" ? !!(e.navShown && e.navShown.budget) : !(e.navHidden && e.navHidden[pg]);
-      const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label, pg === "budget" ? "Off by default — switch on for clients with a paid-media budget." : "", tabOn(pg))).join("");
+      const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label, "", tabOn(pg))).join("");
       const deps = row(view, "data-czdeps", "1", "Dependencies",
         "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(e));
       // The media tab is a retainer feature and lives on the tab bar, not the canvas.
