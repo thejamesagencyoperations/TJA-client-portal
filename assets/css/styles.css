@@ -2495,3 +2495,101 @@ div.sap-lbl { flex-direction: row; justify-content: space-between; align-items: 
 .cp-status { font-size: .76rem; color: var(--text-dim); align-self: center; }
 .cp-status.bad, .cp-err { color: #E5484D; }
 @media (max-width: 640px) { .cp-ph, .cp-person { grid-template-columns: 1fr 64px 64px 64px; } .cp-in { flex-basis: 150px; } }
+
+/* ============================================================
+   v407 — BUDGET CONTROLS (budget.js). Laid out like the team's Budget Control sheet, on a
+   white "paper" card in both themes so it reads exactly like the sheet: quarter bands
+   (light blue / teal), grey category rows, ORANGE = actualized cells, the NET / GROSS rows
+   and the Client Approval block.
+   ============================================================ */
+.bc-sheet { padding: 0; overflow: hidden; background: #fff; color: #111; border-color: #e2e2e2; }
+.bc-sheet .sap-ce:focus, .bc-sheet .bc-ce:focus { background: #fff; }
+.bc-sheet .sap-dim, .bc-sheet .bc-dim { color: #8a8a8a; }
+.bc-sheet .sap-ce:empty::before { color: #9a9a9a; }
+.bc-banner { padding: 16px 18px 10px; }
+.bc-title { display: inline-block; font-weight: 900; font-size: 1.5rem; letter-spacing: .01em; color: #fff; line-height: 1.05;
+  padding: 4px 120px 2px 6px; background: linear-gradient(90deg, #F2A541 0%, #E8743B 40%, rgba(232,116,59,0) 100%); }
+.bc-client { font-weight: 800; font-size: 1.15rem; margin-top: 8px; }
+.bc-year { font-weight: 700; font-size: .72rem; }
+.bc-banner .sap-src { color: #8a8a8a; }
+.bc-legend { display: flex; gap: 16px; padding: 0 18px 10px; font-size: .7rem; color: #666; }
+.bc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.bc-sw { width: 14px; height: 10px; border: 1px solid #bbb; background: #fff; display: inline-block; }
+.bc-sw-act { background: #F68E21; border-color: #F68E21; }
+.bc-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.bc-table { border-collapse: collapse; width: 100%; min-width: 1220px; font-size: .7rem; color: #111; }
+.bc-table th, .bc-table td { border-bottom: 1px solid #e6e6e6; padding: 0 6px; height: 30px; text-align: center; white-space: nowrap; }
+.bc-table .bc-lab { position: sticky; left: 0; z-index: 2; background: #fff; text-align: left; min-width: 180px; max-width: 260px;
+  white-space: normal; border-right: 1px solid #e6e6e6; font-weight: 500; }
+.bc-table thead th { font-weight: 800; font-size: .64rem; letter-spacing: .02em; }
+.bc-q { color: #fff; height: 26px; }
+.bc-q-l { background: #A7DBF2; }
+.bc-q-d { background: #244F56; }
+.bc-tot-h { background: #D9D9D9; color: #fff; font-size: .6rem !important; line-height: 1.25; min-width: 104px; }
+.bc-mrow th { background: #fff; position: relative; }
+.bc-grp td { background: #D9D9D9; height: 26px; }
+.bc-grp td.bc-lab { background: #D9D9D9; font-weight: 800; text-transform: uppercase; font-size: .64rem; }
+.bc-grp td.bc-tot { background: #fff; }
+.bc-chan td.bc-lab { font-size: .7rem; }
+.bc-amt { font-weight: 700; min-width: 76px; position: relative; }
+.bc-amt.is-act { background: #F68E21; }
+.bc-tot { font-weight: 700; text-align: right !important; padding-right: 10px !important; min-width: 104px; }
+.bc-tot-grey { background: #D9D9D9; }
+.bc-sum td { font-weight: 800; height: 32px; }
+.bc-sum td.bc-lab { font-weight: 800; }
+.bc-spacer td { height: 12px; border-bottom: 1px solid #e6e6e6; }
+.bc-chan:hover td:not(.is-act) { background: #fafafa; }
+.bc-chan:hover td.bc-lab { background: #fafafa; }
+/* editing */
+.bc-ce { display: inline-block; min-width: 64px; min-height: 1.2em; padding: 2px 4px; border-radius: 4px; outline: none; cursor: text; }
+.bc-edit .bc-ce:hover { box-shadow: inset 0 0 0 1px rgba(0,0,0,.18); }
+.bc-ce:focus { box-shadow: 0 0 0 2px #FF7800; background: #fff; color: #111; text-align: left; }
+.bc-act { position: absolute; top: 3px; right: 3px; width: 11px; height: 11px; padding: 0; border-radius: 50%;
+  border: 1.5px solid #c9c9c9; background: #fff; cursor: pointer; opacity: .55; }
+.bc-amt:hover .bc-act, .bc-act:focus-visible { opacity: 1; }
+.bc-amt.is-act .bc-act { background: #fff; border-color: #fff; opacity: 1; box-shadow: inset 0 0 0 2px #F68E21; }
+.bc-mact { display: block; margin: 2px auto 0; border: 0; background: none; color: #b5b5b5; cursor: pointer; font-size: .7rem; line-height: 1; padding: 0; }
+.bc-mact.on { color: #F68E21; }
+.bc-tools { display: inline-flex; gap: 2px; margin-left: 6px; opacity: 0; transition: opacity .15s; }
+tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
+.bc-x { border: 0; background: none; color: #999; cursor: pointer; font-size: .72rem; padding: 0 3px; }
+.bc-x:hover { color: #FF7800; }
+.bc-add td { height: 26px; border-bottom: 0; }
+.bc-add .row-add { font-size: .7rem; }
+.bc-gross { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; font-weight: 500; font-size: .64rem; color: #777; }
+.bc-gross input { width: 46px; font: inherit; padding: 1px 4px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #111; }
+/* approval block — the sheet's Client Approval / Print Name / Date of Approval rows */
+.bc-approve { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: .78rem; color: #111; }
+.bc-approve th { text-align: left; font-weight: 500; width: 200px; padding: 12px 18px; border-bottom: 1px solid #e6e6e6; vertical-align: middle; }
+.bc-approve td { padding: 10px 12px; border-bottom: 1px solid #e6e6e6; }
+.bc-approve .sap-sig-name { color: #111; }
+.bc-approve .sap-sign-input { max-width: 360px; background: #fff; color: #111; border-color: #ddd; }
+.bc-sheet .sap-below { padding: 12px 18px 6px; }
+.bc-sigs { display: flex; flex-direction: column; gap: 4px; font-size: .74rem; color: #555; }
+.bc-sigs a { color: #c45f00; }
+.bc-bad { color: #c0282d; }
+.bc-foot { display: flex; align-items: center; gap: 8px; padding: 10px 18px 14px; font-size: .52rem; letter-spacing: .14em; color: #777; font-weight: 700; }
+.bc-logo { background: #F68E21; color: #fff; font-weight: 800; font-size: .82rem; letter-spacing: 0; padding: 1px 5px; }
+/* change log */
+.bc-log { margin-top: 16px; }
+.bc-log-head { font-weight: 800; font-size: .82rem; letter-spacing: .04em; margin-bottom: 10px; }
+.bc-log-sub { font-weight: 400; font-size: .72rem; letter-spacing: 0; color: var(--text-faint); margin-left: 8px; }
+.bc-log-table { width: 100%; border-collapse: collapse; font-size: .76rem; min-width: 720px; }
+.bc-log-table th { text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); background: var(--input); padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.bc-log-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.bc-log-table .bc-num { white-space: nowrap; font-weight: 600; }
+.bc-log-table .bc-note { color: var(--text-dim); }
+.bc-log-table .bc-dim { color: var(--text-faint); }
+.bc-auto { font-size: .6rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.bc-log-form input, .bc-log-form select { width: 100%; box-sizing: border-box; font: inherit; font-size: .74rem; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--input); color: var(--text); }
+.bc-log-add { padding: 5px 12px; }
+/* new-year dialog */
+.bc-ny-opts { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; }
+.bc-ny-opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: .82rem; }
+.bc-ny-opt:has(input:checked) { border-color: var(--orange); background: rgba(255,120,0,.06); }
+.bc-ny-opt .bc-dim { color: var(--text-faint); font-size: .74rem; }
+@media (max-width: 640px) {
+  .bc-table .bc-lab { min-width: 140px; }
+  .bc-approve th { width: 120px; padding: 10px 12px; }
+  .bc-title { font-size: 1.2rem; padding-right: 60px; }
+}

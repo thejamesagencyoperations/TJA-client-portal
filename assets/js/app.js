@@ -642,6 +642,7 @@ const RENDERERS = {
   docs: () => (window.PresentDocs ? window.PresentDocs.render() : ""),
   media: () => (window.MediaIntake ? window.MediaIntake.render() : ""),
   reporting: renderReporting,
+  budget: () => (window.BUDGET_PAGE ? window.BUDGET_PAGE.render() : ""),
   files: renderFiles, backlog: renderBacklog,
 };
 
@@ -888,6 +889,7 @@ function paint(page) {
     if (page === "status") initStatus();
     if (page === "reporting") initReporting();
     if (page === "backlog") initBacklog();
+    if (page === "budget" && window.BUDGET_PAGE) window.BUDGET_PAGE.init(sec);
   }
 }
 // Rebuilding a page clears innerHTML, which collapses the .main scroll container and yanks
@@ -1089,6 +1091,11 @@ function applyEngagement() {
   const usesPaidMedia = mediaTabShown(ret);
   el("#navMedia").style.display = usesPaidMedia ? "" : "none";
   if (!usesPaidMedia && currentPage() === "media") activate("exec");
+  // Budget Controls (v407): client-level, paid-media clients — same signal as the Media tab.
+  // Staff see it on every client so they can build one before media is detected.
+  const budgetOk = usesPaidMedia || ((typeof isStaff === "function") && isStaff() && !((typeof isPreviewing === "function") && isPreviewing()));
+  el("#navBudget").style.display = budgetOk ? "" : "none";
+  if (!budgetOk && currentPage() === "budget") activate("exec");
   if (!planOk && currentPage() === "plan") activate("exec");
   if (isRetainer() && currentPage() === "projectplan") activate("exec");
   if (!isRetainer() && currentPage() === "backlog") activate("exec");

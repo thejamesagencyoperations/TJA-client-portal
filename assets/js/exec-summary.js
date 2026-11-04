@@ -1516,8 +1516,8 @@ window.ExecSummary = (function () {
       // LEFT-HAND TABS — any can be removed except the Executive Summary and the Service
       // Allocation Plan (the retainer's "status" page). Media has its own switch above.
       const TABS = view === "retainer"
-        ? [["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"], ["backlog", "Backlog"]]
-        : [["status", "Status"], ["plan", "Project Plan"], ["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"]];
+        ? [["budget", "Budget Controls"], ["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"], ["backlog", "Backlog"]]
+        : [["status", "Status"], ["budget", "Budget Controls"], ["plan", "Project Plan"], ["docs", "Present Docs"], ["reporting", "Reporting"], ["files", "Files"]];
       const tabs = TABS.map(([pg, label]) => row(view, "data-cztab", pg, label, "", !(e.navHidden && e.navHidden[pg]))).join("");
       const deps = row(view, "data-czdeps", "1", "Dependencies",
         "A second list inside the To Do's tile. Off, the to-do list runs the full height.", depsOn(e));
