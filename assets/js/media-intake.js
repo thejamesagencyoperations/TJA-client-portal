@@ -104,14 +104,9 @@ window.MediaIntake = (function () {
       <div class="mi-err" id="miErr" style="display:none"></div>
       <div class="mi-actions"><button type="button" class="btn btn-primary" id="miSubmit">Submit request</button><span class="mi-saved" id="miSaved"></span></div>
     </div>`;
-    const desc = media
-      ? "Incoming creative-asset requests from this client. Set each one’s status as you work it."
-      : staff ? "Creative-asset requests submitted by this client for the paid-media team."
-      : "Submit creative assets to our paid-media team. If you're sending multiple assets, use “＋ Add asset” for each one (unless every asset has the same answers).";
     return `
     <div class="page-head">
       <div class="page-title">Media Creative Asset Request</div>
-      <div class="page-desc">${desc}</div>
     </div>
     ${form}
     <div class="mi-list-head">${submissions.length ? (media ? "Requests" : "Submitted requests") : (media ? "No requests yet" : "")}</div>

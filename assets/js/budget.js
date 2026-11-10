@@ -111,7 +111,6 @@ window.BUDGET_PAGE = (function () {
     const head = `
     <div class="page-head">
       <div class="page-title">Budget Controls</div>
-      <div class="page-desc">Your paid-media budget for the year — planned by month, with what's been spent so far.</div>
     </div>`;
     if (!view) return head + `<div class="card sap-empty">${loadErr ? esc(loadErr) : "Loading the budget control…"}</div>`;
 

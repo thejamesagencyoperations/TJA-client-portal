@@ -122,7 +122,6 @@ window.SAP_PAGE = (function () {
     const head = `
     <div class="page-head">
       <div class="page-title">Service Allocation Plan</div>
-      <div class="page-desc">What the team is focused on for you each month.</div>
     </div>`;
     if (!view) return head + `<div class="card sap-empty">${loadErr ? esc(loadErr) : "Loading the plan…"}</div>`;
 

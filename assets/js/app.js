@@ -371,7 +371,6 @@ function renderProjectFolder() {
   <div class="page-head page-head-row">
     <div>
       <div class="page-title">Projects</div>
-      <div class="page-desc">${projects.length ? `${projects.length} project${projects.length === 1 ? "" : "s"}${bucket === "current" ? " — choose one to open." : " archived — hidden from the client."}` : (bucket === "archived" ? "No archived projects." : "No projects yet — add your first one.")}</div>
     </div>
     ${tabs}
   </div>
@@ -458,7 +457,6 @@ function renderStatus() {
   return `
   <div class="page-head">
     <div class="page-title">Status</div>
-    <div class="page-desc">Service-line detail — completed &amp; in-progress efforts. <span style="color:var(--text-faint)">(SAP + Status merge lands here.)</span></div>
     ${admin ? `<button class="btn btn-ghost" data-statusconnect title="${esc(e.statusSheetUrl || "")}">${e.statusSheetUrl ? "✎ Change sheet" : "🔗 Upload / connect Status Report"}</button>` : ""}
   </div>
   <div class="card"><table class="table">
@@ -528,7 +526,6 @@ function renderBacklog() {
   return `
   <div class="page-head">
     <div class="page-title">Backlog</div>
-    <div class="page-desc">Ideas &amp; efforts that don't fit the current retainer — SOW conversation starters.</div>
   </div>
   ${admin ? `<div class="admin-hint">✎ Admin — fields are editable</div>` : ""}
   <div id="backlogList">${rows || `<div class="placeholder-note">No backlog items yet.</div>`}</div>
@@ -563,7 +560,6 @@ function renderFiles() {
   return `
   <div class="page-head">
     <div class="page-title">Files</div>
-    <div class="page-desc">Signed agreements (MSA, SOW, proposals) and shared documents.</div>
   </div>
   <div class="pd-toolbar">
     <button class="btn btn-upload" id="filesUploadBtn">
@@ -664,7 +660,6 @@ function renderPlan() {
   return `
   <div class="page-head">
     <div class="page-title">Project Plan</div>
-    <div class="page-desc">${esc(e.label || e.name || "Project")}</div>
     ${planConnectBtn(e, admin)}
   </div>
   <div class="placeholder-note" style="margin-top:10px">${admin
@@ -727,7 +722,6 @@ function renderPlanSheet(e, admin) {
   ${admin ? `<div class="admin-hint">✎ Admin — this plan is read from the connected Google Sheet. Edit the sheet, then hit “Change / refresh” to re-pull.</div>` : ""}
   <div class="page-head">
     <div class="page-title">Project Plan</div>
-    <div class="page-desc">${esc(m.title || e.label || e.name || "Project")}</div>
     ${planConnectBtn(e, admin)}
   </div>
   <div class="plan-card plan-sheet-summary">
@@ -837,7 +831,6 @@ function renderReporting() {
   const head = `
   <div class="page-head">
     <div class="page-title">Reporting</div>
-    <div class="page-desc">Performance reporting &amp; analytics for this client.</div>
   </div>`;
   if (!isRetainer() || !e) return head + `<div class="placeholder-note" style="margin-top:10px">📊 Reporting lives on the Monthly Services view.</div>`;
   const admin = ppAdmin();

@@ -600,7 +600,6 @@ window.PresentDocs = (function () {
     return `
     <div class="page-head">
       <div class="page-title">Present Docs</div>
-      <div class="page-desc">Upload creative deliverables for client review — versions, markup, pinned comments &amp; approvals.</div>
     </div>
 
     <!-- Upload is a STAFF capability, not admin-only: creatives keep the toolbar (their
