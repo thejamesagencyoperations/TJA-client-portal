@@ -3,7 +3,7 @@
    Tabs left open keep running whatever JS they loaded — across
    deploys, for days. On 2026-07-17 a pre-v2.41 tab kept syncing
    old-shaped data hourly after the fix had shipped. This polls
-   version.json every few minutes and reloads the tab when a new
+   version.json every minute and reloads the tab when a new
    release lands, so old code can never run for long.
 
    RELEASE RITUAL (in addition to the ?v=NN cache-buster sed):
@@ -25,7 +25,7 @@
   const src = (document.currentScript && document.currentScript.src) || "";
   const MINE = +(new URLSearchParams(src.split("?")[1] || "").get("v")) || 0;
   if (!MINE) return;                         // loaded without a version tag — nothing to compare
-  const EVERY = 4 * 60 * 1000;               // 4 minutes
+  const EVERY = 60 * 1000;                   // 1 minute (version.json is tiny)
   const KEY = "tja_vreload_target";
   const RETRY_AFTER = 11 * 60 * 1000;        // just past Pages' 10-minute HTML cache
 
@@ -59,7 +59,14 @@
       if (prev && typeof prev !== "object") prev = { v: +prev, at: 0 };
       if (prev && prev.v === target && (Date.now() - (prev.at || 0)) < RETRY_AFTER) return;
       try { sessionStorage.setItem(KEY, JSON.stringify({ v: target, at: Date.now() })); } catch (e) {}
-      location.reload();
+      /* FRESH PAGE, NOT A PLAIN RELOAD (2026-11-10). location.reload() is answered from the
+         browser's / GitHub Pages' 10-minute HTML cache, so the "new" page often still carried
+         the old ?v= tags and the tab stayed stale until the 11-minute retry. A one-off `_r`
+         query param is a different URL to both caches, so the reload gets this release's HTML
+         straight away. Other params and the #hash are kept. */
+      const u = new URL(location.href);
+      u.searchParams.set("_r", String(target));
+      location.replace(u.toString());
     } catch (e) { /* offline / blocked — try again next tick */ }
   }
 
