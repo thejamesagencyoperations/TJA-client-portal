@@ -56,6 +56,7 @@ CSS tokens at the top of that file.
 
 | Version | Notes                                                                    |
 | ------- | ------------------------------------------------------------------------ |
+| v4.11   | **AM/PMs can click empty fields again.** The inline-edit styles (hover outline, the "—" placeholder for an empty field) only applied to admins, so for an AM/PM an empty field (e.g. a project's Goal) was a zero-width box they could not click. They now apply to anyone who can edit. The project **Goal** field also spans the full banner, with a "Click to add this project's goal…" placeholder when empty. |
 | v4.10   | **No CRF on client accounts.** The "CRF" pill on the Scope Extension service line, and the CRF-rate dollar estimate on the Overage line, now show to staff only, never to a client login or in Client View preview. |
 | v4.09   | **Gradient page titles everywhere.** Every page title (dashboard tabs, Clients, Admin Center, Notification Center, Health, History) uses the Budget Control sheet's white-on-gold→orange bar, now stretched further: at least 640px wide (full width on phones) with a longer fade. Long titles wrap inside the bar on mobile. |
 | v4.08   | **Customize: Budget Controls is a plain on/off switch** like the other tabs (description removed). Gradient page titles across the portal added to the to-do list (on hold). |

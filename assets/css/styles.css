@@ -1856,23 +1856,28 @@ a.link-pill.is-set:hover { filter: brightness(1.08); }
 .ryg-dot.red { background: var(--bad); }
 .section-title .row-add { margin: 0 0 0 8px; vertical-align: middle; padding: 4px 9px; }
 
-/* ---- inline editable fields (admin) — subtle by default, clear on hover/focus ---- */
+/* ---- inline editable fields (anyone who can edit: admin, or an AM/PM on their own client —
+   ed() only outputs contenteditable for them, so no role gate here) — subtle by default, clear on hover/focus ---- */
 .ed {
   border-radius: 5px; outline: none; transition: background .12s ease, box-shadow .12s ease;
 }
-body[data-role="admin"] .ed[contenteditable="true"] {
+.ed[contenteditable="true"] {
   cursor: text; padding: 1px 4px; margin: 0 -4px; border-radius: 6px;
 }
-body[data-role="admin"] .ed[contenteditable="true"]:hover {
+.ed[contenteditable="true"]:hover {
   background: var(--hover); box-shadow: inset 0 0 0 1px rgba(246,142,33,.3);
 }
-body[data-role="admin"] .ed[contenteditable="true"]:focus {
+.ed[contenteditable="true"]:focus {
   background: rgba(246,142,33,.08); box-shadow: inset 0 0 0 1px var(--orange);
 }
 /* empty editable fields show a faint placeholder dash so they're findable but not boxy */
-body[data-role="admin"] .ed[contenteditable="true"]:empty::before {
+.ed[contenteditable="true"]:empty::before {
   content: "—"; color: var(--text-faint);
 }
+/* the Goal banner's field spans the whole strip, so an empty goal is still easy to click */
+.ns-banner-text .ed[contenteditable="true"] { display: block; width: 100%; min-height: 1.45em; margin: 0; padding: 4px 8px;
+  box-shadow: inset 0 0 0 1px var(--line); }
+.ns-banner-text .ed[contenteditable="true"]:empty::before { content: "Click to add this project's goal…"; }
 .row-add {
   background: transparent; border: 1px dashed var(--line); color: var(--text-dim);
   border-radius: 7px; padding: 7px 11px; font-size: .74rem; cursor: pointer; font-family: inherit; margin-top: 10px;
