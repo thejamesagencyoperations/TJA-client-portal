@@ -13,12 +13,25 @@
    engagement + the burn tile's "unset" hint in exec-summary.js.
    ============================================================ */
 window.WMJ_RETAINER_VALUE = (function () {
-  const URL = "https://script.google.com/macros/s/AKfycbxq5ARfE9Tourj-ZD85aMW0QquSH1AUan3pLkjETUJ0dNb2zzOwTEECdjsqqkO54HPR/exec";
   const PENDING = /pending|proposal|draft|on\s*hold/i;
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
+  /* THROUGH THE SERVER, NOT DIRECT (2026-11-16, launch audit). The Apps Script URL used to sit
+     right here, in a public repo, so anyone could pull every client's SOW $ and rate. It now
+     lives only in a Supabase secret; the staff-only `retainer-value` edge function calls it
+     with a shared key (which the script checks) and caches the result for 15 minutes. */
   async function fetchRaw() {
-    const res = await fetch(URL, { cache: "no-store" });
+    const cfg = window.SUPABASE_CONFIG || {};
+    const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
+    if (!base || !(window.SUPA && window.SUPA.enabled && window.SUPA.client)) throw new Error("retainer-value: backend unavailable");
+    const { data } = await window.SUPA.client.auth.getSession();
+    const token = data && data.session ? data.session.access_token : null;
+    if (!token) throw new Error("retainer-value: not signed in");
+    const res = await fetch(base + "/retainer-value", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: "{}",
+    });
     if (!res.ok) throw new Error("retainer-value fetch " + res.status);
     return res.json();
   }

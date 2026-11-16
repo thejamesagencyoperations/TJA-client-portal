@@ -40,7 +40,7 @@ Push to `main` → deploy in ~35s (GitHub Pages has occasionally run 5–10 min)
 ## Versioning (do this on EVERY change to a local asset)
 - Every local `<script>`/`<link>` carries a cache-buster `?v=NN`.
 - The sidebar shows a version pill `Sandbox · vX.Y`.
-- **Currently `?v=415`** (and `version.json` `{"v": 415}`). Bump it across EVERY
+- **Currently `?v=416`** (and `version.json` `{"v": 416}`). Bump it across EVERY
   `*.html` + `version.json` on any asset edit, and add a `README.md` changelog row.
 
 ## Present Docs writes — never blind-overwrite
@@ -63,7 +63,7 @@ Push to `main` → deploy in ~35s (GitHub Pages has occasionally run 5–10 min)
   `1d-iwYnkA_rmdZyysRPz_b1X7zSucBBviIBwhzdlrj00`. **Never write to these — it
   would break agency operations. Hard stop.**
 - **Retainer-value feed**: a read-only Apps Script (`doGet` only) off the
-  revenue-forecasting workbook; `/exec` URL in `retainer-value.js`. Burn total =
+  revenue-forecasting workbook, called ONLY by the staff-only `retainer-value` edge function (URL + shared key in Supabase secrets `RETAINER_VALUE_URL` / `RETAINER_VALUE_KEY`; the script checks the key). Never put the `/exec` URL back in the browser code. Burn total =
   this month's billing ÷ rate — **never ÷12** (retainers are flighted).
 - New clients that appear in the WMJ sheets **auto-import** (all data). The only
   manual per-client step is the per-discipline retainer hours split.
