@@ -68,18 +68,34 @@
   const save = () => { try { sessionStorage.setItem(KEY, JSON.stringify(msgs.slice(-40))); } catch (e) { /* private mode */ } };
 
   /* ---------- DOM ---------- */
-  const ICON = `<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 3C6.9 3 3 6.5 3 10.8c0 2.4 1.2 4.5 3.2 5.9L5.6 20.4c-.1.5.4.9.9.6l4-2.3c.5.1 1 .1 1.5.1 5.1 0 9-3.5 9-7.9S17.1 3 12 3Z"/></svg>`;
-  const AVATAR = `<span class="atj-avatar" aria-hidden="true">tja</span>`;
+  /* Timmy's face — a little TJA-orange character (inline SVG, no image file). Gradient ids are
+     unique per copy so several faces on the page never share one definition. */
+  let faceSeq = 0;
+  function face(size) {
+    const id = "atjg" + (++faceSeq);
+    return `<svg class="atj-face" viewBox="0 0 64 64" width="${size}" height="${size}" aria-hidden="true">
+      <defs><radialGradient id="${id}" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="#FFC266"/><stop offset=".55" stop-color="#F68E21"/><stop offset="1" stop-color="#DA662A"/></radialGradient></defs>
+      <path d="M33 9c1-4 4-6 8-6-1 4-4 6-8 6z" fill="#4CAF50"/><path d="M32 12V7" stroke="#7a4a1c" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="32" cy="36" r="25" fill="url(#${id})"/>
+      <ellipse cx="24" cy="25" rx="7" ry="4" fill="#fff" opacity=".28"/>
+      <ellipse cx="23.5" cy="35" rx="3.6" ry="4.6" fill="#2b1a0e"/><ellipse cx="40.5" cy="35" rx="3.6" ry="4.6" fill="#2b1a0e"/>
+      <circle cx="24.8" cy="33.2" r="1.4" fill="#fff"/><circle cx="41.8" cy="33.2" r="1.4" fill="#fff"/>
+      <ellipse cx="16.5" cy="43" rx="4" ry="2.6" fill="#ff5f6d" opacity=".45"/><ellipse cx="47.5" cy="43" rx="4" ry="2.6" fill="#ff5f6d" opacity=".45"/>
+      <path d="M26 44.5c3.4 3.6 8.6 3.6 12 0" fill="none" stroke="#2b1a0e" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>`;
+  }
+  const ICON = () => face(30);
+  const AVATAR_HTML = () => `<span class="atj-avatar" aria-hidden="true">${face(30)}</span>`;
   let root, panel, list, input, sendBtn;
 
   function build() {
     root = document.createElement("div");
     root.className = "atj";
     root.innerHTML = `
-      <button class="atj-bubble" type="button" aria-label="Open ${esc(cfg.name)}" aria-expanded="false">${ICON}${cfg.staffPreview ? `<span class="atj-badge">Staff preview</span>` : ""}</button>
+      <button class="atj-bubble" type="button" aria-label="${esc(label())} (drag to move it up or down)" title="Drag to move up or down" aria-expanded="false">${ICON()}<span class="atj-label">${esc(label())}</span>${cfg.staffPreview ? `<span class="atj-badge">Staff preview</span>` : ""}</button>
       <section class="atj-panel" role="dialog" aria-label="${esc(cfg.name)}" aria-hidden="true">
         <header class="atj-head">
-          ${AVATAR}
+          ${AVATAR_HTML()}
           <div class="atj-title"><b>${esc(cfg.name)}</b><span>${cfg.staffPreview ? "Preview · hidden from clients" : "Answers from your portal"}</span></div>
           <button class="atj-icon" type="button" data-atj="clear" title="Start a new chat" aria-label="Start a new chat">↺</button>
           <button class="atj-icon" type="button" data-atj="close" title="Close" aria-label="Close">✕</button>
@@ -98,7 +114,9 @@
     input = root.querySelector("textarea");
     sendBtn = root.querySelector(".atj-send");
 
-    root.querySelector(".atj-bubble").addEventListener("click", () => toggle(!open));
+    bubble = root.querySelector(".atj-bubble");
+    bubble.addEventListener("click", () => { if (dragMoved) { dragMoved = false; return; } toggle(!open); });
+    initDrag();
     root.addEventListener("click", onClick);
     root.querySelector(".atj-form").addEventListener("submit", (e) => { e.preventDefault(); ask(input.value); });
     input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(input.value); } });
@@ -106,6 +124,73 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && open) toggle(false); });
     render();
   }
+  /* ---------- the button slides up and down the right edge (position remembered per viewer) ---------- */
+  const POS_KEY = "tja_asktja_y";
+  let bubble, btnY = null, drag = null, dragMoved = false;
+  const isPhone = () => window.innerWidth <= 760;
+  function yBounds() {
+    const h = bubble.offsetHeight || 48;
+    const top = 72;                                          // clear of the top bar
+    const bottom = window.innerHeight - h - (isPhone() ? 88 : 20);   // phones: clear of the tab bar
+    return [top, Math.max(top, bottom)];
+  }
+  function place(y) {
+    const [lo, hi] = yBounds();
+    btnY = Math.min(hi, Math.max(lo, y));
+    root.style.setProperty("--atj-y", btnY + "px");
+    placePanel();
+  }
+  // desktop: open the panel above the button when there's room, otherwise below it
+  function placePanel() {
+    if (isPhone() || btnY == null) return;
+    const vh = window.innerHeight, gap = 12, margin = 16, want = Math.min(620, vh - 2 * margin);
+    const bh = bubble.offsetHeight || 48;
+    const above = btnY - gap - margin, below = vh - (btnY + bh) - gap - margin;
+    let top, h;
+    if (above >= want) { h = want; top = btnY - gap - h; }
+    else if (below >= want) { h = want; top = btnY + bh + gap; }
+    else if (above >= below) { h = Math.max(320, above); top = Math.max(margin, btnY - gap - h); }
+    else { h = Math.max(320, below); top = btnY + bh + gap; }
+    if (top + h > vh - margin) h = Math.max(260, vh - margin - top);
+    root.style.setProperty("--atj-ptop", Math.round(top) + "px");
+    root.style.setProperty("--atj-ph", Math.round(h) + "px");
+  }
+  function initDrag() {
+    let saved = null;
+    try { saved = parseFloat(localStorage.getItem(POS_KEY)); } catch (e) { /* storage blocked */ }
+    place(Number.isFinite(saved) ? saved * window.innerHeight : Infinity);   // default: bottom-right
+    bubble.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      drag = { y0: e.clientY, top0: btnY, id: e.pointerId };
+      dragMoved = false;
+    });
+    bubble.addEventListener("pointermove", (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dy = e.clientY - drag.y0;
+      if (!dragMoved && Math.abs(dy) < 5) return;            // a tap, not a drag
+      if (!dragMoved) { dragMoved = true; root.classList.add("is-dragging"); try { bubble.setPointerCapture(e.pointerId); } catch (_) {} }
+      e.preventDefault();
+      place(drag.top0 + dy);
+    });
+    const end = () => {
+      if (!drag) return;
+      drag = null;
+      root.classList.remove("is-dragging");
+      if (dragMoved) { try { localStorage.setItem(POS_KEY, String(btnY / window.innerHeight)); } catch (e) { /* fine */ } }
+    };
+    bubble.addEventListener("pointerup", end);
+    bubble.addEventListener("pointercancel", end);
+    // keyboard: arrow keys nudge it when focused
+    bubble.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault();
+      place(btnY + (e.key === "ArrowUp" ? -24 : 24));
+      try { localStorage.setItem(POS_KEY, String(btnY / window.innerHeight)); } catch (_) {}
+    });
+    window.addEventListener("resize", () => place(btnY));
+  }
+  const label = () => (/^ask\b/i.test(cfg.name) ? cfg.name : "Ask " + cfg.name);
+
   function grow() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 120) + "px"; }
 
   function toggle(on) {
@@ -114,7 +199,7 @@
     panel.setAttribute("aria-hidden", on ? "false" : "true");
     root.querySelector(".atj-bubble").setAttribute("aria-expanded", on ? "true" : "false");
     document.documentElement.classList.toggle("atj-locked", on);   // phones: stop the page scrolling behind
-    if (on) { render(); setTimeout(() => input.focus({ preventScroll: true }), 60); }
+    if (on) { placePanel(); render(); setTimeout(() => input.focus({ preventScroll: true }), 60); }
   }
 
   function welcome() {
@@ -127,12 +212,12 @@
     list.innerHTML = rows.map((m, i) => {
       if (m.role === "user") return `<div class="atj-msg atj-user"><div class="atj-bub">${esc(m.content).replace(/\n/g, "<br>")}</div></div>`;
       const handoff = m.handoff ? `<button class="atj-hand" type="button" data-atj="handoff" data-i="${i - 1}">Send this to my account manager</button>` : "";
-      return `<div class="atj-msg atj-bot">${AVATAR}<div class="atj-bub">${fmt(m.content)}${handoff}</div></div>`;
-    }).join("") + (busy ? `<div class="atj-msg atj-bot">${AVATAR}<div class="atj-bub atj-typing"><i></i><i></i><i></i></div></div>` : "");
+      return `<div class="atj-msg atj-bot">${AVATAR_HTML()}<div class="atj-bub">${fmt(m.content)}${handoff}</div></div>`;
+    }).join("") + (busy ? `<div class="atj-msg atj-bot">${AVATAR_HTML()}<div class="atj-bub atj-typing"><i></i><i></i><i></i></div></div>` : "");
     chips();
     list.scrollTop = list.scrollHeight;
     input.disabled = busy || !cfg.aiReady; sendBtn.disabled = busy || !cfg.aiReady;
-    input.placeholder = cfg.aiReady ? "Ask a question…" : "Typed questions are coming soon. Try the buttons above.";
+    input.placeholder = cfg.aiReady ? "Ask a question…" : "Typing opens soon. Use the buttons above.";
   }
 
   let chipMode = "main";

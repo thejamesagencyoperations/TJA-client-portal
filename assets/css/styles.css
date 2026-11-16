@@ -2739,17 +2739,21 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
 /* ============================================================
    ASK TJA — chat bubble + panel (v4.21). All new .atj-* classes; nothing above is touched.
    ============================================================ */
-.atj { position: fixed; right: 22px; bottom: 22px; z-index: 45; font-family: var(--font); }
-.atj-bubble { position: relative; width: 58px; height: 58px; border-radius: 50%; border: none; cursor: pointer;
-  background: var(--tja-grad); color: #fff; display: grid; place-items: center;
-  box-shadow: 0 10px 28px rgba(218,102,42,.38), 0 2px 6px rgba(0,0,0,.18); transition: transform .15s ease; }
+.atj { font-family: var(--font); }
+.atj-bubble { position: fixed; right: 18px; top: var(--atj-y, calc(100vh - 70px)); z-index: 45; height: 48px; padding: 0 18px 0 14px;
+  border-radius: 999px; border: none; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+  background: var(--tja-grad); color: #fff; display: flex; align-items: center; gap: 8px; font: inherit; font-size: .9rem; font-weight: 700;
+  box-shadow: 0 10px 28px rgba(218,102,42,.38), 0 2px 6px rgba(0,0,0,.18); transition: transform .15s ease, box-shadow .15s ease; }
+.atj-bubble .atj-face { width: 36px; height: 36px; flex: none; margin-left: -8px; background: #fff; border-radius: 50%; padding: 1px; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.atj-label { white-space: nowrap; }
+.atj.is-dragging .atj-bubble { cursor: grabbing; transform: scale(1.04); box-shadow: 0 16px 36px rgba(218,102,42,.45), 0 2px 6px rgba(0,0,0,.2); transition: none; }
 .atj-bubble:hover { transform: translateY(-2px); }
 .atj-bubble:focus-visible { outline: 3px solid var(--orange-soft); outline-offset: 3px; }
-.atj.is-open .atj-bubble { transform: scale(.92); }
+.atj.is-open .atj-bubble { box-shadow: 0 4px 12px rgba(218,102,42,.3); }
 .atj-badge { position: absolute; right: 50%; transform: translateX(50%); bottom: -9px; white-space: nowrap;
   font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 2px 7px; border-radius: 999px;
   background: var(--panel); color: var(--accent-text); border: 1px solid var(--line); }
-.atj-panel { position: absolute; right: 0; bottom: 74px; width: 390px; height: min(620px, calc(100vh - 120px));
+.atj-panel { position: fixed; right: 22px; top: var(--atj-ptop, 80px); z-index: 46; width: 390px; height: var(--atj-ph, min(620px, calc(100vh - 120px)));
   display: flex; flex-direction: column; overflow: hidden; background: var(--panel); color: var(--text);
   border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow);
   opacity: 0; visibility: hidden; transform: translateX(24px); transition: opacity .18s ease, transform .18s ease, visibility .18s; }
@@ -2762,8 +2766,8 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
 .atj-icon { width: 34px; height: 34px; border-radius: 9px; border: 1px solid transparent; background: none; color: var(--text-dim);
   cursor: pointer; font-size: 15px; display: grid; place-items: center; }
 .atj-icon:hover { background: var(--hover); color: var(--text); border-color: var(--line); }
-.atj-avatar { flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--tja-grad); color: #fff;
-  display: grid; place-items: center; font-weight: 900; font-size: 12px; letter-spacing: -.5px; }
+.atj-avatar { flex: none; width: 30px; height: 30px; display: grid; place-items: center; }
+.atj-avatar .atj-face { width: 30px; height: 30px; display: block; }
 .atj-list { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
 .atj-msg { display: flex; gap: 8px; align-items: flex-end; max-width: 100%; }
 .atj-user { justify-content: flex-end; }
@@ -2799,8 +2803,8 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
 
 /* phones: bubble sits above the bottom tab bar; the panel opens full-screen */
 @media (max-width: 760px) {
-  .atj { right: 14px; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
-  .atj-bubble { width: 52px; height: 52px; }
+  .atj-bubble { right: 12px; height: 44px; padding: 0 15px 0 10px; font-size: .85rem; }
+  .atj-bubble .atj-face { width: 32px; height: 32px; margin-left: -6px; }
   .atj-panel { position: fixed; inset: 0; width: auto; height: auto; border-radius: 0; border: none; transform: translateY(16px); z-index: 60; }
   .atj-head { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
   .atj-form { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
