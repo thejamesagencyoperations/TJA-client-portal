@@ -7,6 +7,17 @@
    ============================================================ */
 window.MediaIntake = (function () {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  /* LINKS FROM STORED DATA ARE http(s) ONLY (2026-11-16, launch audit). Clients can write some
+     of this data (deliverables, files, media requests), and esc() alone lets "javascript:…"
+     through — it would run in the portal the moment a staff member clicked or loaded it.
+     Anything that isn't http(s) (or an inline image / blob for proofs) renders as "#". */
+  const safeUrl = (u, allowInline) => {
+    const s = String(u == null ? "" : u).trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    if (allowInline && /^(data:image\/|data:video\/|data:application\/pdf|blob:)/i.test(s)) return s;
+    return "#";
+  };
+
   const sess = () => ((typeof getSession === "function" && getSession()) || {});
   const clientId = () => sess().client;
   const isStaff = () => (typeof window.isStaff === "function") ? window.isStaff() : false;
@@ -70,8 +81,8 @@ window.MediaIntake = (function () {
       const bits = [];
       if (a.purpose) bits.push(esc(a.purpose) + (a.purposeDetail ? ` — ${esc(a.purposeDetail)}` : ""));
       if (a.launchDate) bits.push("launch " + esc(a.launchDate));
-      const file = a.fileUrl ? ` · <a href="${esc(a.fileUrl)}" target="_blank" rel="noopener">${esc(a.fileName || "file")}</a>` : "";
-      const link = a.driveLink ? ` · <a href="${esc(a.driveLink)}" target="_blank" rel="noopener">link</a>` : "";
+      const file = a.fileUrl ? ` · <a href="${esc(safeUrl(a.fileUrl))}" target="_blank" rel="noopener">${esc(a.fileName || "file")}</a>` : "";
+      const link = a.driveLink ? ` · <a href="${esc(safeUrl(a.driveLink))}" target="_blank" rel="noopener">link</a>` : "";
       return `<div class="mi-sub-asset"><span class="mi-sub-aname">${esc(a.name || "Asset " + (i + 1))}</span>${file}${link}${bits.length ? `<span class="mi-sub-meta">${bits.join(" · ")}</span>` : ""}</div>`;
     }).join("");
     const st = STATUS[s.status] || "New";

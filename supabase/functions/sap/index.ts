@@ -387,12 +387,16 @@ Deno.serve(async (req) => {
   const caller = await getCaller(req);
   if (!caller) return json(req, 401, { error: "not signed in" });
   const staff = caller.role !== "client";
+  /* WHO MAY CHANGE A SAP (2026-11-16, launch audit): only admins and AM/PMs. "staff" (any
+     non-client) is right for READING any client's plan, but it also let the view-only
+     `team` role — and creative / paid-media — connect, edit and sign SAPs. */
+  const editor = caller.role === "admin" || caller.role === "manager";
   const clientId = staff ? String(body.clientId || "") : caller.clientId;     // a client is pinned to its own account
   if (!clientId) return json(req, 400, { error: "clientId required" });
 
   try {
     if (action === "connect") {
-      if (!staff) return json(req, 403, { error: "staff only" });
+      if (!editor) return json(req, 403, { error: "Only admins and AM/PMs can connect a SAP." });
       const url = String(body.url || "").trim();
       if (!url) { await casRetainer(clientId, (e) => { delete e.sapUrl; }); return json(req, 200, { ok: true, view: publicView(await refresh(clientId)) }); }
       if (!parseDriveFileId(url)) return json(req, 400, { error: "That doesn't look like a Google Sheets link." });
@@ -414,7 +418,7 @@ Deno.serve(async (req) => {
        (Cameron 2026-10-20); a saved month is marked source:"portal" so the sheet stops
        driving it. A signed month can still be edited — the page then says it changed. */
     if (action === "save") {
-      if (!staff) return json(req, 403, { error: "staff only" });
+      if (!editor) return json(req, 403, { error: "Only admins and AM/PMs can edit a SAP." });
       const mk = monthFromKey(String(body.month || ""));
       if (!mk || mk.key < START_KEY) return json(req, 400, { error: "Pick a month from October 2026 on." });
       // deno-lint-ignore no-explicit-any
@@ -442,6 +446,8 @@ Deno.serve(async (req) => {
     }
 
     if (action === "sign") {
+      // the client signs; an admin or AM/PM may sign on their behalf — nobody else
+      if (staff && !editor) return json(req, 403, { error: "Only the client, an admin or an AM/PM can sign a SAP." });
       const name = String(body.name || "").trim().slice(0, 120);
       if (!name) return json(req, 400, { error: "Type your full name to sign." });
       const sig = String(body.signature || "");

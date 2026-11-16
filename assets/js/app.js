@@ -10,6 +10,17 @@
 const D = window.CLIENT_DATA;
 const el = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+  /* LINKS FROM STORED DATA ARE http(s) ONLY (2026-11-16, launch audit). Clients can write some
+     of this data (deliverables, files, media requests), and esc() alone lets "javascript:…"
+     through — it would run in the portal the moment a staff member clicked or loaded it.
+     Anything that isn't http(s) (or an inline image / blob for proofs) renders as "#". */
+  const safeUrl = (u, allowInline) => {
+    const s = String(u == null ? "" : u).trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    if (allowInline && /^(data:image\/|data:video\/|data:application\/pdf|blob:)/i.test(s)) return s;
+    return "#";
+  };
+
 
 const STATUS = {
   complete: "Complete", "in-progress": "In Progress", "not-started": "Not Started",
@@ -595,10 +606,10 @@ function renderFilesBody() {
   }
   body.innerHTML = all.map(f => {
     const cls = f.status === "Uploading…" ? "pending" : f.status === "Signed" ? "complete" : (f.status === "Awaiting Signature" ? "on-hold" : "in-progress");
-    const del = f.seed ? '<span class="stat-sub">—</span>' : `<button class="btn btn-ghost admin-only" data-filedel="${f.id}">Remove</button>`;
+    const del = f.seed ? '<span class="stat-sub">—</span>' : `<button class="btn btn-ghost admin-only" data-filedel="${esc(f.id)}">Remove</button>`;
     // files pushed to Drive render their name as the Drive link
     const name = f.driveLink
-      ? `<a href="${esc(f.driveLink)}" target="_blank" rel="noopener" class="file-drive-link">${esc(f.name)} ↗</a>`
+      ? `<a href="${esc(safeUrl(f.driveLink))}" target="_blank" rel="noopener" class="file-drive-link">${esc(f.name)} ↗</a>`
       : esc(f.name);
     return `<tr><td style="font-weight:600">${name}</td><td>${esc(f.type)}</td>
       <td><span class="badge ${cls}">${esc(f.status)}</span></td><td>${esc(f.date)}</td>

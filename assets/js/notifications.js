@@ -38,7 +38,7 @@ window.TJA_NOTIFY = (function () {
   function eventLine(ev) {
     if (ev.type === "review") {
       const verb = STATUS_LABEL[ev.status] || "submitted a review";
-      const cmt = ev.comments ? ` · ${ev.comments} comment${ev.comments === 1 ? "" : "s"}` : "";
+      const nc = Math.max(0, Math.floor(+ev.comments || 0)); const cmt = nc ? ` · ${nc} comment${nc === 1 ? "" : "s"}` : "";   // a number, never stored markup (2026-11-16)
       return `${verb} on <b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")}${cmt}`;
     }
     if (ev.type === "comment") return `left a comment on <b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")}`;
@@ -239,7 +239,7 @@ window.TJA_NOTIFY = (function () {
 
   // doc-only line (no status verb) — for views that show a separate status badge
   function docLine(ev) {
-    const cmt = ev.comments ? ` · ${ev.comments} comment${ev.comments === 1 ? "" : "s"}` : "";
+    const nc = Math.max(0, Math.floor(+ev.comments || 0)); const cmt = nc ? ` · ${nc} comment${nc === 1 ? "" : "s"}` : "";   // a number, never stored markup (2026-11-16)
     return `<b>${esc(ev.docName)}</b> ${esc(ev.versionLabel || "")}${cmt}`;
   }
   const STATUS_BADGE = { approved: "Approved", changes: "Changes", revisions: "Revisions" };

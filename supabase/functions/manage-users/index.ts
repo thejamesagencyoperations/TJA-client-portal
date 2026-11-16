@@ -254,7 +254,7 @@ Deno.serve(async (req) => {
         return json(req, 403, { error: "AM/PMs can create client logins only. Ask an admin for staff accounts." });
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(req, 400, { error: "Enter a valid email address." });
       if (!ROLES.includes(role)) return json(req, 400, { error: "Unknown role." });
-      const clientId = workspaceFor(role, body.clientId);
+      let clientId = workspaceFor(role, body.clientId);
       if (!clientId) return json(req, 400, { error: "Pick which client workspace this login belongs to." });
 
       const existing = (await allAuthUsers(svc)).find((u) => (u.email || "").toLowerCase() === email);
@@ -262,6 +262,19 @@ Deno.serve(async (req) => {
         return json(req, 409, { error: "Someone already has that email address." });
       if (action === "reinvite" && !existing)
         return json(req, 404, { error: "That login no longer exists." });
+
+      /* RE-INVITE CAN'T BE USED TO TAKE OVER AN ACCOUNT (2026-11-16, launch audit).
+         This used to trust the request's role, so an AM/PM could "re-invite" ANY existing
+         email — the admin's included — get a live password-reset link back (mode:"link"),
+         and the profile was rewritten to client on the way. Now, for an existing login, an
+         AM/PM may only re-send to an existing CLIENT login, and its role + workspace are kept
+         exactly as they are (never taken from the request). */
+      if (existing && !isAdmin) {
+        const { data: prof } = await svc.from("profiles").select("role, client_id").eq("id", existing.id).maybeSingle();
+        if (!prof || prof.role !== "client")
+          return json(req, 403, { error: "AM/PMs can only re-send invites to client logins. Ask an admin." });
+        clientId = prof.client_id || clientId;
+      }
 
       const entry = await registryEntry(clientId);
       const clientName = entry?.name || clientId;

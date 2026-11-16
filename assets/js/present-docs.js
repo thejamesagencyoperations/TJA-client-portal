@@ -493,9 +493,20 @@ window.PresentDocs = (function () {
   function imgSrcAttr(v) {
     const u = (v && (v.url || v.dataUrl)) || "";
     const proxied = window.TJA_FILES && window.TJA_FILES.isProxy && window.TJA_FILES.isProxy(u);
-    return proxied ? `data-tja-src="${esc(u)}"` : `src="${esc(u)}"`;
+    return proxied ? `data-tja-src="${esc(u)}"` : `src="${esc(safeUrl(u, true))}"`;
   }
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+  /* LINKS FROM STORED DATA ARE http(s) ONLY (2026-11-16, launch audit). Clients can write some
+     of this data (deliverables, files, media requests), and esc() alone lets "javascript:…"
+     through — it would run in the portal the moment a staff member clicked or loaded it.
+     Anything that isn't http(s) (or an inline image / blob for proofs) renders as "#". */
+  const safeUrl = (u, allowInline) => {
+    const s = String(u == null ? "" : u).trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    if (allowInline && /^(data:image\/|data:video\/|data:application\/pdf|blob:)/i.test(s)) return s;
+    return "#";
+  };
+
   const uid = () => "d_" + Date.now() + "_" + (seq++);
   const deliv = (id) => items.find(d => d.id === id) || draftItems.find(d => d.id === id);
   const isDraft = (d) => !!(d && d.versions && d.versions.some(v => v.state === "pending_approval"));
@@ -959,11 +970,11 @@ window.PresentDocs = (function () {
     const canSend = (typeof canSendDocs === "function") ? canSendDocs() : true;
     const draftCards = drafts.map(d => {
       const v = active(d);
-      return `<div class="pd-card pd-card-draft" data-id="${d.id}">
-        <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
+      return `<div class="pd-card pd-card-draft" data-id="${esc(d.id)}">
+        <button class="pd-del admin-only" data-del="${esc(d.id)}" title="Remove">✕</button>
         <span class="pd-enlarge-cue">Click to review</span>
         <div class="pd-thumb">${thumbHtml(v, d.name)}</div>
-        ${canSend ? `<button class="btn btn-primary pd-send-btn" data-send="${d.id}">📤 Send to client</button>` : ""}
+        ${canSend ? `<button class="btn btn-primary pd-send-btn" data-send="${esc(d.id)}">📤 Send to client</button>` : ""}
         <div class="pd-card-foot">
           <div class="pd-card-name" title="${esc(d.name)}">${esc(d.name)}</div>
           <span class="pd-ver-tag">${esc(v.label)}</span>
@@ -978,10 +989,10 @@ window.PresentDocs = (function () {
       // The due date always comes from the LATEST round, not the version being viewed — once V2
       // is up, the card shows V2's date even if someone left the viewer parked on V1.
       const last = d.versions[d.versions.length - 1] || v;
-      return `<div class="pd-card" data-id="${d.id}">
-        <button class="pd-del admin-only" data-del="${d.id}" title="Remove">✕</button>
-        <button class="pd-card-export staff-only" data-copylink="${d.id}" title="Copy a shareable link to this deliverable">🔗</button>
-        <button class="pd-card-export staff-only" data-export="${d.id}" title="Export proof PDF (internal record)" style="right:76px">⬇</button>
+      return `<div class="pd-card" data-id="${esc(d.id)}">
+        <button class="pd-del admin-only" data-del="${esc(d.id)}" title="Remove">✕</button>
+        <button class="pd-card-export staff-only" data-copylink="${esc(d.id)}" title="Copy a shareable link to this deliverable">🔗</button>
+        <button class="pd-card-export staff-only" data-export="${esc(d.id)}" title="Export proof PDF (internal record)" style="right:76px">⬇</button>
         <span class="pd-enlarge-cue">Click to review</span>
         <div class="pd-thumb">${thumbHtml(v, d.name)}</div>
         <div class="pd-card-foot">
@@ -1260,7 +1271,7 @@ window.PresentDocs = (function () {
   function thumbHtml(v, alt) {
     if (isVideoV(v)) {
       return v.thumbUrl
-        ? `<img src="${esc(v.thumbUrl)}" alt="${esc(alt)}"><span class="pd-vid-badge">▶ ${esc(PROVIDER_NAME[v.videoProvider] || "Video")}</span>`
+        ? `<img src="${esc(safeUrl(v.thumbUrl, true))}" alt="${esc(alt)}"><span class="pd-vid-badge">▶ ${esc(PROVIDER_NAME[v.videoProvider] || "Video")}</span>`
         : `<div class="pd-vid-thumb">▶<span>${esc(PROVIDER_NAME[v.videoProvider] || "Video")}</span></div>`;
     }
     return `<img ${imgSrcAttr(v)} alt="${esc(alt)}">`;
@@ -1331,20 +1342,20 @@ window.PresentDocs = (function () {
           playerVars: { rel: 0, modestbranding: 1, playsinline: 1 },
           events: { onReady: () => { try { VID.duration = VID.yt.getDuration() || 0; } catch (e) {} renderPins(); } } });
       } else if (v.videoProvider === "vimeo") {
-        box.innerHTML = `<div class="pd-vid-frame"><iframe id="pdVim" src="${esc(v.videoEmbed)}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
+        box.innerHTML = `<div class="pd-vid-frame"><iframe id="pdVim" src="${esc(safeUrl(v.videoEmbed, true))}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
         await loadScriptOnce("https://player.vimeo.com/api/player.js", () => !!(window.Vimeo && window.Vimeo.Player));
         if (VID.vid !== v.vid) return;
         VID.vim = new window.Vimeo.Player($("pdVim"));
         VID.vim.getDuration().then(d => { VID.duration = d || 0; renderPins(); }).catch(() => {});
       } else if (v.videoProvider === "file") {
-        box.innerHTML = `<div class="pd-vid-frame"><video id="pdVidEl" controls playsinline preload="metadata" src="${esc(v.videoEmbed)}"></video></div>`;
+        box.innerHTML = `<div class="pd-vid-frame"><video id="pdVidEl" controls playsinline preload="metadata" src="${esc(safeUrl(v.videoEmbed, true))}"></video></div>`;
         VID.el = $("pdVidEl");
         VID.el.addEventListener("loadedmetadata", () => { VID.duration = VID.el.duration || 0; renderPins(); });
       } else {
-        box.innerHTML = `<div class="pd-vid-frame"><iframe src="${esc(v.videoEmbed)}" allow="autoplay; fullscreen" allowfullscreen></iframe></div>${hint}`;
+        box.innerHTML = `<div class="pd-vid-frame"><iframe src="${esc(safeUrl(v.videoEmbed, true))}" allow="autoplay; fullscreen" allowfullscreen></iframe></div>${hint}`;
       }
     } catch (e) {
-      box.innerHTML = `<div class="pd-vid-note">Couldn't load the video player (${esc(e && e.message || e)}). <a href="${esc(v.videoUrl)}" target="_blank" rel="noopener">Open the video in a new tab</a> and type the time on each comment.</div>`;
+      box.innerHTML = `<div class="pd-vid-note">Couldn't load the video player (${esc(e && e.message || e)}). <a href="${esc(safeUrl(v.videoUrl))}" target="_blank" rel="noopener">Open the video in a new tab</a> and type the time on each comment.</div>`;
       VID.provider = "other";
     }
     VID.timer = setInterval(async () => {
@@ -1365,7 +1376,7 @@ window.PresentDocs = (function () {
     const dur = VID.duration || Math.max(0, ...pins.map(p => p.t || 0)) || 0;
     tl.innerHTML = `<div class="pd-vt-track">${dur ? `<div class="pd-vt-head"></div>` : ""}` +
       pins.map((p, i) => (p.t == null || !dur) ? "" :
-        `<button class="pd-vt-mark${(p.replies && p.replies.length) ? " has-replies" : ""}" data-seek="${p.t}" data-pin="${esc(p.id)}" title="${esc(fmtT(p.t))} · ${esc(pinAuthor(p))}" style="left:${Math.min(100, (p.t / dur) * 100)}%">${i + 1}</button>`).join("") +
+        `<button class="pd-vt-mark${(p.replies && p.replies.length) ? " has-replies" : ""}" data-seek="${+p.t || 0}" data-pin="${esc(p.id)}" title="${esc(fmtT(p.t))} · ${esc(pinAuthor(p))}" style="left:${Math.min(100, (p.t / dur) * 100)}%">${i + 1}</button>`).join("") +
       `</div><div class="pd-vt-legend">${pins.length ? pins.length + " comment" + (pins.length === 1 ? "" : "s") + " — click a marker or a timestamp to jump there" : "Pause where you want to comment, then press “💬 Comment at …”"}</div>`;
   }
   async function addVideoComment() {
@@ -1378,7 +1389,7 @@ window.PresentDocs = (function () {
     v.pins = (v.pins || []).concat([p]);
     history.push({ type: "pinAdd", id: p.id });
     saveCur(); renderPins(); renderPinList();
-    const ta = document.querySelector(`[data-pintext="${p.id}"]`);
+    const ta = document.querySelector(`[data-pintext="${CSS.escape(String(p.id))}"]`);
     if (ta) { ta.focus(); try { ta.scrollIntoView({ block: "nearest" }); } catch (e) {} }
   }
 
@@ -1411,8 +1422,8 @@ window.PresentDocs = (function () {
       if (!info) { box.innerHTML = `<span class="pd-kw-phint">Paste a full https:// link.</span>`; kind.textContent = ""; return; }
       kind.textContent = `${PROVIDER_NAME[info.provider]} · ${info.timed ? "comments are stamped automatically at the paused moment" : "reviewers type the time on each comment (this player doesn't share its position)"}`;
       box.innerHTML = info.provider === "file"
-        ? `<video controls preload="metadata" src="${esc(info.embed)}"></video>`
-        : `<iframe src="${esc(info.embed)}" allow="fullscreen" allowfullscreen></iframe>`;
+        ? `<video controls preload="metadata" src="${esc(safeUrl(info.embed, true))}"></video>`
+        : `<iframe src="${esc(safeUrl(info.embed, true))}" allow="fullscreen" allowfullscreen></iframe>`;
     }, 350);
   }
   let vidBusy = false;
@@ -2179,16 +2190,16 @@ window.PresentDocs = (function () {
     box.innerHTML = list.map((p, i) => {
       const editable = canEditPin(p);
       const tchip = !isVid ? "" : (p.t != null
-        ? `<button class="pd-vts" data-seek="${p.t}" title="Jump to ${esc(fmtT(p.t))}">▶ ${esc(fmtT(p.t))}</button>`
-        : (editable ? `<input class="pd-vts-in" data-pintime="${p.id}" placeholder="m:ss" title="Time in the video">` : `<span class="pd-vts none">no time</span>`));
+        ? `<button class="pd-vts" data-seek="${+p.t || 0}" title="Jump to ${esc(fmtT(p.t))}">▶ ${esc(fmtT(p.t))}</button>`
+        : (editable ? `<input class="pd-vts-in" data-pintime="${esc(p.id)}" placeholder="m:ss" title="Time in the video">` : `<span class="pd-vts none">no time</span>`));
       return `
-      <div class="pd-comment ${p.resolved ? "resolved" : ""}" data-row="${p.id}">
+      <div class="pd-comment ${p.resolved ? "resolved" : ""}" data-row="${esc(p.id)}">
         <div class="pd-comment-top">
           <span class="pd-pinnum">${i + 1}</span>${tchip}
           ${pinAuthor(p) ? `<span class="pd-pin-by" title="${esc(p.byEmail || "")}">${esc(pinAuthor(p))}${p.byEmail && p.byEmail === myEmail() ? " (you)" : ""}</span>` : ""}
           <div class="pd-comment-actions">
-            ${editable ? `<button class="pd-cbtn ok" data-resolve="${p.id}" title="${p.resolved ? "Reopen" : "Mark resolved"}">${p.resolved ? "↩" : "✓"}</button>
-            <button class="pd-cbtn danger" data-pindel="${p.id}" title="Delete">✕</button>` : ""}
+            ${editable ? `<button class="pd-cbtn ok" data-resolve="${esc(p.id)}" title="${p.resolved ? "Reopen" : "Mark resolved"}">${p.resolved ? "↩" : "✓"}</button>
+            <button class="pd-cbtn danger" data-pindel="${esc(p.id)}" title="Delete">✕</button>` : ""}
           </div>
         </div>
         ${editable
@@ -2208,7 +2219,7 @@ window.PresentDocs = (function () {
     v.pins.push(p);
     history.push({ type: "pinAdd", id: p.id });
     saveCur(); renderPins(); renderPinList();
-    const ta = document.querySelector(`[data-pintext="${p.id}"]`);
+    const ta = document.querySelector(`[data-pintext="${CSS.escape(String(p.id))}"]`);
     if (ta) ta.focus();
   }
   function deletePin(id) {
