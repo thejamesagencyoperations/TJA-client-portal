@@ -1093,7 +1093,14 @@ window.ExecSummary = (function () {
     const rows = (e.kpis || []).map((k, i) => `
       <div class="kpi-row">
         <span class="kpi-label">${ed(k.label, "kpis." + i + ".label")}</span>
-        <span class="kpi-val"><b>${ed(k.current, "kpis." + i + ".current")}</b> <span class="t">/ ${ed(k.target, "kpis." + i + ".target")}</span> ${listDel("kpis", i)}</span>
+        <span class="kpi-val">${canAdmin()
+          ? `<b>${ed(k.current, "kpis." + i + ".current")}</b> <span class="t">/ ${ed(k.target, "kpis." + i + ".target")}</span> ${listDel("kpis", i)}`
+          /* CLIENT VIEW: no empty "x / y" scaffolding (Cameron 2026-11-16) — show only the
+             numbers that exist; with neither filled in, no slash at all. */
+          : (() => { const has = (v) => v != null && String(v).trim() !== "";
+              const cur = has(k.current) ? `<b>${esc(k.current)}</b>` : "";
+              const tgt = has(k.target) ? `<span class="t">/ ${esc(k.target)}</span>` : "";
+              return cur && tgt ? `${cur} ${tgt}` : (cur || tgt); })()}</span>
       </div>`).join("");
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.kpi}KPIs / Goals</span>${listAdd("kpis", "Add KPI")}</div>
