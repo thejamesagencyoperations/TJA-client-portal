@@ -2606,3 +2606,132 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
   min-width: min(640px, 100%); max-width: 100%;
   background: linear-gradient(90deg, #F2A541 0%, #E8743B 38%, rgba(232,116,59,.55) 70%, rgba(232,116,59,0) 100%); }
 .bc-banner .bc-client { margin-top: 0; }
+
+/* =====================================================================================
+   PHONE LAYOUT (≤760px) — the mobile pass (Cameron 2026-11-16)
+   EVERYTHING here sits inside this one media query, so laptops / desktops / landscape
+   tablets (≥761px) render exactly as before — verified by a layout fingerprint of every
+   dashboard tab at 1440px and 1024px before and after. 760 is the same cutoff the
+   Executive Summary already uses to stack its tiles (exec-summary.js fitCanvas).
+   ===================================================================================== */
+@media (max-width: 760px) {
+  /* ---- 1. BOTTOM TAB BAR. The sidebar becomes an app-style bar pinned to the bottom of the
+     screen: icon over a short label (data-short), thumb-reachable, scrolls sideways when a
+     client has more tabs than fit. Logo + version label are dropped — the top bar already
+     says which client this is. */
+  .app > .sidebar {
+    position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 40;   /* under every overlay (lowest is the review modal at 50) */
+    height: auto; min-height: 0; flex-direction: row; align-items: stretch;
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
+    background: var(--panel); border: 0; border-top: 1px solid var(--line);
+    box-shadow: 0 -6px 18px rgba(0,0,0,.08);
+  }
+  .app > .sidebar .brand-logo, .app > .sidebar .brand-mark, .app > .sidebar .sidebar-foot { display: none; }
+  .app > .sidebar .nav { flex: 1; gap: 2px; margin: 0; justify-content: space-between; }
+  .app > .sidebar .nav-item {
+    flex: 1 1 0; min-width: 50px; max-width: 96px; min-height: 52px; padding: 6px 1px 5px;
+    flex-direction: column; justify-content: center; align-items: center; gap: 3px;
+    font-size: 0 !important; border-radius: 10px; border: 0; white-space: nowrap;
+  }
+  .app > .sidebar .nav-item::after {
+    content: attr(data-short); font-size: 10.5px; font-weight: 700; letter-spacing: .01em; line-height: 1.1;
+  }
+  .app > .sidebar .nav-item .nav-ico { width: 22px; height: 22px; }
+  .app > .sidebar .nav-item.active { background: rgba(246,142,33,.12); color: var(--accent-text); }
+  /* the page scrolls under the bar — keep the last row of content clear of it */
+  .app .content { padding: 14px 12px calc(84px + env(safe-area-inset-bottom, 0px)); }
+
+  /* ---- 2. COMPACT TOP BAR. One row: client + bell / theme / menu. Second row: the
+     Monthly Services ⟷ Projects switch at full width. Staff get a third row for
+     Admin / Client view + Undo. (display:contents lets the two wrapper divs' children be
+     ordered as one row-set.) */
+  .app .topbar { padding: 10px 12px; gap: 8px; align-items: center; }
+  .app .topbar-left, .app .topbar-right { display: contents; }
+  .app .client-id { order: 1; flex: 1 1 0; min-width: 0; }
+  .app .client-avatar { width: 34px; height: 34px; }
+  .app .client-name { font-size: 1.02rem; }
+  .app .client-eng, .app .client-northstar { display: none; }
+  .app #notifHost { order: 2; }
+  .app #themeToggle { order: 3; }
+  .app #chromeMenu { order: 4; }
+  .app #clientsBack { display: none !important; }            /* "All clients" lives in the ☰ menu */
+  .app #engToggle { order: 10; flex: 1 1 100%; display: flex; }
+  .app #engToggle .eng-seg { flex: 1 1 0; min-height: 40px; }
+  .app #allProjectsBtn { order: 11; flex: 1 1 100%; min-height: 40px; }
+  .app #roleControls { order: 20; flex: 1 1 100%; display: flex; align-items: center; gap: 8px; }
+  .app #roleControls:empty { display: none; }
+  .app #roleControls .role-switch { flex: 1 1 auto; display: flex; }
+  .app #roleControls .role-seg { flex: 1 1 0; min-height: 38px; }
+  /* "Hide Monthly Services tab" etc. — occasional workspace settings; on a phone they'd cost a
+     whole row on every page. They stay one click away on desktop. */
+  .app #engActions { display: none; }
+
+  /* ---- 3. TAP TARGETS (Apple's 44pt guidance; 40px where a row is dense) */
+  .icon-btn, .notif-bell, .chrome-menu > button { min-width: 40px; min-height: 40px; }
+  .btn, .row-add, .cl-tab, .undo-btn { min-height: 40px; }
+  .burn-scope-btn { min-height: 34px; padding-left: 12px; padding-right: 12px; }
+  .pd-del { width: 36px; height: 36px; }
+  .mi-asset-x { min-width: 36px; min-height: 36px; font-size: 1rem; }
+  /* staff's in-tile edit controls: bigger hit area, same look */
+  .row-del, .pizza-del, .ms-del-circle { min-width: 32px; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; }
+  .rsvc-realloc { min-width: 32px; min-height: 30px; }
+  .rsvc-handle { width: 24px; height: 24px; }
+  .exec-actuals-btn { min-height: 36px; }
+  .cond-note-edit, .date-pill, .link-pill { min-height: 30px; display: inline-flex; align-items: center; }
+
+  /* ---- 4. NO ZOOM-ON-TAP. iOS zooms the page into any field under 16px when it's tapped
+     (and doesn't zoom back out). 16px fields stop that without disabling pinch-zoom. */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),
+  textarea, select { font-size: 16px !important; }
+
+  /* ---- 5. EXEC SUMMARY. The −/100%/+ reading-size control is for desktop monitors —
+     phones already get the stacked, natural-size layout (and pinch-zoom). */
+  .exec-textsize { display: none; }
+
+  /* ---- 6. NOTHING WIDER THAN THE SCREEN */
+  .pd-toolbar { flex-wrap: wrap; gap: 8px; }
+  .pd-toolbar .btn { flex: 1 1 calc(50% - 8px); justify-content: center; }
+  .pd-hint { flex: 1 1 100%; }
+  .mi-grid, .mi-f { min-width: 0; }
+  .mi-f input, .mi-f textarea, .mi-f select { width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0; }
+  /* any data table scrolls sideways inside its card instead of widening the page */
+  .card:has(> .table), .card:has(> table) { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* Files: Document · Status · Date (+ Remove) fit a phone; Type / Size / Source drop out */
+  .page[data-page="files"] .table th:nth-child(2), .page[data-page="files"] .table td:nth-child(2),
+  .page[data-page="files"] .table th:nth-child(5), .page[data-page="files"] .table td:nth-child(5),
+  .page[data-page="files"] .table th:nth-child(6), .page[data-page="files"] .table td:nth-child(6) { display: none; }
+
+  /* ---- 7. PRESENT DOCS REVIEW = a full-screen phone sheet. The desktop two-column grid
+     (proof | review panel) stacked as rows with the proof's row at "1fr" and the panel "auto":
+     the panel took the whole height, the proof collapsed to 0px and its draw tools spilled over
+     the form. Now: full screen, the proof gets a fixed ~60% of the screen at the top, and
+     everything (proof, tools, verdict, notes, Submit) scrolls as one page. */
+  .pd-modal-card { inset: 0; border-radius: 0; border: 0; }
+  .pd-modal-head { padding: 10px 12px 10px 16px; }
+  .pd-x { width: 40px; height: 40px; }
+  .pd-modal-body { display: block; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  .pd-stage { height: 60vh; min-height: 320px; }
+  .pd-review { border-left: 0; border-top: 1px solid var(--line); overflow: visible;
+    padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+  .pd-review .btn-primary { min-height: 48px; font-size: .95rem; }
+  .pd-status-opts label, .pd-status-opts .pd-opt { min-height: 44px; }
+
+  /* the "just updated" pill would sit on the tab bar */
+  .refresh-pill { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+
+  /* ---- 8. STAFF PAGES (Clients / Admin Center): the sync stamp wraps instead of widening the
+     page; tile actions are always visible (there's no hover on a touchscreen) and tappable;
+     tiles size to their content. */
+  .wmj-bar { flex-wrap: wrap; flex: 1 1 100%; min-width: 0; }
+  .wmj-stamp { min-width: 0; }
+  .wmj-refresh { width: 36px; height: 36px; }
+  .client-tile { min-height: 0; }
+  .client-tile-actions { opacity: 1; position: static; justify-content: flex-end; margin-top: 10px; }
+  .ct-act { width: 34px; height: 34px; }
+  .tm-search { min-width: 0; flex-basis: 100%; }
+  /* media request: the nested asset box doesn't need desktop-size padding */
+  .mi-asset { padding: 10px 12px; }
+
+  /* ---- 9. PAGE TITLES fit the width */
+  .page-title { min-width: 0; font-size: 1.15rem; padding-right: 32px; }
+}

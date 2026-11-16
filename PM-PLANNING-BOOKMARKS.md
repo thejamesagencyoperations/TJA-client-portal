@@ -217,7 +217,7 @@ Then the CRF's link sharing can be locked down any time without breaking the bur
 - One-time: share the CRF sheet with the portal's service account as Viewer. No ongoing upkeep.
 - Not now: decided 2026-11-16 to keep it on the list and do it after launch.
 
-## Mobile-friendly version (to do: NEXT, once the launch fixes are done) 🔖 added 2026-11-16
+## Mobile-friendly version ✅ done (v4.20, 2026-11-16) 🔖 added 2026-11-16
 Queued to start straight after the launch-audit fixes (blockers, then high-priority security items).
 Today the portal *works* on a phone (no sideways scroll), but it's a squeezed desktop layout.
 - **What it needs:**
