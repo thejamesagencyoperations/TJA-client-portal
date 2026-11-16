@@ -178,7 +178,7 @@ the most repeated hand-written emails. Turn them into buttons the team presses i
     automatically once the team trusts it.
 
 ## "Ask TJA" AI chat assistant 🛠 built v4.21 (2026-11-16), hidden until switched on 🔖 added 2026-11-13
-**Left before launch:** (1) add the `ANTHROPIC_API_KEY` Supabase secret; (2) Cameron picks the assistant's name (Admin Center → Ask TJA); (3) Cameron sends the brand-voice files, which set its tone; (4) live test of typed questions with the QA login, including trying to get hours or other clients' data out of it; (5) set the daily limit to 25; (6) flip the switch on.
+**Left before launch:** (1) add the `ANTHROPIC_API_KEY` Supabase secret; (2) ✅ named **Timmy** for now (change any time in Admin Center → Ask TJA); (3) ✅ tone set from the Digital Brand Standards' tone of voice (magnetic, sophisticated, genuine, capable, constructive; 30% witty / 30% expert / 20% humble / 20% ego), kept clean for clients; (4) live test of typed questions with the QA login, including trying to get hours or other clients' data out of it; (5) set the daily limit to 25; (6) flip the switch on.
 An **Ask TJA** button on every dashboard page that opens a chat panel. The client (or staff)
 asks plain questions about their account and gets an instant answer from the portal's own data,
 e.g. "What's waiting on me?", "When is the website launch?", "How many hours have we used this month?",
