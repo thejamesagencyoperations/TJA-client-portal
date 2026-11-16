@@ -210,6 +210,13 @@ e.g. "What's waiting on me?", "When is the website launch?", "How many hours hav
   - Whether clients need a short "AI assistant" disclaimer.
   - Check client contracts and confidentiality terms before account data is sent to an AI provider. The API doesn't train on our data.
 
+## Read the CRF through the portal's own Google account (to do: later) 🔖 added 2026-11-16
+Today the hourly `snapshot-months` job reads the Client Revenue Forecast sheet through its public
+link. Switch it to the portal's service account (Sheets API), keeping the public read as a fallback.
+Then the CRF's link sharing can be locked down any time without breaking the burn.
+- One-time: share the CRF sheet with the portal's service account as Viewer. No ongoing upkeep.
+- Not now: decided 2026-11-16 to keep it on the list and do it after launch.
+
 ## Mobile-friendly version (to do: NEXT, once the launch fixes are done) 🔖 added 2026-11-16
 Queued to start straight after the launch-audit fixes (blockers, then high-priority security items).
 Today the portal *works* on a phone (no sideways scroll), but it's a squeezed desktop layout.
