@@ -114,6 +114,35 @@ window.SUPA = (function () {
     ]);
   }
 
+  /* CLIENT LOGINS READ THEIR DASHBOARD THROUGH A FUNCTION (2026-11-16, launch audit).
+     RLS (schema-v18) no longer lets a client SELECT the dashboard row directly — it carried
+     staff-only data the UI only hid (CRF $, internal plan items, internal dependencies,
+     team-only tiles, archived projects). The client-dashboard edge function serves the same
+     row with those parts stripped. Staff keep reading the full row directly. */
+  function isClientLogin() {
+    try { const s = JSON.parse(sessionStorage.getItem("tja_portal_session") || "null"); return !!s && s.role === "client"; }
+    catch (e) { return false; }
+  }
+  const viaClientFn = (scope) => scope === "dashboard" && isClientLogin();
+  async function clientDashboard(stampOnly, timeoutMs) {
+    const cfg = window.SUPABASE_CONFIG || {};
+    const base = cfg.url ? cfg.url.replace(/\/$/, "") + "/functions/v1" : "";
+    if (!base || !client) return null;
+    try {
+      const { data } = await client.auth.getSession();
+      const token = data && data.session ? data.session.access_token : null;
+      if (!token) return null;
+      const call = fetch(base + "/client-dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ stampOnly: !!stampOnly }),
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const r = await withTimeout(call, timeoutMs || 6000, "client-dashboard");
+      if (!r || r.__timeout || !r.ok) return null;
+      return r;   // { ok, updated_at, data? }
+    } catch (e) { return null; }
+  }
+
   // timeoutMs: optional — deliverables rows carry inline base64 proofs and can run to several
   // MB, where the default 3.5s regularly times out on slower connections and the caller
   // silently keeps a STALE local copy (reviews/waiting-room items "not showing up"). Callers
@@ -121,6 +150,7 @@ window.SUPA = (function () {
   async function pullScope(clientId, scope, timeoutMs) {
     if (!client) return null;
     await ready;   // ensure the token is freshly ES256-signed before any query
+    if (viaClientFn(scope)) { const r = await clientDashboard(false, timeoutMs); return r ? r.data : null; }
     try {
       const q = client.from("app_state").select("data").eq("client_id", clientId).eq("scope", scope).maybeSingle();
       const r = await withTimeout(q, timeoutMs || 3500, scope);
@@ -137,6 +167,13 @@ window.SUPA = (function () {
   async function pullScopeFull(clientId, scope) {
     if (!client) return null;
     await ready;
+    if (viaClientFn(scope)) {
+      const r = await clientDashboard(false);
+      if (!r || !r.data) return null;
+      lastKnown[clientId + "::" + scope] = r.updated_at;
+      baseData[clientId + "::" + scope] = cloneJSON(r.data);
+      return { data: r.data, updated_at: r.updated_at };
+    }
     try {
       const q = client.from("app_state").select("data,updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle();
       const r = await withTimeout(q, 3500, scope);
@@ -162,6 +199,17 @@ window.SUPA = (function () {
     await ready;
     const key = clientId + "::" + scope;
     try {
+      /* STAMP FIRST, ROW ONLY ON CHANGE (2026-11-16). This used to download the whole row on
+         every poll — every open tab, every 30s — when almost every poll finds nothing new.
+         Ask for updated_at alone (a few bytes); pull the full row only when it moved. */
+      const stamp = await scopeStamp(clientId, scope);
+      if (!stamp) return { changed: false };
+      if (!lastKnown[key] || stamp === lastKnown[key]) return { changed: false, updated_at: stamp };
+      if (viaClientFn(scope)) {
+        const r = await clientDashboard(false);
+        if (!r || !r.data) return { changed: false };
+        return { changed: r.updated_at !== lastKnown[key], data: r.data, updated_at: r.updated_at };
+      }
       const q = client.from("app_state").select("data,updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle();
       const r = await withTimeout(q, 3500, scope);
       if (r && r.__timeout) return { changed: false };
@@ -170,6 +218,19 @@ window.SUPA = (function () {
       const changed = !!lastKnown[key] && data.updated_at !== lastKnown[key];
       return { changed, data: data.data, updated_at: data.updated_at };
     } catch (e) { return { changed: false }; }
+  }
+  // Just the row's updated_at (a few bytes) — the cheap "has anything changed?" check that
+  // every poller runs before deciding to download a (possibly multi-MB) row. null = unknown.
+  async function scopeStamp(clientId, scope) {
+    if (!client) return null;
+    await ready;
+    if (viaClientFn(scope)) { const r = await clientDashboard(true); return r ? r.updated_at : null; }
+    try {
+      const q = client.from("app_state").select("updated_at").eq("client_id", clientId).eq("scope", scope).maybeSingle();
+      const r = await withTimeout(q, 3500, scope + ":stamp");
+      if (!r || r.__timeout || r.error || !r.data) return null;
+      return r.data.updated_at || null;
+    } catch (e) { return null; }
   }
   // The optional `data` keeps the merge ancestor in step when the app ADOPTS a remote version
   // (auto-refresh). Without it, base would lag behind lastKnown and the next merge would treat
@@ -443,10 +504,25 @@ window.SUPA = (function () {
       try {
         const nowIso = new Date().toISOString();
         if (!lastKnown[key]) {
-          // never seen the row (fresh client) — plain upsert, then remember its stamp
+          /* NEVER SEEN THE ROW → INSERT ONLY, NEVER UPSERT (2026-11-16, launch audit).
+             "No baseline" means EITHER a genuinely new client OR a boot pull that timed out.
+             This used to upsert, so on a slow Supabase day an AM's boot self-heals (discipline
+             seeding, PR refresh, retainer value) wrote this browser's cached or SEED copy over
+             the real row — the 2026-07-17 mass-wipe pattern. An insert can only create a row;
+             if one already exists it fails, and we adopt the server's copy instead. */
           const { data, error } = await client.from("app_state")
-            .upsert({ client_id: clientId, scope, data: latest[key], updated_at: nowIso }, { onConflict: "client_id,scope" })
+            .insert({ client_id: clientId, scope, data: latest[key], updated_at: nowIso })
             .select("updated_at");
+          if (error && (error.code === "23505" || /duplicate key/i.test(error.message || ""))) {
+            const cur = await client.from("app_state").select("data,updated_at")
+              .eq("client_id", clientId).eq("scope", scope).maybeSingle();
+            if (cur.data) {
+              lastKnown[key] = cur.data.updated_at; baseData[key] = cloneJSON(cur.data.data);
+              console.warn("SUPA pushGuarded: row already existed — adopted the server copy instead of overwriting it", scope);
+              if (typeof onConflict === "function") { try { onConflict(cur.data.data, null); } catch (e) {} }
+            }
+            return;
+          }
           if (error) { console.warn("SUPA pushGuarded", scope, error.message); return; }
           if (data && data[0]) { lastKnown[key] = data[0].updated_at; baseData[key] = cloneJSON(latest[key]); }
           return;
@@ -604,5 +680,5 @@ window.SUPA = (function () {
     } catch (e) { console.warn("SUPA readAudit", e); return []; }
   }
 
-  return { enabled, client, ready, refreshSession, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, casUpdate, removeClient, auditEvent, setAuditMuted, readAudit };
+  return { enabled, client, ready, refreshSession, signIn, signOut, currentSession, pullScope, pullScopeFull, pollScope, scopeStamp, markScopeSeen, subscribeScope, hasPendingWrite, pullAllScope, pushScope, pushScopeNow, pushScopeGuarded, casUpdate, removeClient, auditEvent, setAuditMuted, readAudit };
 })();

@@ -232,7 +232,9 @@ window.TJA_NOTIFY = (function () {
       if (el && el.dataset.open) { markClientRead(el.dataset.open); openClientDocs(el.dataset.open, el.dataset.doc); }
     });
     refresh();
-    setInterval(refresh, 45000);
+    // background tabs skip the poll; they catch up the moment they are looked at (2026-11-16)
+    setInterval(() => { if (!document.hidden) refresh(); }, 45000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   }
 
   // doc-only line (no status verb) — for views that show a separate status badge

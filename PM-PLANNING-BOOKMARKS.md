@@ -177,6 +177,62 @@ the most repeated hand-written emails. Turn them into buttons the team presses i
   - Same push-to-send + preview pattern as the bundled sign-off email; could later run
     automatically once the team trusts it.
 
+## "Ask TJA" AI chat assistant (to do) 🔖 added 2026-11-13
+An **Ask TJA** button on every dashboard page that opens a chat panel. The client (or staff)
+asks plain questions about their account and gets an instant answer from the portal's own data,
+e.g. "What's waiting on me?", "When is the website launch?", "How many hours have we used this month?",
+"How do I approve a deliverable?"
+- **How it works:**
+  - The button opens a chat panel that slides out on the right.
+  - The question goes to a new Supabase Edge Function, `ask-tja`.
+  - The function checks the signed-in user and works out which client they belong to.
+  - It loads **only that client's** portal data on the server and strips out staff-only fields.
+  - It sends the question, that data and the client guide to Claude (Anthropic API) and streams the answer back.
+- **Rules:**
+  - Read-only: it can't change anything in the portal.
+  - It answers only from portal data. If it doesn't know, it says so and offers "Send this to my AM".
+  - It never sees another client's data. Isolation is enforced on the server and never trusted from the browser.
+  - Staff-only fields are never sent: CRF, internal notes, team-only items, NET vs GROSS.
+- **Needed to build:**
+  - An Anthropic API account and key, created by an Admin.
+  - The key stored as a Supabase secret. **Never in this public repo.**
+  - A daily question limit per user, and logging to the audit trail.
+- **Cost:** about a few cents per question, less with prompt caching.
+- **Phases:**
+  1. Client Q&A on their own account.
+  2. "Send to my AM" handoff by email or Slack.
+  3. Staff mode with cross-client questions, e.g. "What's overdue across my clients?" or "Draft the sign-off email".
+- **Decide:**
+  - Clients, staff, or both first?
+  - Which data it can see. Should Budget Controls be included?
+  - Its tone.
+  - Where the handoff goes.
+  - Whether clients need a short "AI assistant" disclaimer.
+  - Check client contracts and confidentiality terms before account data is sent to an AI provider. The API doesn't train on our data.
+
+## Mobile-friendly version (to do: NEXT, once the launch fixes are done) 🔖 added 2026-11-16
+Queued to start straight after the launch-audit fixes (blockers, then high-priority security items).
+Today the portal *works* on a phone (no sideways scroll), but it's a squeezed desktop layout.
+- **What it needs:**
+  - a real phone nav (bottom tab bar or hamburger), so the version label no longer collides with the page menu;
+  - Executive Summary tiles stacked one per screen width, with readable text (the free-canvas layout shrinks text on narrow screens);
+  - Present Docs review on touch: pinch-zoom proofs, tap to pin, a full-screen signature pad;
+  - forms (Media request, SAP and Budget signing) with large tap targets.
+- **Check on:** iPhone Safari + Android Chrome, client view first (clients are the mobile users), then staff.
+
+## Rename: "TJA Integration Hub"? (to do) 🔖 added 2026-11-16
+We might rename the client portal to **TJA Integration Hub**.
+- **Where the name appears:**
+  - the page `<title>`s;
+  - the sidebar / login branding;
+  - email templates (invite, review, reminders) in `supabase/functions/_shared/email.ts` and its senders;
+  - Slack posts;
+  - the Staff SOP and Client Guide (Claude Design docs);
+  - the README / CLAUDE.md.
+- **Decide:**
+  - Keep the GitHub Pages URL (`TJA-client-portal`) as is, or move to a custom domain (e.g. `hub.thejamesagency.com`)? A custom domain avoids the repo name showing in the link.
+  - Rename before launch or after? Before is cleaner, so clients never learn two names.
+
 ## Gradient page titles everywhere ✅ done (v4.09, 2026-11-04)
 Every page title now uses the Budget Control sheet's gold→orange gradient bar
 (`.page-title` in styles.css), stretched to at least 640px so the fade runs further across

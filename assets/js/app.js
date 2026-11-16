@@ -24,6 +24,7 @@ const STATE_KEY = "tja_dashboard_" + clientId();
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 // migrate older saved data forward (e.g. pre-v1.11 single `project` → `projects[]`)
 function migrate(s) {
+  stripCrfMoney(s);
   const e = s.engagements || (s.engagements = {});
   if (!Array.isArray(e.projects)) {
     if (e.project) { e.project.id = e.project.id || "p_web"; e.project.label = e.project.label || "Project"; e.projects = [e.project]; delete e.project; }
@@ -41,7 +42,17 @@ let STATE = loadState();
 /* ---- undo stack (admin) — every state edit funnels through saveState ---- */
 let undoStack = [];
 let lastSnapshot = clone(STATE);
+/* CRF DOLLARS NEVER RIDE ON THE DASHBOARD ROW (2026-11-16). Clients can read their own
+   dashboard row in full, so the rate / this month's $ / normal month's $ live only in the
+   staff-only `_crf_rates` row. Older builds and the old server job left them on e.crf --
+   scrub them so no browser (or stale cache) ever writes them back. Hours stay. */
+function stripCrfMoney(s) {
+  const c = s && s.engagements && s.engagements.retainer && s.engagements.retainer.crf;
+  if (c && typeof c === "object") ["rate", "monthDollars", "baselineDollars", "month", "tab", "sows"].forEach(k => { delete c[k]; });
+  return s;
+}
 function persistState() {
+  stripCrfMoney(STATE);
   try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch (e) { console.warn("state storage full", e); }
   // The dashboard scope is writable by the agency account + AM/PMs only (RLS).
   // Clients/creatives still hit saveState() through boot self-heals (PR refresh,
@@ -932,6 +943,15 @@ function toggleTheme() {
 function applyRole() {
   const effRole = (typeof effectiveRole === "function") ? effectiveRole() : "admin";
   document.body.dataset.role = effRole;
+  /* VERSION LABEL — staff only (2026-11-16). Never shown to a client login or in Client View.
+     Read from this page's own ?v= tag (e.g. 414 → v4.14), so it can't go stale. */
+  const vp = document.getElementById("versionPill");
+  if (vp) {
+    const tag = document.querySelector('script[src*="app.js?v="]');
+    const n = tag ? +(tag.getAttribute("src").split("?v=")[1] || 0) : 0;
+    vp.textContent = (effRole !== "client" && n) ? `TJA Portal · v${Math.floor(n / 100)}.${String(n % 100).padStart(2, "0")}` : "";
+    vp.hidden = effRole === "client" || !n;
+  }
   // An AM/PM viewing a client that isn't theirs is VIEW-ONLY — hide the .admin-only edit
   // controls that are normally visible to managers (Files remove, etc.). canEdit/canUploadDocs
   // already return false for them; this covers the CSS-gated controls centrally.
@@ -1206,6 +1226,8 @@ function applyEngagement() {
            permissions are right on the first render rather than after a reload. */
         (window.TJA_STORE && window.TJA_STORE.hydrate)
           ? window.TJA_STORE.hydrate().catch(() => null) : Promise.resolve(null),
+        // staff-only CRF dollars (rate, month $) -- RLS hides this row from client logins
+        staff ? window.SUPA.pullScope("_crf_rates", "clients").then(r => { if (r && r.clients) window.TJA_CRF_RATES = r; }).catch(() => null) : Promise.resolve(null),
       ]);
       const dash = dashFull && dashFull.data;
       if (dash && dash.engagements) { STATE = migrate(dash); lastSnapshot = clone(STATE); dashPulled = true; try { localStorage.setItem(STATE_KEY, JSON.stringify(STATE)); } catch {} }
@@ -1297,6 +1319,10 @@ function applyEngagement() {
       rv.forRoster([me])
         .then(map => {
           const entry = map.get(me.id); if (!entry) return;
+          // only write when something actually moved — this used to save (a dashboard write +
+          // a Realtime broadcast to every open tab of this client) on EVERY staff open
+          if (ret.retainerValueTarget === entry.hrs && ret.retainerValueMonthly === !!entry.monthly &&
+              ret.retainerValueHasPending === entry.hasPending) return;
           ret.retainerValueTarget = entry.hrs;
           ret.retainerValueMonthly = !!entry.monthly;
           ret.retainerValueHasPending = entry.hasPending;

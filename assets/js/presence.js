@@ -44,6 +44,7 @@
   }
 
   async function beat() {
+    if (typeof document !== "undefined" && document.hidden) return;   // background tab: no heartbeat (2026-11-16)
     if (!ready()) return;
     const cid = clientIdNow(); if (!cid) return;
     const email = (me().email || "").toLowerCase(); if (!email) return;

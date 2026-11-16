@@ -54,6 +54,14 @@ function parseCsvText(text: string): string[][] {
 }
 const money = (s: string) => { const v = parseFloat(String(s || "").replace(/[^0-9.\-]/g, "")); return isFinite(v) ? v : 0; };
 // deno-lint-ignore no-explicit-any
+// Remove CRF dollar fields from a retainer engagement (they belong in `_crf_rates` only).
+function stripCrfMoney(e: any): boolean {
+  const c = e && e.crf;
+  if (!c || typeof c !== "object") return false;
+  let changed = false;
+  for (const k of ["rate", "monthDollars", "baselineDollars", "month", "tab", "sows"]) if (k in c) { delete c[k]; changed = true; }
+  return changed;
+}
 async function loadCrf(roster: any[], monthKey: string): Promise<Map<string, CrfInfo>> {
   const out = new Map<string, CrfInfo>();
   const html = await (await fetch(`https://docs.google.com/spreadsheets/d/${CRF_ID}/htmlview`)).text();
@@ -156,6 +164,18 @@ Deno.serve(async (req) => {
   // the Client Revenue Forecast, read DIRECTLY (rate + this month's $ + the normal month's $)
   const crf = await loadCrf(roster, short + " " + yr).catch((e) => { console.warn("CRF read failed", e); return new Map<string, CrfInfo>(); });
 
+  /* STAFF-ONLY CRF DOLLARS (2026-11-16). One `_crf_rates` row for every client: staff read it
+     (RLS lets staff read all rows), client logins never can (their client_id doesn't match).
+     Written only when the CRF read worked, so a failed read keeps last hour's figures. */
+  if (crf.size) {
+    const money: Record<string, { rate: number; monthDollars: number; baselineDollars: number }> = {};
+    for (const [id, c] of crf) money[id] = { rate: c.rate, monthDollars: c.monthDollars, baselineDollars: c.baselineDollars };
+    const { error: rErr } = await svc.from("app_state").upsert(
+      { client_id: "_crf_rates", scope: "clients", data: { period: periodLabel, clients: money }, updated_at: new Date().toISOString() },
+      { onConflict: "client_id,scope" });
+    if (rErr) console.warn("CRF rates write failed", rErr.message);
+  }
+
   let snapped = 0, skipped = 0, rolled = 0, suspect = 0, expired = 0, unchanged = 0;
   // sets, not arrays: a client's mutation can run more than once when a save is retried
   const suspectClients = new Set<string>(), noDenominator = new Set<string>(), expiredSet = new Set<string>();
@@ -183,8 +203,10 @@ Deno.serve(async (req) => {
       /* DEMO / PITCH workspaces are hand-authored and have NO Workamajig counterpart. */
       if (data?.demo === true) break;
       const before = stableStr(e);
+      // scrub CRF dollars left on the row by older builds — even for a "suspect" client
+      const scrubbed = stripCrfMoney(e);
       const res = applyMonth(e, clientId);
-      if (res === "suspect") { outcome = "suspect"; break; }
+      if (res === "suspect" && !scrubbed) { outcome = "suspect"; break; }
       if (stableStr(e) === before) { outcome = "unchanged"; break; }
       const w = await svc.from("app_state").update({ data, updated_at: new Date().toISOString() })
         .eq("client_id", clientId).eq("scope", "dashboard").eq("updated_at", row.updated_at).select("updated_at");
@@ -229,7 +251,11 @@ Deno.serve(async (req) => {
        that normal month is a SCOPE EXTENSION (extHours), shown as its own line and dropped when
        the month ends. ANL Oct: $18,845 vs normal $15,245 at $150/hr → 101.63h + 24h extension. */
     const cr = crf.get(clientId);
-    if (cr) e.crf = { ...cr, period: periodLabel }; else delete e.crf;   // `period` = the burn label it belongs to
+    /* HOURS ONLY on the dashboard row (2026-11-16). Clients can read their whole dashboard row
+       over REST (RLS is row-level), so the CRF's DOLLARS — rate, this month's $, the normal
+       month's $ — never go here. They live in the staff-only `_crf_rates` row written after the
+       loop (client logins can't read `_`-prefixed rows). `period` = the burn label it belongs to. */
+    if (cr) e.crf = { period: periodLabel, baseHours: cr.baseHours, extHours: cr.extHours }; else delete e.crf;
     const contracted = cr ? cr.baseHours
       : sowOk ? +e.retainerValueTarget
       : disc.reduce((s, d) => s + (+d.contracted || 0), 0);

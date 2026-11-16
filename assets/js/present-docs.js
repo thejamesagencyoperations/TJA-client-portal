@@ -3483,25 +3483,42 @@ window.PresentDocs = (function () {
       // 3.5s pull timeout regularly failed silently and left this page rendering a STALE
       // local copy (the "client review / waiting-room item not showing up" delays).
       if (SAVE.dirty || SAVE.busy) return;                            // our own unsaved work first
-      const sent = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
-      // Adopting the server copy makes it the new merge ancestor for staff writes — without this
-      // the 3-way merge would keep comparing against a stale base and mis-read remote additions.
-      if (Array.isArray(sent) && !SAVE.dirty && !SAVE.busy) { items = sent; setBase(sent); try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
+      /* STAMP FIRST (2026-11-16). Deliverable rows carry inline proofs and run to 100KB+, and
+         this used to re-download the whole row (plus drafts, for staff) every 12s in every
+         tab — ~3GB/hour at launch scale. Now: ask for updated_at (bytes), pull only on change. */
+      const stamp = window.SUPA.scopeStamp ? await window.SUPA.scopeStamp(sess.client, "deliverables") : null;
+      const sentChanged = !stamp || stamp !== liveStamp.sent;
+      let draftChanged = false, dStamp = null;
       if (isStaffFn()) {
+        dStamp = window.SUPA.scopeStamp ? await window.SUPA.scopeStamp(sess.client, "deliverables_draft") : null;
+        draftChanged = !dStamp || dStamp !== liveStamp.draft;
+      }
+      if (!sentChanged && !draftChanged) return;
+      if (sentChanged) {
+        const sent = await window.SUPA.pullScope(sess.client, "deliverables", 12000);
+        // Adopting the server copy makes it the new merge ancestor for staff writes — without this
+        // the 3-way merge would keep comparing against a stale base and mis-read remote additions.
+        if (Array.isArray(sent) && !SAVE.dirty && !SAVE.busy) { items = sent; setBase(sent); liveStamp.sent = stamp; try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} }
+      }
+      if (draftChanged) {
         const dr = await window.SUPA.pullScope(sess.client, "deliverables_draft", 12000);
-        if (Array.isArray(dr) && !DRAFT.dirty && !DRAFT.busy) { draftItems = dr; draftBaseIds = new Set(dr.map(d => d.id)); try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {} }
+        if (Array.isArray(dr) && !DRAFT.dirty && !DRAFT.busy) { draftItems = dr; draftBaseIds = new Set(dr.map(d => d.id)); liveStamp.draft = dStamp; try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draftItems)); } catch (e) {} }
       }
       afterRefresh();
       renderGallery();
     } catch (e) { /* transient — next tick */ }
     finally { liveBusy = false; }
   }
+  // last updated_at this tab adopted per scope — the poller downloads a row only when it moves
+  const liveStamp = { sent: null, draft: null };
   function startLiveRefresh() {
     if (liveWired) return; liveWired = true;
     // Poll cadence is the FALLBACK when the Realtime socket misses a change (it's the reason a
     // client's just-submitted review can lag on the staff gallery). 12s keeps staff current
     // without hammering the API; the instant path is still app.js's Realtime nudge.
-    setInterval(liveRefresh, 12000);
+    // Background tabs don't poll at all — the visibilitychange/focus handlers below catch them
+    // up the moment they're looked at.
+    setInterval(() => { if (!document.hidden) liveRefresh(); }, 12000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) liveRefresh(); });
     window.addEventListener("focus", liveRefresh);
   }

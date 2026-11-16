@@ -384,7 +384,7 @@ window.ExecSummary = (function () {
       : `${pct}%`;
     return `<div class="module">
       <div class="module-head"><span class="module-title">${IC.burn}Monthly Burn${e.burn.periodLabel ? " · " + esc(e.burn.periodLabel) : ""}</span>${(canAdmin() && viewMonthIdx == null) ? `<button class="burn-scope-btn" data-scopeext title="Add a scope-extension (hours + description) to this month">＋ Scope extension</button>` : ""}</div>
-      ${(canAdmin() && viewMonthIdx == null && (scopeList.length || crfExt > 0)) ? `<div class="scope-chips">${crfExt > 0 ? `<span class="scope-chip scope-chip--crf" title="Detected from the Client Revenue Forecast: this month bills $${Math.round(e.crf.monthDollars).toLocaleString()} vs a normal $${Math.round(e.crf.baselineDollars).toLocaleString()} at $${e.crf.rate}/hr. Drops off when the month ends."><b>+${round1(crfExt)}h</b> From CRF</span>` : ""}${scopeList.map((x, i) => `<span class="scope-chip"><b>+${round1(x.hours)}h</b>${x.note ? " " + esc(x.note) : ""}<button class="scope-chip-x" data-scopedel="${i}" title="Remove this scope extension">✕</button></span>`).join("")}</div>` : ""}
+      ${(canAdmin() && viewMonthIdx == null && (scopeList.length || crfExt > 0)) ? `<div class="scope-chips">${crfExt > 0 ? `<span class="scope-chip scope-chip--crf" title="${(() => { const m = crfMoney(e); return m ? `Detected from the Client Revenue Forecast: this month bills $${Math.round(+m.monthDollars || 0).toLocaleString()} vs a normal $${Math.round(+m.baselineDollars || 0).toLocaleString()} at $${m.rate}/hr. Drops off when the month ends.` : "Detected from the Client Revenue Forecast. Drops off when the month ends."; })()}"><b>+${round1(crfExt)}h</b> From CRF</span>` : ""}${scopeList.map((x, i) => `<span class="scope-chip"><b>+${round1(x.hours)}h</b>${x.note ? " " + esc(x.note) : ""}<button class="scope-chip-x" data-scopedel="${i}" title="Remove this scope extension">✕</button></span>`).join("")}</div>` : ""}
       <div class="burn-wrap">
         ${gauge(unset ? 0 : pct, interactive)}
         <div class="burn-readout">
@@ -480,6 +480,15 @@ window.ExecSummary = (function () {
      ABOVE the normal month this month (a scope extension). Only trusted for the month it was
      read for, so it drops off by itself when the calendar turns. */
   const crfActive = (e) => !!(e && e.crf && e.burn && e.crf.period === e.burn.periodLabel && +e.crf.baseHours > 0);
+  /* CRF DOLLARS are STAFF-ONLY (2026-11-16): never on the dashboard row (a client can read
+     that row), only in the `_crf_rates` row that staff pull at boot -> window.TJA_CRF_RATES.
+     Returns {rate, monthDollars, baselineDollars} for this client's live month, or null. */
+  const crfMoney = (e) => {
+    const R = window.TJA_CRF_RATES;
+    if (!crfActive(e) || !R || R.period !== e.crf.period || !R.clients) return null;
+    const cid = (typeof getSession === "function" && getSession() && getSession().client) || "";
+    return R.clients[cid] || null;
+  };
   // manual scope extensions an admin added for the live month
   const manualScopeList = (e) => (e && e.burn && e.burn.scopeExtMonth && e.burn.scopeExtMonth === e.burn.periodLabel && Array.isArray(e.burn.scopeExts)) ? e.burn.scopeExts : [];
   const crfExtHours = (e) => (crfActive(e) ? Math.max(0, +e.crf.extHours || 0) : 0);
@@ -770,7 +779,7 @@ window.ExecSummary = (function () {
       </div>` : "";
     const overRow = (overage > 0 && (extCap > 0 || admin)) ? `<div class="rsvc-row rsvc-overage">
         <div class="rsvc-top"><span class="rsvc-name">Overage</span><span class="rsvc-right"><span class="rsvc-status is-over">Billable</span></span></div>
-        <div class="rsvc-cap">${round1(overage)} hrs beyond ${extCap > 0 ? "the scope extension" : "contracted hours"}${(admin && crfActive(e) && +e.crf.rate > 0) ? ` · ≈ $${Math.round(overage * e.crf.rate).toLocaleString()} at $${e.crf.rate}/hr` : ""}</div>
+        <div class="rsvc-cap">${round1(overage)} hrs beyond ${extCap > 0 ? "the scope extension" : "contracted hours"}${(() => { const m = admin ? crfMoney(e) : null; return (m && +m.rate > 0) ? ` · ≈ $${Math.round(overage * m.rate).toLocaleString()} at $${m.rate}/hr` : ""; })()}</div>
       </div>` : "";
     const setupNote = (admin && unset && !e.projectOnly && !(retainerTotalContracted(e) > 0))
       ? `<div class="rsvc-setup-note">${e.retainerValueTarget != null && +e.retainerValueTarget > 0

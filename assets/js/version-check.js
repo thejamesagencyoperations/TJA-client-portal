@@ -42,7 +42,11 @@
       const j = await r.json();
       const target = +j.v || 0;
       if (target <= MINE) return;
-      if (!document.hidden && busyEditing()) return;                 // don't yank the page mid-edit
+      /* NEVER YANK THE PAGE MID-EDIT — hidden tab included (2026-11-16). This used to skip the
+         guard for hidden tabs, so an AM who typed into a field and switched tabs (focus stays
+         on the field; it saves on blur) lost the text when a release landed. The next check
+         after they click out picks the release up. */
+      if (busyEditing()) return;
 
       /* ONE RETRY, NOT ONE ATTEMPT (2026-08-27).
          GitHub Pages serves the HTML with `cache-control: max-age=600`, so a reload fired
