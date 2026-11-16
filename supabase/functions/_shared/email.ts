@@ -26,7 +26,10 @@ const ORANGE = "#f78f22";
 const ASSET_BASE = "https://thejamesagencyoperations.github.io/TJA-client-portal/assets/img/email";
 // STATIC logo (Cameron's boss, 2026-07-22): the animated draw-on GIF was replaced with the
 // flat PNG of the finished mark. Renders identically everywhere, no animation.
-const LOGO = `${ASSET_BASE}/tja-logo-email.png`;
+// Website logo, correct proportions (2026-11-16): the orange "tja" block + "THE JAMES AGENCY"
+// stacked, 540×158, from thejamesagency.com. The old 372×80 PNG had a stretched orange bar.
+// New filename so mail clients don't serve a cached copy of the old one.
+const LOGO = `${ASSET_BASE}/tja-logo-email-2026.png`;
 const ARROW = `${ASSET_BASE}/arrow-orange.png`;
 
 const esc = (s: string) =>
@@ -72,7 +75,7 @@ export function portalEmail(o: PortalEmailOpts): string {
         <tbody>
           <!-- header: logo -->
           <tr><td bgcolor="#ffffff" style="padding:22px 24px 18px">
-            <a target="_blank" href="https://thejamesagency.com"><img width="205" src="${LOGO}" alt="The James Agency" border="0" style="width:205px;max-width:205px;display:block"></a>
+            <a target="_blank" href="https://thejamesagency.com"><img width="200" height="59" src="${LOGO}" alt="The James Agency" border="0" style="width:200px;max-width:200px;height:auto;display:block"></a>
           </td></tr>
           <!-- accent spacer -->
           <tr><td bgcolor="#eeeeee" style="padding:2px 0;font-size:1px;line-height:1px">&nbsp;</td></tr>
