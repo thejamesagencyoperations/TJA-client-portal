@@ -177,7 +177,8 @@ the most repeated hand-written emails. Turn them into buttons the team presses i
   - Same push-to-send + preview pattern as the bundled sign-off email; could later run
     automatically once the team trusts it.
 
-## "Ask TJA" AI chat assistant (to do) 🔖 added 2026-11-13
+## "Ask TJA" AI chat assistant 🛠 built v4.21 (2026-11-16), hidden until switched on 🔖 added 2026-11-13
+**Left before launch:** (1) add the `ANTHROPIC_API_KEY` Supabase secret; (2) Cameron picks the assistant's name (Admin Center → Ask TJA); (3) Cameron sends the brand-voice files, which set its tone; (4) live test of typed questions with the QA login, including trying to get hours or other clients' data out of it; (5) set the daily limit to 25; (6) flip the switch on.
 An **Ask TJA** button on every dashboard page that opens a chat panel. The client (or staff)
 asks plain questions about their account and gets an instant answer from the portal's own data,
 e.g. "What's waiting on me?", "When is the website launch?", "How many hours have we used this month?",
@@ -209,6 +210,28 @@ e.g. "What's waiting on me?", "When is the website launch?", "How many hours hav
   - Where the handoff goes.
   - Whether clients need a short "AI assistant" disclaimer.
   - Check client contracts and confidentiality terms before account data is sent to an AI provider. The API doesn't train on our data.
+
+- **Decided 2026-11-16 (build now; live once the key is added):**
+  - **Clients only** at launch. Staff mode comes later.
+  - **Hidden until ready:** an Admin Center on/off switch, off by default. While it's off, only staff see the bubble, badged "Staff preview".
+  - **Placement:** a floating TJA-orange bubble at the bottom right. The panel slides in from the right; on phones it sits above the tab bar and opens full-screen.
+  - **Branding:** TJA-branded, with a persona name (name TBD by Cameron).
+  - **What it can answer from:**
+    - status, milestones and to-dos;
+    - Present Docs (what needs review or sign-off);
+    - KPIs, PR wins, reports and files;
+    - "how do I…" portal help.
+  - **Budget data:** it may say only what Client View shows. Never raw hours, rates or dollars, and these are stripped on the server.
+  - **Quick-answer buttons, with no AI and no key:**
+    - What's waiting on me?
+    - What's next?
+    - How do I…?
+    - No hours button.
+  - **Daily limit:** unlimited for now, capping at **25 AI questions per user per day** at launch. Quick answers don't count.
+  - **Handoff:** "Send to my AM" goes to Slack (dormant until the Slack proxy is live).
+  - **Logs:** every chat is logged, and staff read them in an Admin Center "Ask TJA" tab. Unanswered questions are flagged.
+  - **Before launch:** browser-test that it can't leak data it shouldn't (hours, CRF, other clients, internal items).
+- **To do: Cameron to send TJA's brand-voice .md files.** Ask TJA's tone will be built from them.
 
 ## Read the CRF through the portal's own Google account (to do: later) 🔖 added 2026-11-16
 Today the hourly `snapshot-months` job reads the Client Revenue Forecast sheet through its public

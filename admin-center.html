@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Center · TJA Portal</title>
-<link rel="icon" href="assets/img/favicon.ico?v=420" sizes="16x16">
-<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=420">
+<link rel="icon" href="assets/img/favicon.ico?v=421" sizes="16x16">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png?v=421">
 <script>(function(){try{if(localStorage.getItem('tja_theme')!=='dark')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/styles.css?v=420">
-<script src="assets/js/text-size.js?v=420"></script>
+<link rel="stylesheet" href="assets/css/styles.css?v=421">
+<script src="assets/js/text-size.js?v=421"></script>
 </head>
 <body data-role="admin">
 <div class="clients-page">
@@ -33,12 +33,18 @@
     <div class="page-head page-head-row">
       <div>
         <div class="page-title">Admin Center</div>
+        <!-- Admin Center tabs (v4.21): Logins (the original page) | Ask TJA (chat assistant) -->
+        <div class="tm-chips ac-tabs" role="tablist" style="margin-top:12px">
+          <button class="tm-chip active" type="button" data-actab="logins" role="tab">Logins</button>
+          <button class="tm-chip" type="button" data-actab="ask" role="tab">Ask TJA</button>
+        </div>
       </div>
       <div class="tm-actions">
         <button class="btn btn-primary btn-sm" id="tmAdd">＋ Add login</button>
       </div>
     </div>
 
+    <div id="acLogins">
     <!-- WORKSPACE SETTINGS — admin only (AM/PMs reach this page too, to invite clients).
          Hidden by default and revealed in script only for isAdmin(), so a manager never sees
          the switch that governs them. -->
@@ -79,6 +85,9 @@
       <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Workspace</th><th>Last signed in</th><th></th></tr></thead>
       <tbody id="tmBody"><tr><td colspan="6" style="padding:18px 16px;color:var(--text-faint)">Loading team…</td></tr></tbody>
     </table></div>
+    </div>
+    <!-- ASK TJA — settings, chat logs and "what it can see" (assets/js/ask-tja-admin.js) -->
+    <div id="acAsk" style="display:none"></div>
   </main>
 </div>
 
@@ -231,12 +240,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="assets/js/supabase-config.js?v=420"></script>
-<script src="assets/js/version-check.js?v=420"></script>
-<script src="assets/js/supabase-sync.js?v=420"></script>
-<script src="assets/js/ui.js?v=420"></script>
-<script src="assets/js/auth.js?v=420"></script>
-<script src="assets/js/chrome-menu.js?v=420"></script>
+<script src="assets/js/supabase-config.js?v=421"></script>
+<script src="assets/js/version-check.js?v=421"></script>
+<script src="assets/js/supabase-sync.js?v=421"></script>
+<script src="assets/js/ui.js?v=421"></script>
+<script src="assets/js/auth.js?v=421"></script>
+<script src="assets/js/chrome-menu.js?v=421"></script>
 <script>
   requireAuth();
   // Admin (full) OR AM/PM (manager — client logins only). Everyone else is bounced:
@@ -246,9 +255,10 @@
   if (!_canAdminCenter)
     window.location.replace(typeof isStaff === "function" && isStaff() ? "clients.html" : "dashboard.html");
 </script>
-<script src="assets/js/clients.js?v=420"></script>
-<script src="assets/js/client-template.js?v=420"></script>
-<script src="assets/js/client-store.js?v=420"></script>
+<script src="assets/js/clients.js?v=421"></script>
+<script src="assets/js/client-template.js?v=421"></script>
+<script src="assets/js/client-store.js?v=421"></script>
+<script src="assets/js/ask-tja-admin.js?v=421"></script>
 <script>
 (async function () {
   const $ = (id) => document.getElementById(id);
@@ -906,7 +916,7 @@
     // lock the Add form to a client invite: hide the role picker entirely.
     const roleField = $("tmRole").closest(".cl-field"); if (roleField) roleField.style.display = "none";
     // only the Clients filter chip makes sense.
-    document.querySelectorAll(".tm-chip").forEach(ch => {
+    document.querySelectorAll("#tmFilterRow .tm-chip").forEach(ch => {
       if (ch.dataset.tmf !== "client") { ch.style.display = "none"; ch.classList.remove("active"); }
       else ch.classList.add("active");
     });

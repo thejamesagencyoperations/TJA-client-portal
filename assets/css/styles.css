@@ -2735,3 +2735,90 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
   /* ---- 9. PAGE TITLES fit the width */
   .page-title { min-width: 0; font-size: 1.15rem; padding-right: 32px; }
 }
+
+/* ============================================================
+   ASK TJA — chat bubble + panel (v4.21). All new .atj-* classes; nothing above is touched.
+   ============================================================ */
+.atj { position: fixed; right: 22px; bottom: 22px; z-index: 45; font-family: var(--font); }
+.atj-bubble { position: relative; width: 58px; height: 58px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--tja-grad); color: #fff; display: grid; place-items: center;
+  box-shadow: 0 10px 28px rgba(218,102,42,.38), 0 2px 6px rgba(0,0,0,.18); transition: transform .15s ease; }
+.atj-bubble:hover { transform: translateY(-2px); }
+.atj-bubble:focus-visible { outline: 3px solid var(--orange-soft); outline-offset: 3px; }
+.atj.is-open .atj-bubble { transform: scale(.92); }
+.atj-badge { position: absolute; right: 50%; transform: translateX(50%); bottom: -9px; white-space: nowrap;
+  font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 2px 7px; border-radius: 999px;
+  background: var(--panel); color: var(--accent-text); border: 1px solid var(--line); }
+.atj-panel { position: absolute; right: 0; bottom: 74px; width: 390px; height: min(620px, calc(100vh - 120px));
+  display: flex; flex-direction: column; overflow: hidden; background: var(--panel); color: var(--text);
+  border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow);
+  opacity: 0; visibility: hidden; transform: translateX(24px); transition: opacity .18s ease, transform .18s ease, visibility .18s; }
+.atj.is-open .atj-panel { opacity: 1; visibility: visible; transform: none; }
+.atj-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(246,142,33,.10), transparent); }
+.atj-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.atj-title b { font-size: 1rem; }
+.atj-title span { font-size: .74rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.atj-icon { width: 34px; height: 34px; border-radius: 9px; border: 1px solid transparent; background: none; color: var(--text-dim);
+  cursor: pointer; font-size: 15px; display: grid; place-items: center; }
+.atj-icon:hover { background: var(--hover); color: var(--text); border-color: var(--line); }
+.atj-avatar { flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--tja-grad); color: #fff;
+  display: grid; place-items: center; font-weight: 900; font-size: 12px; letter-spacing: -.5px; }
+.atj-list { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; overscroll-behavior: contain; }
+.atj-msg { display: flex; gap: 8px; align-items: flex-end; max-width: 100%; }
+.atj-user { justify-content: flex-end; }
+.atj-bub { max-width: 84%; padding: 9px 12px; border-radius: 14px; font-size: .86rem; line-height: 1.45; overflow-wrap: anywhere; }
+.atj-bot .atj-bub { background: var(--panel-2); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.atj-user .atj-bub { background: var(--orange); color: var(--on-accent); border-bottom-right-radius: 4px; }
+.atj-bub p + p, .atj-bub p + ul, .atj-bub ul + p { margin-top: 6px; }
+.atj-bub ul { padding-left: 18px; }
+.atj-bub li + li { margin-top: 3px; }
+.atj-bub a { color: var(--accent-text); }
+.atj-hand { display: block; margin-top: 9px; font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer;
+  color: var(--accent-text); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; }
+.atj-hand:hover { border-color: var(--orange); }
+.atj-typing { display: flex; gap: 4px; padding: 13px 14px; }
+.atj-typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); animation: atjDot 1s infinite ease-in-out; }
+.atj-typing i:nth-child(2) { animation-delay: .15s; } .atj-typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes atjDot { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+.atj-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 4px; max-height: 132px; overflow-y: auto; }
+.atj-chip { font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; padding: 6px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.atj-chip:hover:not(:disabled) { border-color: var(--orange); color: var(--accent-text); }
+.atj-chip:disabled { opacity: .5; cursor: default; }
+.atj-chip--back { color: var(--text-dim); }
+.atj-form { display: flex; gap: 8px; align-items: flex-end; padding: 8px 14px 6px; }
+.atj-form textarea { flex: 1; resize: none; font: inherit; font-size: .88rem; line-height: 1.4; padding: 9px 12px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--input); color: var(--text); max-height: 120px; }
+.atj-form textarea:focus { outline: none; border-color: var(--orange); }
+.atj-form textarea:disabled { opacity: .7; }
+.atj-send { flex: none; width: 40px; height: 40px; border-radius: 12px; border: none; cursor: pointer; background: var(--orange); color: var(--on-accent); font-size: 15px; }
+.atj-send:disabled { opacity: .4; cursor: default; }
+.atj-foot { padding: 2px 14px 10px; font-size: .68rem; color: var(--text-faint); }
+@media (prefers-reduced-motion: reduce) { .atj-panel, .atj-bubble { transition: none; } .atj-typing i { animation: none; } }
+
+/* phones: bubble sits above the bottom tab bar; the panel opens full-screen */
+@media (max-width: 760px) {
+  .atj { right: 14px; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .atj-bubble { width: 52px; height: 52px; }
+  .atj-panel { position: fixed; inset: 0; width: auto; height: auto; border-radius: 0; border: none; transform: translateY(16px); z-index: 60; }
+  .atj-head { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+  .atj-form { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  .atj-form textarea { font-size: 16px !important; }
+  .atj-icon { width: 42px; height: 42px; }
+  .atj-chip { padding: 9px 13px; }
+  .atj-send { width: 44px; height: 44px; }
+  html.atj-locked, html.atj-locked body { overflow: hidden; }
+}
+/* Admin Center → Ask TJA tab */
+.atj-log td { vertical-align: top; }
+.atj-log tr[data-i] { cursor: pointer; }
+.atj-nowrap { white-space: nowrap; }
+.atj-cell { max-width: 340px; max-height: 3.1em; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .82rem; line-height: 1.5; }
+.atj-log tr.is-open .atj-cell { max-height: none; }
+.atj-flag-tag { display: inline-block; margin-left: 4px; font-size: .68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: rgba(245,179,66,.16); color: var(--warn); }
+.atj-facts { max-height: 60vh; overflow: auto; margin-top: 10px; padding: 12px; border-radius: 10px; background: var(--input);
+  border: 1px solid var(--line); font-size: .76rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tm-set-row > .atj-ctl { flex: 0 0 auto; min-width: 0; }
+.tm-set-row > .btn.atj-ctl { width: auto; padding: 8px 18px; }
