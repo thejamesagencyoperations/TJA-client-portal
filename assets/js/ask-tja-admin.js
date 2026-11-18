@@ -45,6 +45,14 @@
           <label class="tm-switch"><input type="checkbox" id="atjEnabled" ${admin() ? "" : "disabled"}><span class="tm-slider-ui"></span></label>
         </div>
         <div class="tm-set-row">
+          <div class="tm-set-txt"><b>Typed questions go to</b><span>Account manager = the message is posted to the client's Slack channel and the AM replies directly. Timmy (AI) = answered by Claude, once the AI key is connected.</span></div>
+          <select id="atjTyped" class="tm-client-filter atj-ctl" ${admin() ? "" : "disabled"}><option value="am">Account manager (Slack)</option><option value="ai">AI answers</option></select>
+        </div>
+        <div class="tm-set-row">
+          <div class="tm-set-txt"><b>Test Slack channel</b><span>Staff previews and the TJA workspace (the QA client login) post here instead of a real client channel. Invite the portal's Slack bot to it.</span></div>
+          <input type="text" maxlength="80" id="atjTest" class="tm-search atj-ctl" style="width:200px" placeholder="#portal-test" ${admin() ? "" : "disabled"}>
+        </div>
+        <div class="tm-set-row">
           <div class="tm-set-txt"><b>Typed questions per client login, per day</b><span>Counts only questions answered by the AI (each costs a few cents). Quick-answer buttons are free and unlimited. 0 = unlimited.</span></div>
           <input type="number" min="0" max="500" step="1" id="atjLimit" class="tm-search atj-ctl" style="width:90px" ${admin() ? "" : "disabled"}>
         </div>
@@ -105,14 +113,16 @@
     $("atjEnabled").checked = !!c.enabled;
     $("atjLimit").value = c.dailyLimit || 0;
     $("atjName").value = c.name || "Ask TJA";
+    $("atjTyped").value = c.typed === "ai" ? "ai" : "am";
+    $("atjTest").value = c.testChannel || "";
     $("atjKey").innerHTML = c.aiReady
       ? `<strong style="color:var(--good)">Connected.</strong> Typed questions are answered by Claude.`
-      : `<strong style="color:var(--warn)">Not connected yet.</strong> Quick answers and how-to guides work now. Typed questions switch on once the Anthropic API key is added as the Supabase secret <code>ANTHROPIC_API_KEY</code>.`;
+      : `<strong style="color:var(--warn)">Not connected yet.</strong> Typed questions go to the account manager in Slack until the Anthropic API key is added as the Supabase secret <code>ANTHROPIC_API_KEY</code> and "AI answers" is picked above.`;
   }
 
   async function saveCfg() {
     $("atjErr").textContent = "";
-    const r = await call({ action: "setConfig", enabled: $("atjEnabled").checked, dailyLimit: +$("atjLimit").value || 0, name: $("atjName").value });
+    const r = await call({ action: "setConfig", enabled: $("atjEnabled").checked, dailyLimit: +$("atjLimit").value || 0, name: $("atjName").value, typed: $("atjTyped").value, testChannel: $("atjTest").value });
     if (r.error) { $("atjErr").textContent = r.error; return; }
     paintCfg(r);
     $("atjErr").innerHTML = `<span style="color:var(--good)">Saved.</span>`;

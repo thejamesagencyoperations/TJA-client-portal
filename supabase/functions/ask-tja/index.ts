@@ -2,11 +2,12 @@
    ASK TJA — the portal's client chat assistant (2026-11-16).
 
    One function, several actions (POST {action, …}):
-     config      → { enabled, staff, aiReady, dailyLimit, name, used }   who sees the bubble
+     config      → { enabled, staff, aiReady, typedMode, dailyLimit, name, used }   who sees the bubble
      quick       → { kind: "waiting" | "next" } → a no-AI answer built from portal data
-     ask         → { question, history[] } → an AI answer (Claude), or a quick-answer fallback
+     ask         → { question, history[] } → typedMode "am": posts the message to the client's
+                   Slack channel ({ sent }); typedMode "ai": an AI answer (Claude)
      handoff     → { question, transcript[] } → posts to the client's Slack channel
-     setConfig   → admin only: { enabled?, dailyLimit?, name? }
+     setConfig   → admin only: { enabled?, dailyLimit?, name?, typed?, testChannel? }
      logs        → staff only: { clientId?, unansweredOnly?, limit? } → recent chats
      facts       → staff only: { clientId } → exactly the data the assistant sees for that client
 
@@ -18,7 +19,10 @@
    workspace always comes from their profile, never from the request.
 
    Feature switch: the staff-only internal row app_state('_ask_tja','clients') =
-     { enabled: bool, dailyLimit: number (0 = unlimited), name: string }
+     { enabled: bool, dailyLimit: number (0 = unlimited), name: string,
+       typed: "am" | "ai"  (where typed questions go; "ai" only takes effect once the key is set),
+       testChannel: string (staff previews + TJA's own QA workspace post here, never to a
+                            real client's channel) }
    While disabled, only staff get the bubble ("Staff preview").
 
    Secrets: ANTHROPIC_API_KEY (until it's set, ask → { noKey } and the panel offers the quick
@@ -40,7 +44,7 @@ const MODEL = Deno.env.get("ASK_TJA_MODEL") || "claude-opus-5-5";
 const DEFAULT_NAME = "Ask TJA";
 const MAX_Q = 1500;            // characters per question
 const MAX_TURNS = 12;          // prior messages carried into a question
-const HANDOFFS_PER_DAY = 10;
+const HANDOFFS_PER_DAY = 20;   // Slack messages to the AM per client login per day
 const HANDOFF_MARK = "[[HANDOFF]]";
 const QA_WORKSPACE = "the-james-agency";
 
@@ -48,7 +52,7 @@ const QA_WORKSPACE = "the-james-agency";
 type Any = any;
 
 /* ---------------- settings ---------------- */
-type Settings = { enabled: boolean; dailyLimit: number; name: string };
+type Settings = { enabled: boolean; dailyLimit: number; name: string; typed: "am" | "ai"; testChannel: string };
 async function settings(): Promise<Settings> {
   const { data } = await svc().from("app_state").select("data")
     .eq("client_id", "_ask_tja").eq("scope", "clients").maybeSingle();
@@ -57,6 +61,8 @@ async function settings(): Promise<Settings> {
     enabled: d.enabled === true,
     dailyLimit: Number.isFinite(+d.dailyLimit) && +d.dailyLimit > 0 ? Math.floor(+d.dailyLimit) : 0,
     name: (typeof d.name === "string" && d.name.trim()) ? d.name.trim().slice(0, 40) : DEFAULT_NAME,
+    typed: d.typed === "ai" ? "ai" : "am",
+    testChannel: typeof d.testChannel === "string" ? d.testChannel.trim().slice(0, 80) : "",
   };
 }
 
@@ -276,6 +282,7 @@ async function askClaude(name: string, facts: Any, history: Any[], question: str
 }
 
 /* ---------------- logging ---------------- */
+const label = (name: string) => (/^ask\b/i.test(name) ? name : "Ask " + name);
 async function log(row: Any) {
   try { await svc().from("ask_tja_log").insert(row); } catch (_e) { /* never fail the answer */ }
 }
@@ -305,6 +312,8 @@ Deno.serve(async (req) => {
     if (typeof body.enabled === "boolean") next.enabled = body.enabled;
     if (body.dailyLimit != null) next.dailyLimit = Math.max(0, Math.min(500, Math.floor(+body.dailyLimit || 0)));
     if (typeof body.name === "string") next.name = body.name.trim().slice(0, 40) || DEFAULT_NAME;
+    if (body.typed === "ai" || body.typed === "am") next.typed = body.typed;
+    if (typeof body.testChannel === "string") next.testChannel = body.testChannel.trim().slice(0, 80);
     const { error } = await svc().from("app_state").upsert(
       { client_id: "_ask_tja", scope: "clients", data: next, updated_at: new Date().toISOString() },
       { onConflict: "client_id,scope" },
@@ -330,6 +339,7 @@ Deno.serve(async (req) => {
   // experience, so the client side can be tested any time without switching it on for everyone.
   const visible = cfg.enabled || staff || clientId === QA_WORKSPACE;
   const aiReady = !!Deno.env.get("ANTHROPIC_API_KEY");
+  const typedMode: "am" | "ai" = cfg.typed === "ai" && aiReady ? "ai" : "am";
   const preview = staff;
 
   // staff: exactly what the assistant sees for this client (Admin Center → "What it can see")
@@ -341,7 +351,7 @@ Deno.serve(async (req) => {
 
   if (action === "config") {
     const used = (!staff && cfg.dailyLimit) ? await usedToday(caller.userId, "ai") : 0;
-    return json(req, 200, { ok: true, enabled: visible, staffPreview: !cfg.enabled, staff, aiReady, dailyLimit: cfg.dailyLimit, used, name: cfg.name });
+    return json(req, 200, { ok: true, enabled: visible, staffPreview: !cfg.enabled, staff, aiReady, typedMode, dailyLimit: cfg.dailyLimit, used, name: cfg.name });
   }
   if (!visible) return json(req, 403, { error: "Ask TJA isn't switched on yet" });
 
@@ -358,7 +368,10 @@ Deno.serve(async (req) => {
   if (action === "ask") {
     const question = str(body.question, MAX_Q);
     if (!question) return json(req, 400, { error: "empty question" });
-    if (!aiReady) return json(req, 200, { ok: true, noKey: true });
+    if (typedMode === "am") {
+      const r = await sendToAm(question, [], "typed");
+      return json(req, 200, r.ok ? { ok: true, sent: true } : { ok: false, error: r.error });
+    }
     if (!staff && cfg.dailyLimit && (await usedToday(caller.userId, "ai")) >= cfg.dailyLimit) {
       await log({ ...base, kind: "limited", question });
       return json(req, 200, { ok: true, limited: true, dailyLimit: cfg.dailyLimit });
@@ -381,23 +394,41 @@ Deno.serve(async (req) => {
     }
   }
 
+  /* Post a client's message to their Slack channel for the AM. Typed questions (while typedMode
+     is "am") and the "Send this to my account manager" button both land here. Staff previews and
+     TJA's own QA workspace go to the test channel from Admin Center, never a real client channel. */
+  async function sendToAm(question: string, history: Any[], via: "typed" | "button"): Promise<{ ok: boolean; error?: string }> {
+    if (!staff && (await usedToday(caller!.userId, "handoff")) >= HANDOFFS_PER_DAY) {
+      return { ok: false, error: "That's the limit for today. Please email your account manager directly." };
+    }
+    const reg = await registryEntry(clientId);
+    const test = preview || clientId === QA_WORKSPACE;
+    const channel = test ? cfg.testChannel : (reg?.integrations?.slackChannel || "");
+    const transcript = history.slice(-6)
+      .map((m: Any) => `${m.role === "assistant" ? cfg.name : "Client"}: ${str(m.content, 500)}`).join("\n");
+    const am = reg && (reg.am || (reg.managers || [])[0]);
+    const who = reg?.name || clientId;
+    const text = `${test ? "[Test] " : ""}` +
+      (via === "typed" ? `💬 *${who}* sent a message through ${label(cfg.name)}` : `🙋 *${who}* asked ${cfg.name} for help`) +
+      `${am ? ` (AM: ${am})` : ""}\n*From:* ${me || "unknown"}\n*${via === "typed" ? "Message" : "Question"}:* ${question}` +
+      (transcript ? `\n\n_Recent chat:_\n${transcript}` : "") + `\n\nPlease reply to the client directly.`;
+    const r = channel
+      ? await postToSlack(channel, text).catch((e) => ({ ok: false, error: String(e) }))
+      : { ok: false, error: test ? "no test channel set in Admin Center" : "no Slack channel for this client" };
+    await log({ ...base, kind: "handoff", question, answer: r.ok ? `sent to Slack ${channel}` : `not sent: ${(r as Any).error || "Slack not configured"}`, unanswered: via === "button" });
+    if (!r.ok) {
+      return { ok: false, error: test && !channel
+        ? "No test Slack channel is set. Add one in Admin Center → Ask TJA."
+        : "Couldn't reach the team right now. Please email your account manager." };
+    }
+    return { ok: true };
+  }
+
   if (action === "handoff") {
     const question = str(body.question, MAX_Q);
     if (!question) return json(req, 400, { error: "empty question" });
-    if (!staff && (await usedToday(caller.userId, "handoff")) >= HANDOFFS_PER_DAY) {
-      return json(req, 429, { error: "That's the limit for today. Please email your account manager directly." });
-    }
-    const reg = await registryEntry(clientId);
-    const transcript = (Array.isArray(body.transcript) ? body.transcript.slice(-6) : [])
-      .map((m: Any) => `${m.role === "assistant" ? cfg.name : "Client"}: ${str(m.content, 500)}`).join("\n");
-    const am = reg && (reg.am || (reg.managers || [])[0]);
-    const text = `${preview ? "[Staff preview test] " : ""}🙋 *${reg?.name || clientId}* asked ${cfg.name} for help` +
-      `${am ? ` (AM: ${am})` : ""}\n*From:* ${me || "unknown"}\n*Question:* ${question}` +
-      (transcript ? `\n\n_Recent chat:_\n${transcript}` : "") + `\n\nPlease follow up with the client directly.`;
-    const r = await postToSlack(reg?.integrations?.slackChannel, text).catch((e) => ({ ok: false, error: String(e) }));
-    await log({ ...base, kind: "handoff", question, answer: r.ok ? "sent to Slack" : `not sent: ${(r as Any).error || "Slack not configured"}`, unanswered: true });
-    if (!r.ok) return json(req, 200, { ok: false, error: "Couldn't reach the team right now. Please email your account manager." });
-    return json(req, 200, { ok: true });
+    const r = await sendToAm(question, Array.isArray(body.transcript) ? body.transcript : [], "button");
+    return json(req, r.ok ? 200 : (r.error?.includes("limit") ? 429 : 200), r.ok ? { ok: true } : { ok: false, error: r.error });
   }
 
   return json(req, 400, { error: "unknown action" });

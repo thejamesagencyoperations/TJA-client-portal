@@ -7,8 +7,9 @@
      is staff ("Staff preview" badge while it's off). Nothing here decides access — the function
      re-checks every call and builds the assistant's data on the server.
    • Quick answers ("What's waiting on me?", "What's next?") come from portal data with no AI.
-     "How do I…?" guides are static text in this file. Typed questions go to Claude once the
-     ANTHROPIC_API_KEY secret exists; until then the panel says so and offers the quick answers.
+     "How do I…?" guides are static text in this file. Typed questions follow the server's
+     typedMode: "am" (default, until the AI is switched on) sends the message to the client's
+     Slack channel for their account manager; "ai" answers with Claude.
    • "Send to my account manager" posts the question to the client's Slack channel.
    ============================================================ */
 (function () {
@@ -202,9 +203,10 @@
     if (on) { placePanel(); render(); setTimeout(() => input.focus({ preventScroll: true }), 60); }
   }
 
+  const amMode = () => cfg.typedMode !== "ai";
   function welcome() {
     return `Hi! I'm ${cfg.name}. I can tell you what's waiting on you, what's coming up next, and how to do things in the portal.` +
-      (cfg.aiReady ? " Ask me anything about your account." : "");
+      (amMode() ? " Or type a message below and I'll send it straight to your account manager." : " Ask me anything about your account.");
   }
 
   function render() {
@@ -216,8 +218,8 @@
     }).join("") + (busy ? `<div class="atj-msg atj-bot">${AVATAR_HTML()}<div class="atj-bub atj-typing"><i></i><i></i><i></i></div></div>` : "");
     chips();
     list.scrollTop = list.scrollHeight;
-    input.disabled = busy || !cfg.aiReady; sendBtn.disabled = busy || !cfg.aiReady;
-    input.placeholder = cfg.aiReady ? "Ask a question…" : "Typing opens soon. Use the buttons above.";
+    input.disabled = busy; sendBtn.disabled = busy;
+    input.placeholder = amMode() ? "Message your account manager…" : "Ask a question…";
   }
 
   let chipMode = "main";
@@ -262,13 +264,18 @@
 
   async function ask(text) {
     text = String(text || "").trim();
-    if (!text || busy || !cfg.aiReady) return;
+    if (!text || busy) return;
     input.value = ""; grow();
     const history = msgs.filter((m) => !m.local).slice(-12).map((m) => ({ role: m.role, content: m.content }));
     push({ role: "user", content: text });
     busy = true; render();
     const r = await call({ action: "ask", question: text, history });
     busy = false;
+    if (amMode() || r.sent) {
+      return push({ role: "assistant", local: true, content: r.sent
+        ? "Sent! Your account manager has your message and will get back to you directly."
+        : (r.error || "Sorry, I couldn't reach the team. Please email your account manager.") });
+    }
     if (r.noKey) { cfg.aiReady = false; return push({ role: "assistant", content: "Typed questions aren't switched on yet. The buttons below work now, or I can pass your question to your account manager.", handoff: true, local: true }); }
     if (r.limited) return push({ role: "assistant", content: `You've reached today's limit of ${r.dailyLimit} typed questions. The buttons below still work, or I can pass this to your account manager.`, handoff: true, local: true });
     if (r.failed || r.error || !r.answer) return push({ role: "assistant", content: "Sorry, something went wrong on my side. Please try again, or I can pass this to your account manager.", handoff: true, local: true });
