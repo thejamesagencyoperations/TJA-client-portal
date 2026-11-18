@@ -7,7 +7,7 @@
      ask         → { question, history[] } → typedMode "am": posts the message to the client's
                    Slack channel ({ sent }); typedMode "ai": an AI answer (Claude)
      handoff     → { question, transcript[] } → posts to the client's Slack channel
-     setConfig   → admin only: { enabled?, dailyLimit?, name?, typed?, testChannel? }
+     setConfig   → admin only: { enabled?, dailyLimit?, name?, typed? }
      logs        → staff only: { clientId?, unansweredOnly?, limit? } → recent chats
      facts       → staff only: { clientId } → exactly the data the assistant sees for that client
      slackCheck  → admin only: read-only check that the Slack bot can post in each client channel
@@ -21,9 +21,8 @@
 
    Feature switch: the staff-only internal row app_state('_ask_tja','clients') =
      { enabled: bool, dailyLimit: number (0 = unlimited), name: string,
-       typed: "am" | "ai"  (where typed questions go; "ai" only takes effect once the key is set),
-       testChannel: string (staff previews + TJA's own QA workspace post here, never to a
-                            real client's channel) }
+       typed: "am" | "ai"  (where typed questions go; "ai" only takes effect once the key is set) }
+   Staff testing from a client's dashboard posts to that client's real channel, tagged [Test].
    While disabled, only staff get the bubble ("Staff preview").
 
    Secrets: ANTHROPIC_API_KEY (until it's set, ask → { noKey } and the panel offers the quick
@@ -53,7 +52,7 @@ const QA_WORKSPACE = "the-james-agency";
 type Any = any;
 
 /* ---------------- settings ---------------- */
-type Settings = { enabled: boolean; dailyLimit: number; name: string; typed: "am" | "ai"; testChannel: string };
+type Settings = { enabled: boolean; dailyLimit: number; name: string; typed: "am" | "ai" };
 async function settings(): Promise<Settings> {
   const { data } = await svc().from("app_state").select("data")
     .eq("client_id", "_ask_tja").eq("scope", "clients").maybeSingle();
@@ -63,7 +62,6 @@ async function settings(): Promise<Settings> {
     dailyLimit: Number.isFinite(+d.dailyLimit) && +d.dailyLimit > 0 ? Math.floor(+d.dailyLimit) : 0,
     name: (typeof d.name === "string" && d.name.trim()) ? d.name.trim().slice(0, 40) : DEFAULT_NAME,
     typed: d.typed === "ai" ? "ai" : "am",
-    testChannel: typeof d.testChannel === "string" ? d.testChannel.trim().slice(0, 80) : "",
   };
 }
 
@@ -314,7 +312,6 @@ Deno.serve(async (req) => {
     if (body.dailyLimit != null) next.dailyLimit = Math.max(0, Math.min(500, Math.floor(+body.dailyLimit || 0)));
     if (typeof body.name === "string") next.name = body.name.trim().slice(0, 40) || DEFAULT_NAME;
     if (body.typed === "ai" || body.typed === "am") next.typed = body.typed;
-    if (typeof body.testChannel === "string") next.testChannel = body.testChannel.trim().slice(0, 80);
     const { error } = await svc().from("app_state").upsert(
       { client_id: "_ask_tja", scope: "clients", data: next, updated_at: new Date().toISOString() },
       { onConflict: "client_id,scope" },
@@ -365,8 +362,7 @@ Deno.serve(async (req) => {
         : "bot is NOT in the channel";
       return { id: c.id, name: c.name, channel: ch, status };
     });
-    const test = cfg.testChannel ? chans.get(cfg.testChannel.replace(/^#/, "").toLowerCase()) : null;
-    return json(req, 200, { ok: true, bot: who.user || "", team: who.team || "", scopes, testChannel: cfg.testChannel, testChannelMember: test ? test.member : null, rows });
+    return json(req, 200, { ok: true, bot: who.user || "", team: who.team || "", scopes, rows });
   }
 
   /* ---- whose workspace: clients → their profile, always; staff → the dashboard they're on ---- */
@@ -432,15 +428,15 @@ Deno.serve(async (req) => {
   }
 
   /* Post a client's message to their Slack channel for the AM. Typed questions (while typedMode
-     is "am") and the "Send this to my account manager" button both land here. Staff previews and
-     TJA's own QA workspace go to the test channel from Admin Center, never a real client channel. */
+     is "am") and the "Send this to my account manager" button both land here. Staff
+     tests go to the same client channel, tagged [Test]. */
   async function sendToAm(question: string, history: Any[], via: "typed" | "button"): Promise<{ ok: boolean; error?: string }> {
     if (!staff && (await usedToday(caller!.userId, "handoff")) >= HANDOFFS_PER_DAY) {
       return { ok: false, error: "That's the limit for today. Please email your account manager directly." };
     }
     const reg = await registryEntry(clientId);
-    const test = preview || clientId === QA_WORKSPACE;
-    const channel = test ? cfg.testChannel : (reg?.integrations?.slackChannel || "");
+    const test = preview;                                   // staff testing: same channel, tagged [Test]
+    const channel = reg?.integrations?.slackChannel || "";
     const transcript = history.slice(-6)
       .map((m: Any) => `${m.role === "assistant" ? cfg.name : "Client"}: ${str(m.content, 500)}`).join("\n");
     const am = reg && (reg.am || (reg.managers || [])[0]);
@@ -451,11 +447,11 @@ Deno.serve(async (req) => {
       (transcript ? `\n\n_Recent chat:_\n${transcript}` : "") + `\n\nPlease reply to the client directly.`;
     const r = channel
       ? await postToSlack(channel, text).catch((e) => ({ ok: false, error: String(e) }))
-      : { ok: false, error: test ? "no test channel set in Admin Center" : "no Slack channel for this client" };
+      : { ok: false, error: "no Slack channel for this client" };
     await log({ ...base, kind: "handoff", question, answer: r.ok ? `sent to Slack ${channel}` : `not sent: ${(r as Any).error || "Slack not configured"}`, unanswered: via === "button" });
     if (!r.ok) {
       return { ok: false, error: test && !channel
-        ? "No test Slack channel is set. Add one in Admin Center → Ask TJA."
+        ? "This client has no Slack channel set in its integrations, so there's nowhere to send it."
         : "Couldn't reach the team right now. Please email your account manager." };
     }
     return { ok: true };
