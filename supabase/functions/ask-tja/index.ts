@@ -10,6 +10,7 @@
      setConfig   → admin only: { enabled?, dailyLimit?, name?, typed?, testChannel? }
      logs        → staff only: { clientId?, unansweredOnly?, limit? } → recent chats
      facts       → staff only: { clientId } → exactly the data the assistant sees for that client
+     slackCheck  → admin only: read-only check that the Slack bot can post in each client channel
 
    DATA BOUNDARY (the whole point): the assistant only ever sees a FACTS object built here, on
    the server, from the client-safe dashboard copy (_shared/client-safe.ts — the same stripping
@@ -330,6 +331,42 @@ Deno.serve(async (req) => {
     const { data, error } = await q;
     if (error) return json(req, 500, { error: error.message });
     return json(req, 200, { ok: true, rows: data || [], ...cfg, aiReady: !!Deno.env.get("ANTHROPIC_API_KEY") });
+  }
+
+  /* Admin: read-only Slack check — can the bot post in every client's channel? Posts nothing. */
+  if (action === "slackCheck") {
+    if (caller.role !== "admin") return json(req, 403, { error: "admins only" });
+    const tok = Deno.env.get("SLACK_BOT_TOKEN");
+    if (!tok) return json(req, 200, { ok: false, error: "SLACK_BOT_TOKEN not set" });
+    const h = { Authorization: `Bearer ${tok}` };
+    const at = await fetch("https://slack.com/api/auth.test", { method: "POST", headers: h });
+    const scopes = (at.headers.get("x-oauth-scopes") || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const who = await at.json().catch(() => ({}));
+    const chans = new Map<string, Any>();
+    let cursor = "";
+    for (let i = 0; i < 20; i++) {
+      const u = new URL("https://slack.com/api/conversations.list");
+      u.searchParams.set("types", "public_channel,private_channel"); u.searchParams.set("limit", "1000");
+      u.searchParams.set("exclude_archived", "true"); if (cursor) u.searchParams.set("cursor", cursor);
+      const j = await (await fetch(u, { headers: h })).json().catch(() => ({}));
+      if (!j.ok) return json(req, 200, { ok: false, error: "conversations.list: " + (j.error || "failed"), scopes });
+      for (const c of j.channels || []) chans.set(String(c.name).toLowerCase(), { id: c.id, member: !!c.is_member, private: !!c.is_private });
+      cursor = j.response_metadata?.next_cursor || ""; if (!cursor) break;
+    }
+    const { data } = await svc().from("app_state").select("data").eq("client_id", "_registry").eq("scope", "clients").maybeSingle();
+    const roster: Any[] = Array.isArray((data as Any)?.data) ? (data as Any).data : [];
+    const rows = roster.filter((c) => c && c.id && !String(c.id).startsWith("_")).map((c) => {
+      const ch = String(c.integrations?.slackChannel || "").trim();
+      if (!ch) return { id: c.id, name: c.name, channel: "", status: "no channel set" };
+      const hit = chans.get(ch.replace(/^#/, "").toLowerCase());
+      const status = !hit ? "channel not found (renamed, archived, or private without the bot)"
+        : hit.member ? "ok: bot is in the channel"
+        : scopes.includes("chat:write.public") && !hit.private ? "ok: bot can post (public channel, not a member)"
+        : "bot is NOT in the channel";
+      return { id: c.id, name: c.name, channel: ch, status };
+    });
+    const test = cfg.testChannel ? chans.get(cfg.testChannel.replace(/^#/, "").toLowerCase()) : null;
+    return json(req, 200, { ok: true, bot: who.user || "", team: who.team || "", scopes, testChannel: cfg.testChannel, testChannelMember: test ? test.member : null, rows });
   }
 
   /* ---- whose workspace: clients → their profile, always; staff → the dashboard they're on ---- */
