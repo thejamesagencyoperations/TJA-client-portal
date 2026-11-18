@@ -2753,6 +2753,19 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
 .atj-badge { position: absolute; right: 50%; transform: translateX(50%); bottom: -9px; white-space: nowrap;
   font-size: 10px; font-weight: 700; letter-spacing: .02em; padding: 2px 7px; border-radius: 999px;
   background: var(--panel); color: var(--accent-text); border: 1px solid var(--line); }
+/* minimize toggle: a little dot on the button's top-right corner; minimized = just Timmy's face */
+.atj-min { position: fixed; z-index: 45; right: 10px; top: calc(var(--atj-y, calc(100vh - 70px)) - 8px); width: 22px; height: 22px;
+  border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text-dim, var(--text)); cursor: pointer;
+  font: 700 14px/1 var(--font); display: flex; align-items: center; justify-content: center; padding: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,.18); opacity: .9; transition: opacity .15s ease, transform .15s ease; }
+.atj-min:hover { opacity: 1; transform: scale(1.1); }
+.atj-min:focus-visible { outline: 3px solid var(--orange-soft); outline-offset: 2px; }
+.atj.is-dragging .atj-min, .atj.is-open .atj-min { opacity: 0; pointer-events: none; }
+.atj.is-min .atj-bubble { width: 44px; height: 44px; padding: 0; justify-content: center; right: 12px; opacity: .85; }
+.atj.is-min .atj-bubble:hover, .atj.is-min .atj-bubble:focus-visible, .atj.is-min.is-open .atj-bubble { opacity: 1; }
+.atj.is-min .atj-bubble .atj-face { margin-left: 0; width: 38px; height: 38px; }
+.atj.is-min .atj-label, .atj.is-min .atj-badge { display: none; }
+.atj.is-min .atj-min { right: 4px; }
 .atj-panel { position: fixed; right: 22px; top: var(--atj-ptop, 80px); z-index: 46; width: 390px; height: var(--atj-ph, min(620px, calc(100vh - 120px)));
   display: flex; flex-direction: column; overflow: hidden; background: var(--panel); color: var(--text);
   border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow);
@@ -2805,6 +2818,10 @@ tr:hover > td > .bc-tools, .bc-tools:focus-within { opacity: 1; }
 @media (max-width: 760px) {
   .atj-bubble { right: 12px; height: 44px; padding: 0 15px 0 10px; font-size: .85rem; }
   .atj-bubble .atj-face { width: 32px; height: 32px; margin-left: -6px; }
+  .atj-min { right: 4px; }
+  .atj.is-min .atj-bubble { width: 40px; height: 40px; right: 8px; }
+  .atj.is-min .atj-bubble .atj-face { width: 34px; height: 34px; }
+  .atj.is-min .atj-min { right: 2px; }
   .atj-panel { position: fixed; inset: 0; width: auto; height: auto; border-radius: 0; border: none; transform: translateY(16px); z-index: 60; }
   .atj-head { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
   .atj-form { padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }

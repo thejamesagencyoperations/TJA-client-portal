@@ -94,6 +94,7 @@
     root.className = "atj";
     root.innerHTML = `
       <button class="atj-bubble" type="button" aria-label="${esc(label())} (drag to move it up or down)" title="Drag to move up or down" aria-expanded="false">${ICON()}<span class="atj-label">${esc(label())}</span>${cfg.staffPreview ? `<span class="atj-badge">Staff preview</span>` : ""}</button>
+      <button class="atj-min" type="button" aria-pressed="false"></button>
       <section class="atj-panel" role="dialog" aria-label="${esc(cfg.name)}" aria-hidden="true">
         <header class="atj-head">
           ${AVATAR_HTML()}
@@ -118,6 +119,7 @@
     bubble = root.querySelector(".atj-bubble");
     bubble.addEventListener("click", () => { if (dragMoved) { dragMoved = false; return; } toggle(!open); });
     initDrag();
+    initMin();
     root.addEventListener("click", onClick);
     root.querySelector(".atj-form").addEventListener("submit", (e) => { e.preventDefault(); ask(input.value); });
     input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(input.value); } });
@@ -189,6 +191,24 @@
       try { localStorage.setItem(POS_KEY, String(btnY / window.innerHeight)); } catch (_) {}
     });
     window.addEventListener("resize", () => place(btnY));
+  }
+  /* ---------- minimize: shrink Timmy to just his face (remembered per viewer) ---------- */
+  const MIN_KEY = "tja_asktja_min";
+  function setMin(on) {
+    root.classList.toggle("is-min", on);
+    const b = root.querySelector(".atj-min");
+    b.textContent = on ? "+" : "–";
+    b.title = on ? "Show " + label() : "Make " + cfg.name + " smaller";
+    b.setAttribute("aria-label", b.title);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    try { localStorage.setItem(MIN_KEY, on ? "1" : "0"); } catch (e) { /* fine */ }
+    place(btnY);
+  }
+  function initMin() {
+    let on = false;
+    try { on = localStorage.getItem(MIN_KEY) === "1"; } catch (e) { /* storage blocked */ }
+    root.querySelector(".atj-min").addEventListener("click", (e) => { e.stopPropagation(); setMin(!root.classList.contains("is-min")); });
+    setMin(on);
   }
   const label = () => (/^ask\b/i.test(cfg.name) ? cfg.name : "Ask " + cfg.name);
 
