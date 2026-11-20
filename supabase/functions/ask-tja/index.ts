@@ -73,7 +73,13 @@ const tileHidden = (e: Any, k: string) => !!(e && e.tileVis && e.tileVis[k] === 
 function engagementFacts(e: Any, kind: "monthly-services" | "project", fallback: string) {
   const out: Any = { kind, name: engName(e, fallback) };
   if (e.northStar) out.goal = str(e.northStar, 400);
-  if (e.dueDate) out.dueDate = str(e.dueDate, 40);
+  // deadline moves (Exec Summary "updated due date"): dueDate = the ACTIVE date
+  const ups = Array.isArray(e.dueUpdates) ? e.dueUpdates.filter((u: Any) => u && u.date) : [];
+  if (ups.length) {
+    out.dueDate = str(ups[ups.length - 1].date, 40);
+    if (e.dueDate) out.originalDueDate = str(e.dueDate, 40);
+    out.dueDateMoves = ups.map((u: Any) => ({ newDate: str(u.date, 40), whyItMoved: str(u.note, 300) }));
+  } else if (e.dueDate) out.dueDate = str(e.dueDate, 40);
   if (e.condition && e.condition.level) {
     out.overallStatus = { green: "on track", yellow: "needs attention", red: "at risk" }[e.condition.level as string] || str(e.condition.level, 20);
     if (e.condition.note) out.statusNote = str(e.condition.note, 300);

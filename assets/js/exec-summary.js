@@ -89,9 +89,7 @@ window.ExecSummary = (function () {
     const dueVal = canAdmin()
       ? `<span class="date-cell"><button type="button" class="date-pill is-set proj-due-pill" data-projduepick title="Set the due date">${dueShown ? esc(dueShown) : "＋ Set date"}</button><input type="date" class="date-hidden" data-projdue value="${dueToISO(e.dueDate)}"></span>`
       : (dueShown ? `<span class="date-pill is-set">${esc(dueShown)}</span>` : `<span class="proj-due-date">—</span>`);
-    const due = (e.type === "project")
-      ? `<div class="proj-due"><span class="proj-due-cal">${IC.cal}</span><span class="proj-due-label">Due date</span>${dueVal}</div>`
-      : "";
+    const due = (e.type === "project") ? dueStrip(e, dueShown, dueVal) : "";
     // Admin edits the note in a roomy popup. The edit affordance is a compact button to
     // the RIGHT of the Condition label — the old full-width button sat BELOW the row and
     // in the project tile it fell out of view, so it was hard to reach. The note itself
@@ -105,6 +103,72 @@ window.ExecSummary = (function () {
       <div class="burn-cond-row"><span class="bc-label">${IC.cond}Condition</span>${editBtn}<span class="cond-label ${lvl}">${labels[lvl] || "—"}</span><span class="cond-dots">${dot("green")}${dot("yellow")}${dot("red")}</span></div>
       ${noteHtml}
     </div>`;
+  }
+  /* DUE DATE MOVES (v4.27). When a deadline is pushed, the original date stays and each
+     "updated due date" sits to its right in the same orange strip. The ACTIVE date (the newest
+     update, or the original if there are none) is the orange pill; superseded dates turn white.
+     Each move can carry a short "why it moved" note; the newest one shows under the pills so
+     clients see why (and their part in it), older ones on hover. Stored on the engagement as
+     dueUpdates: [{ date: "YYYY-MM-DD", note: "" }], oldest first. Nothing shows until one is added. */
+  function dueStrip(e, dueShown, dueVal) {
+    const ups = Array.isArray(e.dueUpdates) ? e.dueUpdates.filter(u => u && u.date) : [];
+    const moved = ups.length > 0;
+    const admin = canAdmin();
+    // the original pill: orange while it's the active date, white once it's been superseded
+    const orig = moved ? dueVal.replace(/date-pill is-set/, "date-pill is-set is-old") : dueVal;
+    const pills = ups.map((u, i) => {
+      const last = i === ups.length - 1;
+      const tip = u.note ? ` title="${esc("Why it moved: " + u.note)}"` : "";
+      const cls = `date-pill is-set due-up${last ? "" : " is-old"}`;
+      return `<span class="due-arrow" aria-hidden="true">→</span>` + (admin
+        ? `<button type="button" class="${cls}" data-dueup="${i}"${tip || ` title="Edit this updated due date"`}>${esc(isoToDue(u.date))}</button>`
+        : `<span class="${cls}"${tip}>${esc(isoToDue(u.date))}</span>`);
+    }).join("");
+    const add = admin ? `<button type="button" class="due-add" data-dueup="new" title="The deadline moved? Add the new date">＋ Updated due date</button>` : "";
+    const why = moved && ups[ups.length - 1].note ? `<div class="due-why"><b>Why it moved:</b> ${esc(ups[ups.length - 1].note)}</div>` : "";
+    return `<div class="proj-due${moved ? " is-moved" : ""}">
+      <div class="proj-due-row"><span class="proj-due-cal">${IC.cal}</span>
+        <span class="proj-due-label">${moved ? "Original due date" : "Due date"}</span>${orig}
+        ${moved ? `<span class="proj-due-label proj-due-label--up">Updated due date</span>` : ""}${pills}${add}</div>
+      ${why}</div>`;
+  }
+  // admin: add / edit / remove an updated due date (with an optional "why it moved" note)
+  function openDueUpdate(which) {
+    const eng = window.DASH.getEng();
+    eng.dueUpdates = Array.isArray(eng.dueUpdates) ? eng.dueUpdates : [];
+    const isNew = which === "new", i = isNew ? -1 : +which;
+    const cur = isNew ? { date: "", note: "" } : (eng.dueUpdates[i] || { date: "", note: "" });
+    const old = document.getElementById("duePop"); if (old) old.remove();
+    const ov = document.createElement("div");
+    ov.id = "duePop"; ov.className = "burn-pop-overlay";
+    ov.innerHTML = `<div class="burn-pop note-pop" role="dialog" aria-modal="true">
+      <div class="bp-head">${isNew ? "Add an updated due date" : "Edit updated due date"}</div>
+      <p class="bp-lead">The original due date stays visible; the newest updated date becomes the active (orange) one.</p>
+      <label class="due-pop-lbl">New due date<input type="date" class="due-pop-date" value="${esc(cur.date)}"></label>
+      <label class="due-pop-lbl">Why it moved <span>(optional, clients see this)</span>
+        <textarea class="note-pop-ta" rows="3" maxlength="300" placeholder="e.g. Waiting on homepage copy approval and the signature from the client.">${esc(cur.note || "")}</textarea></label>
+      <div class="cl-err due-pop-err" style="min-height:0"></div>
+      <div class="bp-actions">${isNew ? "" : `<button type="button" class="btn btn-ghost due-pop-del" data-dpdel>Remove</button>`}
+        <button type="button" class="btn btn-ghost" data-dpcancel>Cancel</button><button type="button" class="btn btn-primary" data-dpsave>Save</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close = () => ov.remove();
+    ov.querySelector(".due-pop-date").focus();
+    ov.querySelector("[data-dpcancel]").addEventListener("click", close);
+    const del = ov.querySelector("[data-dpdel]");
+    if (del) del.addEventListener("click", () => {
+      eng.dueUpdates.splice(i, 1);
+      if (!eng.dueUpdates.length) delete eng.dueUpdates;
+      window.DASH.saveState(); close(); rerender();
+    });
+    ov.querySelector("[data-dpsave]").addEventListener("click", () => {
+      const date = ov.querySelector(".due-pop-date").value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { ov.querySelector(".due-pop-err").textContent = "Pick the new due date."; return; }
+      const item = { date, note: ov.querySelector(".note-pop-ta").value.trim() };
+      if (isNew) eng.dueUpdates.push(item); else eng.dueUpdates[i] = item;
+      window.DASH.saveState(); close(); rerender();
+    });
+    window.TJA_UI.backdropClose(ov, close);
   }
   /* condition-note popup (admin) — roomy textarea instead of a squished inline field */
   function openConditionNote() {
@@ -2230,6 +2294,10 @@ window.ExecSummary = (function () {
         if (inp) { if (typeof inp.showPicker === "function") { try { inp.showPicker(); } catch (_) { inp.focus(); } } else { inp.focus(); inp.click(); } }
         return;
       }
+
+      // updated due date pill / "＋ Updated due date" → popup editor (admin)
+      const du = e.target.closest("[data-dueup]");
+      if (du && canAdmin()) { openDueUpdate(du.dataset.dueup); return; }
 
       // condition note → roomy popup editor (admin)
       const cn = e.target.closest("[data-condnote]");
