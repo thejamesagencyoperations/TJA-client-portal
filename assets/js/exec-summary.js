@@ -1937,6 +1937,23 @@ window.ExecSummary = (function () {
     canvas.style.width = baseR + "px";                       // design width; scaled it becomes exactly `avail`
     canvas.style.transform = `scale(${sc})`; canvas.style.transformOrigin = "top left";
     canvas.style.marginBottom = (h * (sc - 1)) + "px";       // compensate layout height for the visual scale
+    trimScrollbars(canvas);
+  }
+  /* A tile only scrolls when its TEXT is actually cut off. A tile can overflow by a few pixels
+     of bottom padding alone, which drew a full-height scrollbar on a tile whose words all fit
+     (Circle the City's Project Progress). Measure where the content really ends; if it's inside
+     the tile, turn the scrollbar off for that tile. */
+  function trimScrollbars(canvas) {
+    canvas.querySelectorAll(".exec-tile > .module").forEach(m => {
+      m.classList.remove("no-scroll");
+      if (m.scrollHeight <= m.clientHeight + 1) return;
+      const box = m.getBoundingClientRect();
+      const scale = box.height / (m.offsetHeight || box.height);       // the canvas is CSS-scaled
+      let end = 0;
+      for (const c of m.children) { const r = c.getBoundingClientRect(); if (r.height) end = Math.max(end, r.bottom); }
+      const endAtTop = end + m.scrollTop * scale;                       // where the content ends unscrolled
+      if (endAtTop <= box.bottom + 1) { m.scrollTop = 0; m.classList.add("no-scroll"); }
+    });
   }
 
   /* ---- wiring (delegated, attached once) ---- */
