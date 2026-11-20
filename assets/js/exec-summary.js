@@ -107,8 +107,9 @@ window.ExecSummary = (function () {
   /* DUE DATE MOVES (v4.27). When a deadline is pushed, the original date stays and each
      "updated due date" sits to its right in the same orange strip. The ACTIVE date (the newest
      update, or the original if there are none) is the orange pill; superseded dates turn white.
-     Each move can carry a short "why it moved" note; the newest one shows under the pills so
-     clients see why (and their part in it), older ones on hover. Stored on the engagement as
+     Each move can carry a short "why it moved" note, shown as a small pop-up when anyone hovers
+     (or taps) that date, so clients see why and their part in it. Admins / AMs / PMs can delete
+     any updated date with its ×; the original can never be deleted. Stored on the engagement as
      dueUpdates: [{ date: "YYYY-MM-DD", note: "" }], oldest first. Nothing shows until one is added. */
   function dueStrip(e, dueShown, dueVal) {
     const ups = Array.isArray(e.dueUpdates) ? e.dueUpdates.filter(u => u && u.date) : [];
@@ -118,20 +119,48 @@ window.ExecSummary = (function () {
     const orig = moved ? dueVal.replace(/date-pill is-set/, "date-pill is-set is-old") : dueVal;
     const pills = ups.map((u, i) => {
       const last = i === ups.length - 1;
-      const tip = u.note ? ` title="${esc("Why it moved: " + u.note)}"` : "";
-      const cls = `date-pill is-set due-up${last ? "" : " is-old"}`;
+      const tip = u.note ? ` data-duewhy="${esc(u.note)}" tabindex="0"` : "";
+      const cls = `date-pill is-set due-up${last ? "" : " is-old"}${u.note ? " has-why" : ""}`;
       return `<span class="due-arrow" aria-hidden="true">→</span>` + (admin
-        ? `<button type="button" class="${cls}" data-dueup="${i}"${tip || ` title="Edit this updated due date"`}>${esc(isoToDue(u.date))}</button>`
+        ? `<span class="due-chip"><button type="button" class="${cls}" data-dueup="${i}"${tip}>${esc(isoToDue(u.date))}</button>` +
+          `<button type="button" class="due-x" data-duedel="${i}" title="Delete this updated due date" aria-label="Delete updated due date ${esc(isoToDue(u.date))}">×</button></span>`
         : `<span class="${cls}"${tip}>${esc(isoToDue(u.date))}</span>`);
     }).join("");
     const add = admin ? `<button type="button" class="due-add" data-dueup="new" title="The deadline moved? Add the new date">＋ Updated due date</button>` : "";
-    const why = moved && ups[ups.length - 1].note ? `<div class="due-why"><b>Why it moved:</b> ${esc(ups[ups.length - 1].note)}</div>` : "";
     return `<div class="proj-due${moved ? " is-moved" : ""}">
       <div class="proj-due-row"><span class="proj-due-cal">${IC.cal}</span>
         <span class="proj-due-label">${moved ? "Original due date" : "Due date"}</span>${orig}
         ${moved ? `<span class="proj-due-label proj-due-label--up">Updated due date</span>` : ""}${pills}${add}</div>
-      ${why}</div>`;
+      </div>`;
   }
+  function deleteDueUpdate(i) {
+    const eng = window.DASH.getEng();
+    const u = Array.isArray(eng.dueUpdates) && eng.dueUpdates[i]; if (!u) return;
+    if (!confirm(`Delete the updated due date ${isoToDue(u.date)}? The original due date stays.`)) return;
+    eng.dueUpdates.splice(i, 1);
+    if (!eng.dueUpdates.length) delete eng.dueUpdates;
+    window.DASH.saveState(); rerender();
+  }
+  /* "Why it moved" pop-up. Lives on <body> (not inside the tile) so the tile's scroll box never
+     clips it. Hover or keyboard focus shows it; a tap toggles it on touch screens. */
+  let dueTip = null;
+  function showDueTip(el) {
+    hideDueTip();
+    const note = el.getAttribute("data-duewhy"); if (!note) return;
+    dueTip = document.createElement("div");
+    dueTip.className = "due-tip"; dueTip.setAttribute("role", "tooltip");
+    dueTip.innerHTML = `<b>Why it moved</b>${esc(note)}`;
+    document.body.appendChild(dueTip);
+    const r = el.getBoundingClientRect(), tw = dueTip.offsetWidth, th = dueTip.offsetHeight;
+    let left = Math.min(window.innerWidth - tw - 10, Math.max(10, r.left + r.width / 2 - tw / 2));
+    let top = r.top - th - 10, below = false;
+    if (top < 10) { top = r.bottom + 10; below = true; }
+    dueTip.style.left = left + "px"; dueTip.style.top = top + "px";
+    dueTip.style.setProperty("--arrow-x", Math.max(14, Math.min(tw - 14, r.left + r.width / 2 - left)) + "px");
+    dueTip.classList.toggle("is-below", below);
+    dueTip._for = el;
+  }
+  function hideDueTip() { if (dueTip) { dueTip.remove(); dueTip = null; } }
   // admin: add / edit / remove an updated due date (with an optional "why it moved" note)
   function openDueUpdate(which) {
     const eng = window.DASH.getEng();
@@ -1996,12 +2025,37 @@ window.ExecSummary = (function () {
       t.style.top = Math.round(p.y * fy) + "px";
       if (p.h) t.style.height = Math.round(p.h * fy) + "px";
     });
+    growProgressTile(canvas);
     const { maxB } = canvasExtent(canvas), h = maxB + 8;
     canvas.style.height = h + "px";
     canvas.style.width = baseR + "px";                       // design width; scaled it becomes exactly `avail`
     canvas.style.transform = `scale(${sc})`; canvas.style.transformOrigin = "top left";
     canvas.style.marginBottom = (h * (sc - 1)) + "px";       // compensate layout height for the visual scale
     trimScrollbars(canvas);
+  }
+  /* PROJECTS: the Project Progress tile grows DOWNWARD to fit its content (a long condition
+     note, a moved due date + "why it moved"), and the tile(s) directly beneath it in the same
+     column move down and get shorter by the same amount, so the grid's bottom edge never moves.
+     Those tiles never shrink below MIN_BELOW; if there isn't room, Progress grows as far as it
+     can and scrolls for the rest. Layout px (offsetTop/Height) — unaffected by the canvas scale. */
+  function growProgressTile(canvas) {
+    const MIN_BELOW = 160;
+    const t = canvas.querySelector('.exec-tile[data-key="burn"]');
+    const m = t && t.querySelector(":scope > .module");
+    if (!m || window.DASH.getEng().type !== "project") return;
+    const need = m.scrollHeight - m.clientHeight;
+    if (need <= 1) return;
+    const top = t.offsetTop, bottom = top + t.offsetHeight, l = t.offsetLeft, r = l + t.offsetWidth;
+    const below = [...canvas.querySelectorAll(".exec-tile[data-key]")].filter(o => o !== t &&
+      o.offsetTop >= bottom - 2 && o.offsetLeft < r - 2 && o.offsetLeft + o.offsetWidth > l + 2);
+    // the tile right under Progress is the one that gives up height
+    const next = below.sort((a, b) => a.offsetTop - b.offsetTop)[0];
+    const room = next ? Math.max(0, next.offsetHeight - MIN_BELOW) : 0;
+    const grow = Math.min(Math.ceil(need), room);
+    if (!grow) return;
+    t.style.height = (t.offsetHeight + grow) + "px";
+    next.style.top = (next.offsetTop + grow) + "px";
+    next.style.height = (next.offsetHeight - grow) + "px";
   }
   /* A tile only scrolls when its TEXT is actually cut off. A tile can overflow by a few pixels
      of bottom padding alone, which drew a full-height scrollbar on a tile whose words all fit
@@ -2048,6 +2102,12 @@ window.ExecSummary = (function () {
       fitTimer = setTimeout(() => { const sec = section(); if (sec && sec.querySelector(".exec-canvas")) fitCanvas(); }, 80);
     };
     window.addEventListener("resize", requestFit);
+    // "why it moved" pop-ups on updated due dates
+    s.addEventListener("mouseover", e => { const el = e.target.closest("[data-duewhy]"); if (el && (!dueTip || dueTip._for !== el)) showDueTip(el); });
+    s.addEventListener("mouseout", e => { const el = e.target.closest("[data-duewhy]"); if (el && !el.contains(e.relatedTarget)) hideDueTip(); });
+    s.addEventListener("focusin", e => { const el = e.target.closest("[data-duewhy]"); if (el) showDueTip(el); });
+    s.addEventListener("focusout", e => { if (e.target.closest("[data-duewhy]")) hideDueTip(); });
+    document.addEventListener("scroll", hideDueTip, true);
     if (window.ResizeObserver) {
       const target = document.querySelector(".content") || document.body;
       new ResizeObserver(requestFit).observe(target);
@@ -2295,8 +2355,15 @@ window.ExecSummary = (function () {
         return;
       }
 
+      // updated due date × → delete it (admin / AM / PM; the original has no ×)
+      const dx = e.target.closest("[data-duedel]");
+      if (dx && canAdmin()) { hideDueTip(); deleteDueUpdate(+dx.dataset.duedel); return; }
+      // client (read-only) pill with a reason: a tap toggles the pop-up on touch screens
+      const dw = e.target.closest("span[data-duewhy]");
+      if (dw) { if (dueTip && dueTip._for === dw) hideDueTip(); else showDueTip(dw); return; }
       // updated due date pill / "＋ Updated due date" → popup editor (admin)
       const du = e.target.closest("[data-dueup]");
+      if (du) hideDueTip();
       if (du && canAdmin()) { openDueUpdate(du.dataset.dueup); return; }
 
       // condition note → roomy popup editor (admin)
